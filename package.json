@@ -1,0 +1,17 @@
+{
+  "name": "vereinsbelegung",
+  "private": true,
+  "scripts": {
+    "build": "esbuild www/assets/js/app.js --bundle --minify --outdir=www/assets/build"
+  },
+  "dependencies": {
+    "@fullcalendar/core": "^6.1.19",
+    "@fullcalendar/daygrid": "^6.1.19",
+    "@fullcalendar/interaction": "^6.1.19",
+    "@fullcalendar/timegrid": "^6.1.19",
+    "bootstrap": "^5.3.8"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.11"
+  }
+}

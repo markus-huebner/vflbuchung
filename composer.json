@@ -1,0 +1,17 @@
+{
+    "name": "verein/belegungsplan",
+    "description": "Öffentliches Vereins-Buchungssystem für Plätze und Vereinsbus",
+    "type": "project",
+    "require": {
+        "php": "^8.2",
+        "phpmailer/phpmailer": "^6.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

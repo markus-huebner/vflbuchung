@@ -1,0 +1,564 @@
+:root {
+  --club-navy: #17324d;
+  --club-blue: #2d5b84;
+  --booking-training: #27834a;
+  --booking-match: #2865a6;
+  --booking-external: #bf6a18;
+  --booking-bus: #7350a0;
+  --canvas: #f3f6f9;
+}
+
+body {
+  background: var(--canvas);
+  color: #233244;
+}
+
+.navbar-club {
+  background: var(--club-navy);
+}
+
+.navbar-club .navbar-brand,
+.navbar-club .nav-link {
+  color: #fff;
+}
+
+.navbar-club .nav-link:hover,
+.navbar-club .navbar-brand:hover {
+  color: #d8e9f7;
+}
+
+.page-shell {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.calendar-toolbar,
+.calendar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.calendar-toolbar {
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.calendar-toolbar h1 {
+  margin: 0;
+  color: var(--club-navy);
+  font-size: clamp(1.2rem, 2vw, 1.6rem);
+}
+
+.booking-create-menu {
+  position: relative;
+}
+
+.booking-create-menu > summary {
+  display: block;
+  list-style: none;
+  cursor: pointer;
+}
+
+.booking-create-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.booking-create-options {
+  position: absolute;
+  top: calc(100% + .4rem);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 14rem;
+  padding: .35rem;
+  border: 1px solid #d9e1e8;
+  border-radius: .5rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(10 25 40 / 15%);
+}
+
+.booking-create-option {
+  padding: .5rem .65rem;
+  border: 0;
+  border-radius: .3rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.booking-create-option:hover,
+.booking-create-option:focus-visible {
+  background: #edf3f8;
+}
+
+.calendar-frame,
+.panel-card {
+  overflow: hidden;
+  border: 1px solid #dce3ea;
+  border-radius: .75rem;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(20 42 64 / 5%);
+}
+
+.calendar-tabs {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+.pitch-day-scroll,
+.pitch-week-scroll {
+  overflow: auto;
+}
+
+.pitch-day-grid {
+  --axis-width: 58px;
+  display: grid;
+  grid-template-columns: var(--axis-width) repeat(var(--resource-count), minmax(150px, 1fr));
+  min-width: calc(var(--axis-width) + var(--resource-count) * 150px);
+}
+
+.pitch-time-axis,
+.pitch-column {
+  position: relative;
+}
+
+.pitch-time-axis {
+  padding-top: 42px;
+  background: #f8fafc;
+  color: #58697a;
+  font-size: .75rem;
+  text-align: right;
+}
+
+.pitch-hour {
+  height: 64px;
+  padding-right: .45rem;
+  transform: translateY(-.5rem);
+}
+
+.pitch-column-heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 42px;
+  margin: 0;
+  padding: .65rem .4rem;
+  border-bottom: 1px solid #dce3ea;
+  background: #edf3f8;
+  color: var(--club-navy);
+  font-size: .85rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pitch-lane {
+  position: relative;
+  border-left: 1px solid #e4e9ef;
+  background: repeating-linear-gradient(
+    to bottom,
+    #fff 0,
+    #fff 63px,
+    #e8edf2 63px,
+    #e8edf2 64px
+  );
+}
+
+.pitch-hour-line {
+  height: 64px;
+  border-bottom: 1px solid #e8edf2;
+}
+
+.pitch-event {
+  position: absolute;
+  right: 3px;
+  left: 3px;
+  z-index: 1;
+  overflow: hidden;
+  padding: .25rem .35rem;
+  color: #fff;
+  font-size: .72rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.booking-training {
+  --event-color: var(--booking-training);
+  background-color: var(--booking-training) !important;
+  border-color: var(--booking-training) !important;
+}
+
+.booking-match {
+  --event-color: var(--booking-match);
+  background-color: var(--booking-match) !important;
+  border-color: var(--booking-match) !important;
+}
+
+.booking-external {
+  --event-color: var(--booking-external);
+  background-color: var(--booking-external) !important;
+  border-color: var(--booking-external) !important;
+}
+
+.booking-bus {
+  --event-color: var(--booking-bus);
+  background-color: var(--booking-bus) !important;
+  border-color: var(--booking-bus) !important;
+}
+
+.booking-card {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--event-color, var(--club-blue));
+  border-radius: .35rem;
+  background: var(--event-color, var(--club-blue));
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.booking-card strong,
+.booking-card span {
+  display: block;
+}
+
+.booking-time,
+.booking-cabin {
+  font-size: .7rem;
+  opacity: .92;
+}
+
+.booking-category {
+  font-size: .65rem;
+  font-weight: 700;
+}
+
+.booking-card-compact {
+  margin: 0 0 .3rem;
+  padding: .3rem;
+  font-size: .72rem;
+}
+
+.pitch-week-table {
+  min-width: 1100px;
+  margin: 0;
+  font-size: .75rem;
+}
+
+.pitch-week-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #edf3f8;
+  color: var(--club-navy);
+}
+
+.pitch-week-table tbody th {
+  min-width: 115px;
+  background: #f8fafc;
+  white-space: nowrap;
+}
+
+.pitch-week-table td {
+  min-width: 145px;
+  height: 90px;
+  vertical-align: top;
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  padding: .75rem 1rem;
+  color: #4f6070;
+  font-size: .8rem;
+}
+
+.legend-item::before {
+  display: inline-block;
+  width: .8rem;
+  height: .8rem;
+  margin-right: .35rem;
+  border-radius: 2px;
+  background: var(--legend-color);
+  content: "";
+  vertical-align: -1px;
+}
+
+dialog {
+  width: min(760px, calc(100vw - 1.5rem));
+  max-height: 92vh;
+  padding: 0;
+  overflow: auto;
+  border: 0;
+  border-radius: .75rem;
+  box-shadow: 0 16px 60px rgb(10 25 40 / 35%);
+}
+
+dialog::backdrop {
+  background: rgb(10 25 40 / 58%);
+}
+
+.dialog-header,
+.dialog-footer {
+  position: sticky;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .9rem 1.1rem;
+  background: #fff;
+}
+
+.dialog-header {
+  top: 0;
+  border-bottom: 1px solid #e3e8ee;
+}
+
+.dialog-footer {
+  bottom: 0;
+  border-top: 1px solid #e3e8ee;
+}
+
+.dialog-body {
+  padding: 1rem 1.1rem;
+}
+
+.resource-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  margin: .15rem .4rem .15rem 0;
+  padding: .35rem .5rem;
+  border: 1px solid #d9e1e8;
+  border-radius: .4rem;
+  background: #f8fafc;
+}
+
+.resource-choice-group {
+  min-width: 0;
+  border: 1px solid #d9e1e8;
+  border-radius: .5rem;
+  background: #fff;
+}
+
+.resource-choice-group legend {
+  float: none;
+  width: auto;
+  margin: 0;
+  padding: 0 .25rem;
+  color: var(--club-navy);
+  font-size: .95rem;
+  font-weight: 600;
+}
+
+.resource-choice-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: .5rem;
+  padding: .75rem;
+}
+
+.resource-choice-group > legend,
+.resource-choice-group > p {
+  grid-column: 1 / -1;
+}
+
+.resource-card {
+  min-width: 0;
+  padding: .4rem;
+  border: 1px solid #e2e8ee;
+  border-radius: .45rem;
+  background: #f8fafc;
+}
+
+.resource-card-pitch {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.resource-card .resource-choice {
+  display: flex;
+  margin: 0;
+  padding: .35rem;
+  border: 0;
+  background: transparent;
+}
+
+.resource-choice-chip {
+  width: 100%;
+  padding: .45rem .65rem;
+  border: 1px solid #d9e1e8;
+  border-radius: .4rem;
+  background: #f8fafc;
+  color: var(--club-navy);
+  text-align: left;
+}
+
+.resource-choice-chip[data-resource-kind="pitch"] {
+  border-color: transparent;
+}
+
+.resource-choice-chip:hover {
+  border-color: var(--club-navy);
+  background: #edf3f8;
+}
+
+.resource-choice-chip[data-resource-kind="pitch"]:hover {
+  border-color: transparent;
+}
+
+.resource-choice-chip[aria-pressed="true"] {
+  border-color: var(--club-navy);
+  background: var(--club-navy);
+  color: #fff;
+}
+
+.resource-choice-chip[data-resource-kind="pitch"][aria-pressed="true"] {
+  border-color: transparent;
+}
+
+.resource-choice-chip:focus-visible {
+  outline: 3px solid rgba(35, 83, 122, .35);
+  outline-offset: 2px;
+}
+
+.edit-cabin-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  padding: .35rem .5rem;
+  border-left: 3px solid #d9e1e8;
+}
+
+.edit-cabin-choices .resource-chip-item {
+  flex: 0 0 auto;
+}
+
+.edit-cabin-choices .resource-choice-chip {
+  width: auto;
+}
+
+.request-status {
+  display: inline-block;
+  padding: .15rem .5rem;
+  border-radius: 99px;
+  background: #edf3f8;
+  color: var(--club-navy);
+  font-size: .75rem;
+}
+
+.request-row {
+  border-bottom: 1px solid #e7ecf1;
+  padding: .8rem 0;
+}
+
+.table-responsive {
+  border-radius: .5rem;
+}
+
+.user-password-form {
+  min-width: 240px;
+}
+
+.user-actions-menu {
+  position: relative;
+}
+
+.user-actions-menu > summary {
+  list-style: none;
+}
+
+.user-actions-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.user-actions-menu > summary::after {
+  display: inline-block;
+  margin-left: .5rem;
+  border-top: .3em solid;
+  border-right: .3em solid transparent;
+  border-left: .3em solid transparent;
+  content: "";
+  vertical-align: .15em;
+}
+
+.user-actions-menu-items {
+  position: absolute;
+  top: calc(100% + .25rem);
+  right: 0;
+  z-index: 5;
+  min-width: 13rem;
+  padding: .35rem 0;
+  border: 1px solid #dce3ea;
+  border-radius: .5rem;
+  background: #fff;
+  box-shadow: 0 6px 18px rgb(20 42 64 / 14%);
+}
+
+.user-actions-menu-items a {
+  display: block;
+  padding: .5rem .75rem;
+  color: #233244;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.user-actions-menu-items a:hover,
+.user-actions-menu-items a:focus-visible {
+  background: #edf3f8;
+}
+
+.resource-drag-handle {
+  margin-right: .35rem;
+  padding: .05rem .4rem;
+  border: 1px solid #d9e1e8;
+  border-radius: .3rem;
+  background: #f8fafc;
+  color: var(--club-navy);
+  cursor: grab;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.resource-drag-handle:active {
+  cursor: grabbing;
+}
+
+.resource-row-dragging {
+  opacity: .45;
+}
+
+[data-resource-order-group][aria-busy="true"] {
+  opacity: .7;
+}
+
+@media (max-width: 700px) {
+  .page-shell {
+    padding: .7rem;
+  }
+
+  .calendar-toolbar {
+    align-items: flex-start;
+  }
+
+  .calendar-actions {
+    width: 100%;
+  }
+
+  .calendar-actions .btn {
+    flex: 1;
+  }
+
+  .calendar-actions > .booking-create-menu {
+    flex: 1;
+  }
+
+  .booking-create-menu > summary {
+    text-align: center;
+  }
+}

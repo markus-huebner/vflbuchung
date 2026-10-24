@@ -1,0 +1,75 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: php_apache_web
+    restart: always
+    ports:
+      - "9000:80"
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_URL: ${APP_URL:-http://localhost:9000}
+      APP_SETUP_TOKEN: ${APP_SETUP_TOKEN:?Set APP_SETUP_TOKEN in .env}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-belegungsplan}
+      DB_USER: ${DB_USER:-webuser}
+      DB_PASSWORD: ${DB_PASSWORD:-userpasswort}
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_FROM: ${MAIL_FROM:-buchungssystem@example.test}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Vereinsbelegung}
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      MAIL_ENCRYPTION: ""
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpasswort}
+      MYSQL_DATABASE: ${DB_NAME:-belegungsplan}
+      MYSQL_USER: ${DB_USER:-webuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-userpasswort}
+    ports:
+      - "9002:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/install.sql:/docker-entrypoint-initdb.d/001_install.sql:ro
+      - ./database/seed_resources.sql:/docker-entrypoint-initdb.d/002_seed_resources.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin_web
+    restart: always
+    ports:
+      - "9001:80"  # phpMyAdmin ist nun unter http://localhost:9001 erreichbar
+    environment:
+      PMA_HOST: db
+      PMA_USER: root
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpasswort}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit_web
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+
+volumes:
+  db_data:
