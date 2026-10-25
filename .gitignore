@@ -3,3 +3,5 @@
 !.env.example
 /vendor/
 /node_modules/
+/.infinityfree-deploy/
+/config/hosting.php

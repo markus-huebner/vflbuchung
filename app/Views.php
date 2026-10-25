@@ -14,7 +14,10 @@ final class Views
         ?array $flash = null,
         array $clientData = []
     ): string {
-        $assetRoot = dirname(__DIR__) . '/www/assets/build';
+        $projectRoot = dirname(__DIR__);
+        $assetRoot = is_dir($projectRoot . '/www/assets/build')
+            ? $projectRoot . '/www/assets/build'
+            : $projectRoot . '/assets/build';
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
         $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {

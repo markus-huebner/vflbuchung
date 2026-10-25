@@ -68,9 +68,11 @@ Das Dropdown in der Headerzeile wechselt zwischen Platzbelegung und Fahrzeugkale
 
 ## Hosting-Konfiguration
 
+### Übliche Webserver
+
 Der Webserver muss auf `www/` als DocumentRoot zeigen. `app/`, `database/`, `.env` und `vendor/` gehören außerhalb des öffentlich erreichbaren DocumentRoot. Benötigt werden PHP 8.2 oder neuer mit `mbstring` und `pdo_mysql`, MySQL 8 sowie ausgehender SMTP-Zugriff.
 
-Setze die folgenden Variablen in der geschützten Konfigurationsoberfläche deines Hosters. Die Anwendung liest Umgebungsvariablen; sie lädt absichtlich keine öffentlich erreichbare `.env`-Datei:
+Setze die folgenden Werte in der geschützten Konfigurationsoberfläche deines Hosters. Die Anwendung liest Umgebungsvariablen oder alternativ eine geschützte PHP-Konfiguration unter `config/hosting.php`; eine öffentlich erreichbare `.env`-Datei wird nicht geladen:
 
 | Variable | Beschreibung |
 | --- | --- |
@@ -93,6 +95,18 @@ npm run build
 ```
 
 Lade anschließend mindestens `app/`, `vendor/`, `www/` einschließlich `www/assets/build/`, `database/install.sql` und `database/seed_resources.sql` hoch. `vendor/` lässt sich mit `composer install --no-dev --optimize-autoloader` erstellen.
+
+### InfinityFree (kostenloses Hosting)
+
+Bei InfinityFree ist `htdocs/` das festgelegte Webverzeichnis; Dateien außerhalb davon sind für PHP nicht zuverlässig erreichbar. Der einmalige Assistent `scripts/deploy-infinityfree.sh` erstellt deshalb lokal ein Paket, das öffentliche Dateien sowie `app/`, `database/`, `vendor/` und eine geschützte Konfiguration innerhalb von `htdocs/` ablegt. Die privaten Verzeichnisse werden durch `.htaccess`-Dateien gesperrt. Starte den Assistenten bevorzugt in Git Bash aus dem Projektverzeichnis. In WSL müssen Node/npm, Composer und die Frontend-Abhängigkeiten ebenfalls in der WSL-Umgebung verfügbar sein:
+
+```bash
+bash scripts/deploy-infinityfree.sh
+```
+
+Er führt durch Datenbankeinrichtung, Upload und phpMyAdmin-Import. Zugangsdaten werden lokal erfasst; FTP-Zugangsdaten gehören ausschließlich in FileZilla. Teile sie nicht im Chat und lade die lokale Datei `.infinityfree-deploy/.deploy-state` niemals hoch.
+
+Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose Hosting-Datenbank lässt keine Verbindungen von deinem lokalen Rechner zu; importiere `database/install.sql` und danach `database/seed_resources.sql` über phpMyAdmin. E-Mails benötigen einen externen SMTP-Anbieter; ohne SMTP-Konfiguration funktionieren Einladungen und Passwort-Reset nicht.
 
 ## Datenbankinstallation
 

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace App;
 
+use RuntimeException;
+
 final class Config
 {
     private array $values;
@@ -32,10 +34,24 @@ final class Config
             'MAIL_FROM_NAME' => 'Platz- und Busbelegung',
         ];
 
+        $hostConfigPath = dirname(__DIR__) . '/config/hosting.php';
+        $hostValues = [];
+        if (is_file($hostConfigPath)) {
+            $hostValues = require $hostConfigPath;
+            if (!is_array($hostValues)) {
+                throw new RuntimeException('Die Hosting-Konfiguration ist ungültig.');
+            }
+            foreach ($hostValues as $key => $value) {
+                if (!array_key_exists($key, $defaults) || !is_string($value)) {
+                    throw new RuntimeException('Die Hosting-Konfiguration enthält ungültige Werte.');
+                }
+            }
+        }
+
         $values = [];
         foreach ($defaults as $key => $default) {
             $value = getenv($key);
-            $values[$key] = $value === false ? $default : $value;
+            $values[$key] = $value === false ? ($hostValues[$key] ?? $default) : $value;
         }
 
         return new self($values);
