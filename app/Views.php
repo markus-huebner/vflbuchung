@@ -137,6 +137,7 @@ final class Views
   <div><h1>Belegungsplan</h1><p class="text-secondary mb-0">Plätze mit ihren Kabinen und Fahrzeuge auf einen Blick.</p></div>
   <div class="calendar-actions">
     ' . $createButton . '
+    <a class="btn btn-outline-secondary" href="/?page=mobile-calendar">Handy-Ansicht</a>
     <label class="visually-hidden" for="calendar-resource-select">Kalender auswählen</label>
     <select id="calendar-resource-select" class="form-select calendar-resource-select">
       <option value="pitch">Platzbelegung</option>
@@ -185,6 +186,37 @@ final class Views
 ' . $dashboardResizer . $dashboard . '
 </div>
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
+    }
+
+    public static function mobileCalendar(): string
+    {
+        return '<section class="mobile-agenda-page" data-mobile-calendar>
+  <header class="mobile-agenda-header">
+    <h1>Belegungsplan – Handy-Ansicht</h1>
+    <p class="text-secondary">Tagesübersicht der Platz- und Fahrzeugbelegungen.</p>
+    <a class="btn btn-outline-secondary" href="/">Zur vollständigen Kalenderansicht</a>
+  </header>
+  <section class="mobile-agenda-controls panel-card p-3" aria-label="Kalender einstellen">
+    <div>
+      <label class="form-label" for="mobile-calendar-resource-select">Belegungsart</label>
+      <select id="mobile-calendar-resource-select" class="form-select">
+        <option value="pitch">Platzbelegung</option>
+        <option value="bus">Fahrzeugkalender</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label" for="mobile-calendar-date">Datum</label>
+      <div class="mobile-agenda-date-navigation">
+        <button id="mobile-calendar-prev" class="btn btn-outline-secondary" type="button" aria-label="Vorheriger Tag">‹</button>
+        <input id="mobile-calendar-date" class="form-control" type="date">
+        <button id="mobile-calendar-next" class="btn btn-outline-secondary" type="button" aria-label="Nächster Tag">›</button>
+      </div>
+      <button id="mobile-calendar-today" class="btn btn-outline-secondary mt-2 w-100" type="button">Heute</button>
+    </div>
+  </section>
+  <div id="mobile-calendar-message" class="alert alert-danger" role="alert" hidden></div>
+  <div id="mobile-calendar-list" class="mobile-agenda-list" aria-live="polite"></div>
+</section>';
     }
 
     private static function bookingCreateMenu(string $label): string

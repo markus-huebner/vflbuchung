@@ -273,9 +273,27 @@ check(
     'Confirm rejection from the request dashboard.'
 );
 
+$publicCalendar = Views::calendar(null, 'test-csrf', []);
 check(
-    !str_contains(Views::calendar(null, 'test-csrf', []), 'id="booking-form"'),
-    'Anonymous visitors must not be offered a booking form.'
+    !str_contains($publicCalendar, 'id="booking-form"')
+        && str_contains($publicCalendar, 'href="/?page=mobile-calendar">Handy-Ansicht</a>'),
+    'Anonymous visitors must not be offered a booking form and must be able to open the mobile calendar.'
+);
+
+$mobileCalendarDocument = new DOMDocument();
+$mobileCalendarDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . Views::mobileCalendar(),
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$mobileCalendarXPath = new DOMXPath($mobileCalendarDocument);
+check(
+    $mobileCalendarXPath->query('//*[@data-mobile-calendar]')->length === 1
+        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-resource-select"]/option[@value="pitch"]')->length === 1
+        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-resource-select"]/option[@value="bus"]')->length === 1
+        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-date"][@type="date"]')->length === 1
+        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-list"][@aria-live="polite"]')->length === 1
+        && $mobileCalendarXPath->query('//a[@href="/" and normalize-space(.)="Zur vollständigen Kalenderansicht"]')->length === 1,
+    'The mobile calendar must provide read-only daily navigation and a link back to the full calendar.'
 );
 
 foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin']] as $user) {

@@ -52,6 +52,7 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 ### Kalender auswählen und navigieren
 
 - Über das Kalender-Auswahlfeld wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**.
+- Über **Handy-Ansicht** öffnest du den Belegungsplan als kompakte Tagesliste. Dort kannst du Belegungsart und Datum wählen und tageweise vor- und zurückblättern.
 - Mit den Pfeilen wechselst du zum vorherigen oder nächsten Zeitraum. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
 - Der Schalter **Restlichen Tag einblenden** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 08:00 bis 19:00 Uhr.

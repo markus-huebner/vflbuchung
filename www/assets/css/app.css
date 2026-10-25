@@ -228,6 +228,90 @@ body {
   color: var(--club-navy);
 }
 
+.mobile-agenda-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.mobile-agenda-header {
+  margin-bottom: 1rem;
+}
+
+.mobile-agenda-header h1 {
+  color: var(--club-navy);
+  font-size: clamp(1.35rem, 5vw, 1.8rem);
+}
+
+.mobile-agenda-controls {
+  display: grid;
+  gap: .75rem;
+  margin-bottom: 1rem;
+}
+
+.mobile-agenda-controls .form-label {
+  margin-bottom: .35rem;
+}
+
+.mobile-agenda-date-navigation {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) 3rem;
+  gap: .5rem;
+}
+
+.mobile-agenda-date-navigation > * {
+  min-height: 2.75rem;
+}
+
+.mobile-agenda-resource {
+  margin-bottom: 1rem;
+  padding: .9rem;
+  border: 1px solid #dce3ea;
+  border-radius: .75rem;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(20 42 64 / 5%);
+}
+
+.mobile-agenda-resource h2 {
+  margin-bottom: .65rem;
+  color: var(--club-navy);
+  overflow-wrap: anywhere;
+}
+
+.mobile-agenda-empty {
+  margin-bottom: 0;
+}
+
+.mobile-agenda-event {
+  margin-bottom: .5rem;
+  padding: .65rem .75rem;
+  cursor: default;
+  text-align: left;
+  white-space: normal;
+}
+
+.mobile-agenda-event:last-child {
+  margin-bottom: 0;
+}
+
+.mobile-agenda-event .mobile-agenda-resource-name {
+  margin-bottom: .15rem;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.mobile-agenda-event .booking-category {
+  font-size: .75rem;
+}
+
+.mobile-agenda-event .booking-title {
+  margin-bottom: .2rem;
+}
+
+.mobile-agenda-event .booking-time,
+.mobile-agenda-event .booking-cabin {
+  font-size: .85rem;
+}
+
 .resource-day-scroll,
 .resource-week-scroll {
   overflow: auto;

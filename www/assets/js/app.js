@@ -91,23 +91,31 @@ function rangeForView() {
 
 async function loadCalendar() {
   const { start, end } = rangeForView();
+  state.events = await fetchEvents(start, end, state.resourceType);
+  renderCalendar();
+}
+
+async function fetchEvents(start, end, resourceType) {
   const params = new URLSearchParams({
     api: 'events',
-    type: state.resourceType,
+    type: resourceType,
     start: start.toISOString(),
     end: end.toISOString(),
   });
   const response = await fetch(`/?${params.toString()}`, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error('Kalenderdaten konnten nicht geladen werden.');
-  state.events = await response.json();
-  renderCalendar();
+  return response.json();
 }
 
-async function loadResources() {
+async function fetchResources() {
   const response = await fetch('/?api=resources', { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error('Ressourcen konnten nicht geladen werden.');
   const data = await response.json();
-  state.resources = data.resources;
+  return data.resources;
+}
+
+async function loadResources() {
+  state.resources = await fetchResources();
   renderResourceChoices();
 }
 
@@ -258,6 +266,123 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
     wrapper.querySelector('.booking-time').textContent,
     cabinLabel.textContent,
   ].filter(Boolean).join(' · ');
+}
+
+function renderMobileAgenda() {
+  const list = document.querySelector('#mobile-calendar-list');
+  const dateLabel = document.querySelector('#mobile-calendar-date');
+  if (!list || !dateLabel) return;
+
+  list.replaceChildren();
+  const resources = state.resources.filter((resource) => resource.type === state.resourceType);
+  if (resources.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'alert alert-info';
+    empty.textContent = 'Für diese Belegungsart sind keine Ressourcen vorhanden.';
+    list.append(empty);
+    return;
+  }
+
+  for (const resource of resources) {
+    const section = document.createElement('section');
+    section.className = 'mobile-agenda-resource';
+    const heading = document.createElement('h2');
+    heading.className = 'h5';
+    heading.textContent = resource.name;
+    section.append(heading);
+
+    const events = state.events
+      .filter((event) => Number(event.resource_id) === Number(resource.id))
+      .sort((left, right) => new Date(left.start) - new Date(right.start));
+    if (events.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'mobile-agenda-empty text-secondary';
+      empty.textContent = 'Keine Belegungen.';
+      section.append(empty);
+    } else {
+      for (const event of events) {
+        const card = document.createElement('article');
+        card.className = `booking-card mobile-agenda-event booking-${event.event_type || 'training'}`;
+        if (event.status === 'pending') card.classList.add('booking-pending');
+        fillBookingCard(card, event);
+        const resourceName = document.createElement('span');
+        resourceName.className = 'mobile-agenda-resource-name';
+        resourceName.textContent = resource.name;
+        card.prepend(resourceName);
+        section.append(card);
+      }
+    }
+    list.append(section);
+  }
+}
+
+function initMobileCalendar() {
+  const root = document.querySelector('[data-mobile-calendar]');
+  if (!root) return;
+
+  const resourceSelect = root.querySelector('#mobile-calendar-resource-select');
+  const dateInput = root.querySelector('#mobile-calendar-date');
+  const list = root.querySelector('#mobile-calendar-list');
+  const message = root.querySelector('#mobile-calendar-message');
+  const todayButton = root.querySelector('#mobile-calendar-today');
+  if (!resourceSelect || !dateInput || !list || !message || !todayButton) return;
+  let resourcesLoaded = false;
+
+  if (savedResourceType === 'pitch' || savedResourceType === 'bus') {
+    resourceSelect.value = savedResourceType;
+  }
+  dateInput.value = localDate(state.date);
+
+  const refresh = async () => {
+    if (!dateInput.value) {
+      message.textContent = 'Bitte wähle ein Datum aus.';
+      message.hidden = false;
+      return;
+    }
+    state.date = new Date(`${dateInput.value}T12:00:00`);
+    const start = new Date(state.date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    message.hidden = true;
+    list.setAttribute('aria-busy', 'true');
+    list.textContent = 'Belegungen werden geladen …';
+    try {
+      if (!resourcesLoaded) {
+        state.resources = await fetchResources();
+        resourcesLoaded = true;
+      }
+      state.resourceType = resourceSelect.value;
+      state.events = await fetchEvents(start, end, state.resourceType);
+      renderMobileAgenda();
+    } catch (error) {
+      message.textContent = error.message;
+      message.hidden = false;
+      list.replaceChildren();
+    } finally {
+      list.removeAttribute('aria-busy');
+    }
+  };
+
+  const shiftDate = (days) => {
+    const date = dateInput.value ? new Date(`${dateInput.value}T12:00:00`) : new Date();
+    date.setDate(date.getDate() + days);
+    dateInput.value = localDate(date);
+    void refresh();
+  };
+  root.querySelector('#mobile-calendar-prev')?.addEventListener('click', () => shiftDate(-1));
+  root.querySelector('#mobile-calendar-next')?.addEventListener('click', () => shiftDate(1));
+  dateInput.addEventListener('change', () => void refresh());
+  resourceSelect.addEventListener('change', () => {
+    sessionStorage.setItem(calendarResourceTypeStorageKey, resourceSelect.value);
+    void refresh();
+  });
+  todayButton.addEventListener('click', () => {
+    dateInput.value = localDate(new Date());
+    void refresh();
+  });
+  void refresh();
 }
 
 function renderResourceDay() {
@@ -1283,19 +1408,23 @@ function initControls() {
   });
 }
 
-initControls();
-loadResources()
-  .then(async () => {
-    const newRequestOccurrenceId = sessionStorage.getItem('newRequestOccurrenceId');
-    if (newRequestOccurrenceId) {
-      sessionStorage.removeItem('newRequestOccurrenceId');
-      const button = [...document.querySelectorAll('#request-dashboard [data-dashboard-jump]')]
-        .find((entry) => entry.dataset.occurrenceId === newRequestOccurrenceId);
-      if (button) {
-        await showRequestInCalendar(button);
-        return;
+if (document.querySelector('[data-mobile-calendar]')) {
+  initMobileCalendar();
+} else {
+  initControls();
+  loadResources()
+    .then(async () => {
+      const newRequestOccurrenceId = sessionStorage.getItem('newRequestOccurrenceId');
+      if (newRequestOccurrenceId) {
+        sessionStorage.removeItem('newRequestOccurrenceId');
+        const button = [...document.querySelectorAll('#request-dashboard [data-dashboard-jump]')]
+          .find((entry) => entry.dataset.occurrenceId === newRequestOccurrenceId);
+        if (button) {
+          await showRequestInCalendar(button);
+          return;
+        }
       }
-    }
-    await loadCalendar();
-  })
-  .catch((error) => announce(error.message, 'danger'));
+      await loadCalendar();
+    })
+    .catch((error) => announce(error.message, 'danger'));
+}
