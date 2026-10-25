@@ -56,10 +56,27 @@ function createBooking(string $date, array $changes = [], ?array $actor = null):
         'title' => 'Original title', 'private_notes' => 'Original note',
         'starts_at' => $date . 'T10:00', 'ends_at' => $date . 'T11:30', 'frequency' => 'none',
     ], $changes);
-    $result = $service->create($data, $actor ?? $admin);
+    $bookingActor = $actor ?? $admin;
+    $result = $service->create($data, $bookingActor);
     $query = $pdo->prepare('SELECT id FROM booking_occurrences WHERE group_id = :id ORDER BY occurrence_no');
     $query->execute(['id' => $result['group_id']]);
-    return array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN));
+    $occurrenceIds = array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN));
+    check(
+        $occurrenceIds !== [] && $result['occurrence_id'] === $occurrenceIds[0],
+        'Return the first created occurrence ID for post-create calendar selection.'
+    );
+    $requestCutoff = (new DateTimeImmutable('now'))->modify('-3 months')->format('Y-m-d');
+    if ($bookingActor['role'] === 'trainer' && $date >= $requestCutoff) {
+        $requestPage = $service->requestPageForOccurrence($result['occurrence_id'], $bookingActor);
+        check($requestPage !== null, 'Find the page containing a newly created visible request.');
+        $requestListing = $service->requests($bookingActor, false, $requestPage);
+        $listedOccurrenceIds = array_map('intval', array_column($requestListing['items'], 'occurrence_id'));
+        check(
+            in_array($result['occurrence_id'], $listedOccurrenceIds, true),
+            'The calculated request page must include the new occurrence.'
+        );
+    }
+    return $occurrenceIds;
 }
 
 function editData(int $id, array $changes = [], string $scope = 'one'): array
@@ -95,7 +112,7 @@ $pendingRequestEvents = array_values(array_filter(
 ));
 check(count($pendingRequestEvents) === 2, 'Create a multi-place pending request for the shared edit flow.');
 $groupedTrainerRequests = array_values(array_filter(
-    $service->requests($actors['trainer']),
+    $service->requests($actors['trainer'])['items'],
     static fn(array $request): bool => (int) $request['occurrence_id'] === $pendingRequestId
 ));
 check(
@@ -104,6 +121,31 @@ check(
         && count(explode(',', $groupedTrainerRequests[0]['resource_ids'])) === 2,
     'A multi-place request must be shown once with all pending assignment IDs.'
 );
+$today = new DateTimeImmutable('now', new DateTimeZone('Europe/Berlin'));
+$oldRequestId = createBooking($today->modify('-4 months')->format('Y-m-d'), [], $actors['trainer'])[0];
+$recentRequestId = createBooking($today->modify('-2 months')->format('Y-m-d'), [], $actors['trainer'])[0];
+$pendingAssignment = $pdo->prepare(
+    "SELECT id FROM booking_resource_assignments WHERE occurrence_id = :occurrence_id AND status = 'pending'"
+);
+$pendingAssignment->execute(['occurrence_id' => $oldRequestId]);
+$service->reject([(int) $pendingAssignment->fetchColumn()], $manager);
+foreach ([false, true] as $includeClosed) {
+    $listing = $service->requests($actors['trainer'], $includeClosed);
+    $visibleIds = array_map('intval', array_column($listing['items'], 'occurrence_id'));
+    check(
+        in_array($recentRequestId, $visibleIds, true)
+            && !in_array($oldRequestId, $visibleIds, true)
+            && $listing['total'] === count($listing['items']),
+        'Open/all request cutoff mismatch: ' . json_encode([
+            'include_closed' => $includeClosed,
+            'recent_id' => $recentRequestId,
+            'old_id' => $oldRequestId,
+            'visible_ids' => $visibleIds,
+            'total' => $listing['total'],
+            'page_count' => $listing['page_count'],
+        ], JSON_THROW_ON_ERROR)
+    );
+}
 $service->editPendingRequest($pendingRequestId, $requestEditData($pendingRequestId, $actors['trainer'], [
     'event_type' => 'match',
     'resource_ids' => [$resources['pitch'][1], $resources['pitch'][2]],
@@ -160,17 +202,80 @@ check(
     'Editing a request must preserve the create form recurrence fields and update the pending series.'
 );
 
+$approvalSeriesIds = createBooking('2031-03-05', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 3,
+], $actors['trainer']);
+$service->editPendingRequest(
+    $approvalSeriesIds[1],
+    $requestEditData($approvalSeriesIds[1], $manager, [], 'future'),
+    $manager,
+    true
+);
+$approvalSeriesGroup = $pdo->prepare('SELECT group_id FROM booking_occurrences WHERE id = ?');
+$approvalSeriesGroup->execute([$approvalSeriesIds[1]]);
+$approvedFutureGroupId = (int) $approvalSeriesGroup->fetchColumn();
+$approvedFutureRows = array_values(array_filter(
+    $service->requests($manager, true, 1, 50)['items'],
+    static fn(array $request): bool => (int) $request['group_id'] === $approvedFutureGroupId
+));
+check(
+    $approvedFutureRows !== []
+        && array_reduce(
+            $approvedFutureRows,
+            static fn(bool $retained, array $request): bool => $retained
+                && $request['requester_name'] === 'trainer',
+            true
+        ),
+    'Approving future occurrences in a series must preserve the requester in the manager list.'
+);
+
 $approvalRequestId = createBooking('2031-03-03', [
     'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
 ], $actors['trainer'])[0];
+$approvalRequester = $pdo->prepare(
+    'SELECT g.requested_by FROM booking_occurrences o JOIN booking_groups g ON g.id = o.group_id WHERE o.id = ?'
+);
+$approvalRequester->execute([$approvalRequestId]);
+$originalRequesterId = (int) $approvalRequester->fetchColumn();
 $staffRequests = array_values(array_filter(
-    $service->requests($manager),
+    $service->requests($manager)['items'],
     static fn(array $request): bool => (int) $request['occurrence_id'] === $approvalRequestId
 ));
 check(
     count($staffRequests) === 1
         && count(explode(',', $staffRequests[0]['pending_assignment_ids'])) === 2,
     'Staff must see one grouped request with every pending place assignment.'
+);
+$pdo->prepare(
+    "INSERT INTO users (username, display_name, role, status) VALUES ('request-list', 'Request list', 'trainer', 'active')"
+)->execute();
+$paginationActor = ['id' => (int) $pdo->lastInsertId(), 'role' => 'trainer'];
+$paginationRequests = [];
+for ($day = 1; $day <= 21; $day++) {
+    $paginationRequests[] = createBooking(sprintf('2032-06-%02d', $day), [], $paginationActor)[0];
+}
+$paginationEvent = $service->events('2032-06-01', '2032-06-02', 'pitch', false)[0];
+$service->reject([$paginationEvent['assignment_id']], $manager);
+$openListing = $service->requests($paginationActor, false, 1, 10);
+$allListingPageOne = $service->requests($paginationActor, true, 1, 10);
+$allListingPageTwo = $service->requests($paginationActor, true, 2, 10);
+$allListingPageThree = $service->requests($paginationActor, true, 3, 10);
+check(
+    $openListing['total'] === 20 && count($openListing['items']) === 10 && $openListing['page_count'] === 2,
+    'The default request list must include only open requests.'
+);
+check(
+    $allListingPageOne['total'] === 21
+        && count($allListingPageOne['items']) === 10
+        && $allListingPageOne['page_count'] === 3
+        && count($allListingPageTwo['items']) === 10
+        && count($allListingPageThree['items']) === 1
+        && in_array(
+            $paginationRequests[0],
+            array_map('intval', array_column($allListingPageThree['items'], 'occurrence_id')),
+            true
+        ),
+    'The all-requests view must include closed requests and paginate ten entries at a time.'
 );
 fails(fn() => $service->editPendingRequest(
     $approvalRequestId,
@@ -197,6 +302,38 @@ $approvedAssignments->execute(['id' => $approvalRequestId]);
 check(
     $approvalResult['approved'] === 2 && (int) $approvedAssignments->fetchColumn() === 2,
     'Approving from the editor must approve every pending place assignment atomically with edits.'
+);
+$approvalRequester->execute([$approvalRequestId]);
+check(
+    (int) $approvalRequester->fetchColumn() === $originalRequesterId
+        && $originalRequesterId === (int) $actors['trainer']['id'],
+    'Approving a request must preserve the original requester.'
+);
+$approvedRequestRow = array_values(array_filter(
+    $service->requests($manager, true, 1, 50)['items'],
+    static fn(array $request): bool => (int) $request['occurrence_id'] === $approvalRequestId
+));
+check(
+    count($approvedRequestRow) === 1 && $approvedRequestRow[0]['requester_name'] === 'trainer',
+    'The manager request list must continue to show the original requester after approval.'
+);
+$directBookingIds = [
+    createBooking('2031-03-04', ['title' => 'Manager direct booking'], $manager)[0],
+    createBooking('2031-03-04', ['title' => 'Admin direct booking'], $admin)[0],
+];
+$directBookingPlaceholders = implode(',', array_fill(0, count($directBookingIds), '?'));
+$directBookingGroups = $pdo->prepare(
+    "SELECT group_id FROM booking_occurrences WHERE id IN ({$directBookingPlaceholders})"
+);
+$directBookingGroups->execute($directBookingIds);
+$directBookingGroupIds = array_map('intval', $directBookingGroups->fetchAll(PDO::FETCH_COLUMN));
+$listedDirectBookings = array_values(array_filter(
+    $service->requests($manager, true, 1, 50)['items'],
+    static fn(array $request): bool => in_array((int) $request['group_id'], $directBookingGroupIds, true)
+));
+check(
+    $listedDirectBookings === [],
+    'Direct manager and admin bookings must not appear in the request list.'
 );
 
 fails(fn() => $service->create([
@@ -302,6 +439,62 @@ $query = $pdo->prepare('SELECT title, status FROM booking_occurrences WHERE id =
 $query->execute(['id' => $history[2]]);
 check($query->fetch() === ['title' => 'Original title', 'status' => 'rejected'], 'Series edits must not resurrect or overwrite rejected history.');
 
+foreach (['rejected', 'deleted', 'skipped'] as $status) {
+    $pending = createBooking('2033-03-01', [], $actors['trainer'])[0];
+    $event = $service->events('2033-03-01', '2033-03-02', 'pitch', false)[0];
+    if ($status === 'rejected') {
+        $service->reject([$event['assignment_id']], $manager);
+    } elseif ($status === 'deleted') {
+        $assignmentId = (int) $event['assignment_id'];
+        $group = $pdo->prepare('SELECT group_id FROM booking_occurrences WHERE id = :id');
+        $group->execute(['id' => $pending]);
+        $groupId = (int) $group->fetchColumn();
+        $pdo->prepare(
+            'INSERT INTO booking_overrides (actor_id, new_assignment_id, conflicting_assignment_id)
+             VALUES (:actor_id, :new_assignment_id, :conflicting_assignment_id)'
+        )->execute([
+            'actor_id' => $manager['id'],
+            'new_assignment_id' => $assignmentId,
+            'conflicting_assignment_id' => $assignmentId,
+        ]);
+        $service->deletePendingRequests([$event['assignment_id']], $actors['trainer']);
+        $deletedLinks = $pdo->prepare(
+            'SELECT
+                (SELECT COUNT(*) FROM booking_resource_assignments WHERE id = :assignment_id) AS assignments,
+                (SELECT COUNT(*) FROM booking_occurrences WHERE id = :occurrence_id) AS occurrences,
+                (SELECT COUNT(*) FROM booking_groups WHERE id = :group_id) AS booking_groups,
+                (SELECT COUNT(*) FROM booking_overrides
+                 WHERE new_assignment_id = :override_new_id
+                    OR conflicting_assignment_id = :override_conflict_id) AS overrides'
+        );
+        $deletedLinks->execute([
+            'assignment_id' => $assignmentId,
+            'occurrence_id' => $pending,
+            'group_id' => $groupId,
+            'override_new_id' => $assignmentId,
+            'override_conflict_id' => $assignmentId,
+        ]);
+        check(
+            array_map('intval', $deletedLinks->fetch()) === [
+                'assignments' => 0,
+                'occurrences' => 0,
+                'booking_groups' => 0,
+                'overrides' => 0,
+            ],
+            'Delete all persisted data for an empty request.'
+        );
+    } else {
+        $pdo->prepare("UPDATE booking_resource_assignments SET status = 'skipped' WHERE occurrence_id = :id")
+            ->execute(['id' => $pending]);
+    }
+    check($service->events('2033-03-01', '2033-03-02', 'pitch', false) === [], "$status: Inactive requests must stay hidden.");
+    if ($status === 'deleted') {
+        $statement = $pdo->prepare('SELECT COUNT(*) FROM booking_occurrences WHERE id = :id');
+        $statement->execute(['id' => $pending]);
+        check((int) $statement->fetchColumn() === 0, 'Deleted requests must remove their occurrence.');
+    }
+}
+
 $bus = createBooking('2031-11-01', [
     'event_type' => 'bus', 'resource_mode' => 'bus', 'resource_ids' => [$resources['bus'][0]],
 ])[0];
@@ -389,20 +582,6 @@ $public = $service->events('2033-02-01', '2033-02-02', 'pitch', false);
 check(count($public) === 1 && $public[0]['resource_names'] === 'pitch0', 'Rejected resources must disappear from public details.');
 $service->cancel($public[0]['assignment_id'], $manager);
 
-foreach (['rejected', 'withdrawn', 'skipped'] as $status) {
-    $pending = createBooking('2033-03-01', [], $actors['trainer'])[0];
-    $event = $service->events('2033-03-01', '2033-03-02', 'pitch', false)[0];
-    if ($status === 'rejected') {
-        $service->reject([$event['assignment_id']], $manager);
-    } elseif ($status === 'withdrawn') {
-        $service->withdraw([$event['assignment_id']], $actors['trainer']);
-    } else {
-        $pdo->prepare("UPDATE booking_resource_assignments SET status = 'skipped' WHERE occurrence_id = :id")
-            ->execute(['id' => $pending]);
-    }
-    check($service->events('2033-03-01', '2033-03-02', 'pitch', false) === [], "$status: Inactive requests must stay hidden.");
-}
-
 $series = createBooking('2033-04-01', ['frequency' => 'daily', 'limit_type' => 'count', 'count' => 3]);
 createBooking('2033-04-01', ['frequency' => 'daily', 'limit_type' => 'count', 'count' => 3], $manager);
 $service->editOccurrence($series[0], editData($series[0], ['starts_at' => '2033-04-01T10:15'], 'all'), $manager);
@@ -413,6 +592,39 @@ $cancelSeries = createBooking('2033-05-01', [
     'cabin_ids' => [$resources['cabin'][0]],
     'frequency' => 'daily', 'limit_type' => 'count', 'count' => 4,
 ]);
+
+$approvedRequestSeries = createBooking('2033-03-01', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 3,
+    'title' => 'Approved recurring request',
+], $actors['trainer']);
+$seriesPlaceholders = implode(',', array_fill(0, count($approvedRequestSeries), '?'));
+$pendingSeriesAssignments = $pdo->prepare(
+    "SELECT id FROM booking_resource_assignments
+     WHERE occurrence_id IN ({$seriesPlaceholders}) AND status = 'pending'"
+);
+$pendingSeriesAssignments->execute($approvedRequestSeries);
+$service->approve(array_map('intval', $pendingSeriesAssignments->fetchAll(PDO::FETCH_COLUMN)), $manager);
+$seriesGroupQuery = $pdo->prepare('SELECT group_id FROM booking_occurrences WHERE id = ?');
+$seriesGroupQuery->execute([$approvedRequestSeries[0]]);
+$approvedRequestGroupId = (int) $seriesGroupQuery->fetchColumn();
+$managerSeriesRows = array_values(array_filter(
+    $service->requests($manager, true, 1, 50)['items'],
+    static fn(array $request): bool => (int) $request['group_id'] === $approvedRequestGroupId
+));
+check(
+    count($managerSeriesRows) === 1
+        && (int) $managerSeriesRows[0]['is_series_summary'] === 1
+        && (int) $managerSeriesRows[0]['occurrence_count'] === 3
+        && $managerSeriesRows[0]['assignment_status'] === 'confirmed'
+        && $managerSeriesRows[0]['requester_name'] === 'trainer',
+    'Managers must see approved recurring requests as one series entry.'
+);
+$trainerSeriesRows = array_values(array_filter(
+    $service->requests($actors['trainer'], true, 1, 50)['items'],
+    static fn(array $request): bool => (int) $request['group_id'] === $approvedRequestGroupId
+));
+check(count($trainerSeriesRows) === 3, 'Trainers retain the individual entries for approved recurring requests.');
+
 $seriesEvents = $service->events('2033-05-01', '2033-05-05', 'pitch', false);
 $targetEvent = array_values(array_filter(
     $seriesEvents,

@@ -19,7 +19,10 @@ final class Views
         $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
             if ($user['role'] === 'admin') {
-                $nav .= '<a class="nav-link" href="/?page=users">Benutzer</a><a class="nav-link" href="/?page=resources">Ressourcen</a>';
+                $nav .= '<details class="user-actions-menu admin-settings-menu">'
+                    . '<summary class="btn btn-sm btn-outline-light">Einstellungen</summary>'
+                    . '<div class="user-actions-menu-items"><a href="/?page=users">Benutzerverwaltung</a>'
+                    . '<a href="/?page=resources">Ressourcenverwaltung</a></div></details>';
             }
             $nav .= '<span class="text-white-50 small">' . Security::escape($user['display_name']) . '</span>';
             $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button class="btn btn-sm btn-outline-light" type="submit">Abmelden</button></form>';
@@ -59,38 +62,69 @@ final class Views
 <body>
 <nav class="navbar navbar-expand navbar-club"><div class="container-fluid">' . $nav . '</div></nav>
 <main class="' . $pageShellClass . '">' . $flashHtml . $content . '</main>
+' . self::actionConfirmationDialog() . '
 </body>
 </html>';
     }
 
-    public static function calendar(?array $user, string $csrf, array $resources, array $requests = []): string
+    private static function actionConfirmationDialog(): string
     {
-        $bookingOptions = [
-            ['event_type' => 'training', 'resource_mode' => 'pitch', 'label' => 'Platzbelegung'],
-        ];
+        return '<dialog id="action-confirm-dialog" aria-labelledby="action-confirm-title">
+  <div class="dialog-header"><h2 class="h5 mb-0" data-confirm-title>Aktion bestätigen</h2></div>
+  <div class="dialog-body"><p class="mb-0" data-confirm-message></p></div>
+  <div class="dialog-footer">
+    <button type="button" class="btn btn-outline-secondary" data-confirm-cancel>Abbrechen</button>
+    <button type="button" class="btn btn-danger" data-confirm-submit>Bestätigen</button>
+  </div>
+</dialog>';
+    }
+
+    public static function calendar(
+        ?array $user,
+        string $csrf,
+        array $resources,
+        array $requests = [],
+        bool $showAllRequests = false,
+        int $requestPage = 1,
+        int $requestTotal = 0,
+        int $requestPageCount = 1,
+        int $requestPageSize = 10,
+        string $requestBaseUrl = '/'
+    ): string
+    {
         $eventTypes = '<option value="training">Training</option><option value="match">Spiel</option>';
         if (in_array($user['role'] ?? '', ['manager', 'admin'], true)) {
             $eventTypes .= '<option value="external">Externe Belegung</option>';
         }
-        $bookingOptions[] = ['event_type' => 'bus', 'resource_mode' => 'bus', 'label' => 'Fahrzeug'];
-
-        $bookingChoices = '';
-        foreach ($bookingOptions as $option) {
-            $bookingChoices .= '<button type="button" class="booking-create-option" data-booking-option'
-                . ' data-event-type="' . Security::escape($option['event_type']) . '"'
-                . ' data-resource-mode="' . Security::escape($option['resource_mode']) . '">'
-                . Security::escape($option['label']) . '</button>';
-        }
-        $createButton = $user === null ? '' : '<details id="booking-create-menu" class="booking-create-menu">'
-            . '<summary id="open-booking" class="btn btn-primary">+ Buchung anlegen</summary>'
-            . '<div class="booking-create-options" aria-label="Buchungsart auswählen">' . $bookingChoices . '</div>'
-            . '</details>';
+        $staff = in_array($user['role'] ?? '', ['admin', 'manager'], true);
+        $createButton = $user !== null && $staff
+            ? self::bookingCreateMenu('+ Buchung anlegen')
+            : '';
 
         $bookingDialog = $user === null ? '' : self::bookingDialog($user, $csrf, $eventTypes);
         $detailsDialog = self::eventDialog($user, $csrf);
         $dashboardAvailable = in_array($user['role'] ?? '', ['admin', 'manager', 'trainer'], true);
-        $dashboard = $dashboardAvailable ? self::dashboard($user, $requests, $csrf, '', true) : '';
+        $dashboard = $dashboardAvailable
+            ? self::dashboard(
+                $user,
+                $requests,
+                $csrf,
+                '',
+                true,
+                $showAllRequests,
+                $requestPage,
+                $requestTotal,
+                $requestPageCount,
+                $requestPageSize,
+                $requestBaseUrl
+            )
+            : '';
         $layoutClass = 'calendar-dashboard-layout' . ($dashboardAvailable ? ' has-dashboard' : '');
+        $dashboardResizer = $dashboardAvailable
+            ? '<div class="calendar-dashboard-resizer" data-dashboard-resizer role="separator"'
+                . ' aria-orientation="vertical" aria-valuemin="35" aria-valuemax="85" aria-valuenow="75"'
+                . ' aria-label="Aufteilung zwischen Belegungsplan und Buchungsanfragen ändern" tabindex="0"></div>'
+            : '';
 
         return '<div class="' . $layoutClass . '" data-calendar-dashboard-layout>
 <div class="calendar-main-content">
@@ -144,9 +178,28 @@ final class Views
   </div>
 </section>
 </div>
-' . $dashboard . '
+' . $dashboardResizer . $dashboard . '
 </div>
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
+    }
+
+    private static function bookingCreateMenu(string $label): string
+    {
+$bookingChoices = '';
+foreach ([
+    ['event_type' => 'training', 'resource_mode' => 'pitch', 'label' => 'Platzbelegung'],
+    ['event_type' => 'bus', 'resource_mode' => 'bus', 'label' => 'Fahrzeug'],
+] as $option) {
+    $bookingChoices .= '<button type="button" class="booking-create-option" data-booking-option'
+        . ' data-event-type="' . Security::escape($option['event_type']) . '"'
+        . ' data-resource-mode="' . Security::escape($option['resource_mode']) . '">'
+        . Security::escape($option['label']) . '</button>';
+}
+
+return '<details id="booking-create-menu" class="booking-create-menu">'
+    . '<summary id="open-booking" class="btn btn-primary">' . Security::escape($label) . '</summary>'
+    . '<div class="booking-create-options" aria-label="Buchungsart auswählen">' . $bookingChoices . '</div>'
+    . '</details>';
     }
 
     private static function bookingDialog(array $user, string $csrf, string $eventTypes): string
@@ -241,7 +294,7 @@ final class Views
     private static function eventDialog(?array $user, string $csrf): string
     {
         $cancel = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Löschen</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Kabinenbelegung löschen</button></form>'
+            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form data-confirm-action="delete"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Löschen</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form data-confirm-action="delete" hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Kabinenbelegung löschen</button></form>'
             : '';
         $edit = in_array($user['role'] ?? '', ['admin', 'manager'], true)
             ? '<button type="button" class="btn btn-outline-primary" data-edit-event>Ändern</button>'
@@ -251,7 +304,7 @@ final class Views
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
                 . '<input type="hidden" name="assignment_id" value="">'
                 . '<button class="btn btn-success" type="submit">Anfrage annehmen</button></form>'
-                . '<form method="post" action="/?action=booking-reject" data-event-reject hidden>'
+                . '<form method="post" action="/?action=booking-reject" data-event-reject data-confirm-action="reject" hidden>'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
                 . '<input type="hidden" name="assignment_id" value="">'
                 . '<button class="btn btn-outline-danger" type="submit">Ablehnen</button></form>'
@@ -315,7 +368,13 @@ final class Views
         array $requests,
         string $csrf,
         string $error = '',
-        bool $embedded = false
+        bool $embedded = false,
+        bool $showAllRequests = false,
+        int $requestPage = 1,
+        int $requestTotal = 0,
+        int $requestPageCount = 1,
+        int $requestPageSize = 10,
+        string $requestBaseUrl = '/'
     ): string
     {
         if ($user === null) {
@@ -323,9 +382,16 @@ final class Views
         }
 
         $staff = in_array($user['role'], ['admin', 'manager'], true);
+        $requestCreateButton = $user['role'] === 'trainer'
+            ? self::bookingCreateMenu('+ Buchungsanfrage stellen')
+            : '';
         $rows = '';
         foreach ($requests as $request) {
             $status = self::statusLabel($request['assignment_status']);
+            $isSeriesSummary = (int) ($request['is_series_summary'] ?? 0) === 1;
+            if ($isSeriesSummary) {
+                $status .= ' · ' . (int) $request['occurrence_count'] . ' Serientermine';
+            }
             $pendingIds = array_values(array_filter(
                 array_map('intval', explode(',', (string) ($request['pending_assignment_ids'] ?? ''))),
                 static fn(int $id): bool => $id > 0
@@ -346,7 +412,7 @@ final class Views
                 ->format('d.m.Y H:i');
             $end = Recurrence::fromDatabase($request['ends_at'])
                 ->setTimezone(new \DateTimeZone('Europe/Berlin'))
-                ->format('H:i');
+                ->format($isSeriesSummary ? 'd.m.Y H:i' : 'H:i');
             $assignmentId = (int) $request['assignment_id'];
             $resourceType = $request['resource_type'] === 'bus' ? 'bus' : 'pitch';
             $entryDetails = '<strong class="booking-title">' . Security::escape($request['title']) . '</strong>'
@@ -355,6 +421,7 @@ final class Views
             $jumpButton = in_array($request['assignment_status'], ['pending', 'confirmed'], true)
                 ? '<button type="button" class="dashboard-entry-link" data-dashboard-jump'
                     . ' data-assignment-id="' . $assignmentId . '"'
+                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '"'
                     . ' data-resource-type="' . $resourceType . '"'
                     . ' data-start="' . Security::escape(Recurrence::fromDatabase($request['starts_at'])->format(DATE_ATOM)) . '">'
                     . $entryDetails . '</button>'
@@ -372,29 +439,58 @@ final class Views
             if ($staff && $request['assignment_status'] === 'pending') {
                 $rows .= '<button class="btn btn-sm btn-success" type="button" data-request-approve'
                     . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Freigeben</button>'
-                    . '<form method="post" action="/?action=booking-reject"><input type="hidden" name="_csrf" value="'
+                    . '<form method="post" action="/?action=booking-reject" data-confirm-action="reject"><input type="hidden" name="_csrf" value="'
                     . Security::escape($csrf) . '">' . $assignmentInputs . '<button class="btn btn-sm btn-outline-danger"'
                     . ' type="submit">Ablehnen</button></form>';
             } elseif (!$staff && $request['assignment_status'] === 'pending') {
                 $rows .= '<button type="button" class="btn btn-sm btn-outline-primary" data-request-edit'
                     . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Ändern</button>'
-                    . '<form method="post" action="/?action=booking-withdraw"><input type="hidden" name="_csrf" value="'
+                    . '<form method="post" action="/?action=booking-delete" data-confirm-action="delete"><input type="hidden" name="_csrf" value="'
                     . Security::escape($csrf) . '">' . $assignmentInputs
-                    . '<button class="btn btn-sm btn-outline-secondary" type="submit">Zurückziehen</button></form>';
+                    . '<button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form>';
             }
             $rows .= '</div></div></article>';
         }
 
-        $empty = $staff ? 'Es gibt keine offenen Anfragen.' : 'Du hast noch keine Anfragen.';
-        $description = $staff
-            ? 'Offene Buchungsanfragen zur Freigabe.'
-            : 'Deine Anfragen und deren aktueller Status.';
+        $empty = $showAllRequests
+            ? 'Es gibt keine Buchungsanfragen.'
+            : ($staff ? 'Es gibt keine offenen Anfragen.' : 'Du hast keine offenen Anfragen.');
+        $description = $showAllRequests
+            ? 'Alle Buchungsanfragen mit ihrem aktuellen Status.'
+            : 'Offene Buchungsanfragen' . ($staff ? ' zur Freigabe.' : '.');
+        $requestQueryPrefix = $requestBaseUrl . (str_contains($requestBaseUrl, '?') ? '&' : '?');
+        $toggleUrl = $showAllRequests
+            ? $requestBaseUrl
+            : $requestQueryPrefix . 'requests=all';
+        $toggleLabel = $showAllRequests ? 'Nur offene Anfragen' : 'Alle Anfragen anzeigen';
+        $pagination = '';
+        if ($requestTotal > $requestPageSize) {
+            $pageQuery = $showAllRequests ? 'requests=all&' : '';
+            $previous = $requestQueryPrefix . $pageQuery . 'requests_page=' . max(1, $requestPage - 1);
+            $next = $requestQueryPrefix . $pageQuery . 'requests_page=' . min($requestPageCount, $requestPage + 1);
+            $pagination = '<nav class="request-pagination" aria-label="Seitennavigation Buchungsanfragen">'
+                . '<a class="btn btn-sm btn-outline-secondary' . ($requestPage <= 1 ? ' disabled' : '')
+                . '" href="' . Security::escape($previous) . '"' . ($requestPage <= 1 ? ' aria-disabled="true" tabindex="-1"' : '') . '>Zurück</a>'
+                . '<span aria-live="polite">Seite ' . $requestPage . ' von ' . $requestPageCount . '</span>'
+                . '<a class="btn btn-sm btn-outline-secondary' . ($requestPage >= $requestPageCount ? ' disabled' : '')
+                . '" href="' . Security::escape($next) . '"' . ($requestPage >= $requestPageCount ? ' aria-disabled="true" tabindex="-1"' : '') . '>Weiter</a>'
+                . '</nav>';
+        }
 
         return '<aside id="request-dashboard" class="panel-card calendar-dashboard-panel p-3"'
             . ($embedded ? ' data-request-dashboard' : '') . '>
 <h2 class="h4">Buchungsanfragen</h2><p class="text-secondary">' . $description . '</p>
 ' . self::inlineError($error) . '
+<div class="request-list-controls">' . $requestCreateButton
+            . '<a class="btn btn-sm btn-outline-primary" href="' . Security::escape($toggleUrl) . '">'
+            . $toggleLabel . '</a>'
+            . ($requestTotal > 0
+                ? '<span class="small text-secondary">' . (($requestPage - 1) * $requestPageSize + 1)
+                    . '–' . min($requestPage * $requestPageSize, $requestTotal) . ' von ' . $requestTotal . '</span>'
+                : '')
+            . '</div>
 <div id="request-list">' . ($rows !== '' ? $rows : '<p class="mb-0">' . $empty . '</p>') . '</div>
+' . $pagination . '
 ' . ($embedded ? '' : '<p class="mt-3 mb-0"><a class="btn btn-primary" href="/">Zum Belegungsplan</a></p>') . '</aside>';
     }
 

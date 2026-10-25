@@ -74,6 +74,7 @@ final class BookingService
                  VALUES (:occurrence_id, :cabin_id)'
             );
             $occurrenceNo = 0;
+            $firstOccurrenceId = 0;
             foreach ($occurrences as $occurrence) {
                 $startsAt = Recurrence::toDatabase($occurrence['start']);
                 $endsAt = Recurrence::toDatabase($occurrence['end']);
@@ -85,6 +86,9 @@ final class BookingService
                     'status' => $status,
                 ]);
                 $occurrenceId = (int) $this->pdo->lastInsertId();
+                if ($firstOccurrenceId === 0) {
+                    $firstOccurrenceId = $occurrenceId;
+                }
 
                 foreach ($resourceIds as $resourceId) {
                     $insertAssignment->execute([
@@ -113,6 +117,7 @@ final class BookingService
 
         return [
             'group_id' => $groupId,
+            'occurrence_id' => $firstOccurrenceId,
             'occurrence_count' => count($occurrences),
             'mail_errors' => $mailErrors,
         ];
@@ -237,50 +242,135 @@ final class BookingService
         }, $statement->fetchAll());
     }
 
-    public function requests(array $actor): array
+    public function requests(array $actor, bool $includeClosed = false, int $page = 1, int $pageSize = 10): array
     {
         $isStaff = in_array($actor['role'], ['admin', 'manager'], true);
+        $groupConfirmedSeries = $isStaff && $includeClosed
+            ? "g.recurrence_rule IS NOT NULL AND o.status = 'confirmed'"
+            : '0 = 1';
+        $requestEntryKey = "CASE WHEN {$groupConfirmedSeries}"
+            . " THEN CONCAT('series:', g.id) ELSE CONCAT('occurrence:', o.id) END";
         if ($isStaff) {
-            $where = "a.status = 'pending'";
+            $where = 'g.requested_by IS NOT NULL';
             $params = [];
         } else {
             $where = 'g.requested_by = :user_id';
             $params = ['user_id' => $actor['id']];
         }
+        $requestCutoff = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+            ->modify('-3 months')
+            ->format('Y-m-d H:i:s');
+        $where .= ' AND o.starts_at >= :request_cutoff';
+        $params['request_cutoff'] = $requestCutoff;
+        if (!$includeClosed) {
+            $where .= " AND a.status = 'pending'";
+        }
+
+        $pageSize = max(1, min(50, $pageSize));
+        $count = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT {$requestEntryKey})
+             FROM booking_resource_assignments a
+             JOIN booking_occurrences o ON o.id = a.occurrence_id
+             JOIN booking_groups g ON g.id = o.group_id
+             WHERE {$where}"
+        );
+        $count->execute($params);
+        $total = (int) $count->fetchColumn();
+        $pageCount = max(1, (int) ceil($total / $pageSize));
+        $page = min(max(1, $page), $pageCount);
+        $offset = ($page - 1) * $pageSize;
 
         $statement = $this->pdo->prepare(
             "SELECT COALESCE(MIN(CASE WHEN a.status = 'pending' THEN a.id END), MIN(a.id)) AS assignment_id,
-                    GROUP_CONCAT(CASE WHEN a.status = 'pending' THEN a.id END ORDER BY a.id SEPARATOR ',')
+                    GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'pending' THEN a.id END ORDER BY a.id SEPARATOR ',')
                         AS pending_assignment_ids,
-                    o.id AS occurrence_id, g.id AS group_id,
-                    CASE WHEN SUM(a.status = 'pending') > 0 THEN 'pending' ELSE o.status END AS assignment_status,
-                    o.status AS occurrence_status,
-                    o.event_type, o.title, o.team_name,
-                    o.destination, o.purpose, o.driver_name, o.private_notes,
-                    o.starts_at, o.ends_at, o.rejection_reason,
+                    MIN(o.id) AS occurrence_id, g.id AS group_id,
+                    CASE WHEN SUM(a.status = 'pending') > 0 THEN 'pending' ELSE MIN(o.status) END AS assignment_status,
+                    MIN(o.status) AS occurrence_status,
+                    MIN(o.event_type) AS event_type, MIN(o.title) AS title, MIN(o.team_name) AS team_name,
+                    MIN(o.destination) AS destination, MIN(o.purpose) AS purpose,
+                    MIN(o.driver_name) AS driver_name, MIN(o.private_notes) AS private_notes,
+                    MIN(o.starts_at) AS starts_at, MAX(o.ends_at) AS ends_at,
+                    MIN(o.rejection_reason) AS rejection_reason,
+                    MAX(CASE WHEN {$groupConfirmedSeries} THEN 1 ELSE 0 END) AS is_series_summary,
+                    COUNT(DISTINCT o.id) AS occurrence_count,
                     GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR ',') AS resource_ids,
                     GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names,
                     MIN(rc.code) AS resource_type,
                     u.display_name AS requester_name, u.email AS requester_email,
-                    (SELECT GROUP_CONCAT(c.name ORDER BY c.name SEPARATOR ', ')
-                     FROM booking_cabin_assignments bca
-                     JOIN resources c ON c.id = bca.cabin_id
-                     WHERE bca.occurrence_id = o.id) AS cabins
+                    GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS cabins
              FROM booking_resource_assignments a
              JOIN booking_occurrences o ON o.id = a.occurrence_id
              JOIN booking_groups g ON g.id = o.group_id
              JOIN resources r ON r.id = a.resource_id
              JOIN resource_categories rc ON rc.id = r.category_id
              LEFT JOIN users u ON u.id = g.requested_by
+             LEFT JOIN booking_cabin_assignments bca ON bca.occurrence_id = o.id
+             LEFT JOIN resources c ON c.id = bca.cabin_id
              WHERE {$where}
-             GROUP BY o.id, g.id, o.status, o.event_type, o.title, o.team_name, o.destination,
-                      o.purpose, o.driver_name, o.private_notes, o.starts_at, o.ends_at,
-                      o.rejection_reason, u.id, u.display_name, u.email
-             ORDER BY o.starts_at DESC, o.id"
+             GROUP BY {$requestEntryKey}, g.id, u.id, u.display_name, u.email
+             ORDER BY MIN(o.starts_at) DESC, MIN(o.id)
+             LIMIT {$pageSize} OFFSET {$offset}"
         );
         $statement->execute($params);
 
-        return $statement->fetchAll();
+        return [
+            'items' => $statement->fetchAll(),
+            'total' => $total,
+            'page' => $page,
+            'page_count' => $pageCount,
+            'page_size' => $pageSize,
+        ];
+    }
+
+    public function requestPageForOccurrence(
+        int $occurrenceId,
+        array $actor,
+        bool $includeClosed = false,
+        int $pageSize = 10
+    ): ?int {
+        $isStaff = in_array($actor['role'], ['admin', 'manager'], true);
+        $where = $isStaff ? '1 = 1' : 'g.requested_by = :user_id';
+        $params = $isStaff ? [] : ['user_id' => $actor['id']];
+        $requestCutoff = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+            ->modify('-3 months')
+            ->format('Y-m-d H:i:s');
+        $where .= ' AND o.starts_at >= :request_cutoff';
+        $params['request_cutoff'] = $requestCutoff;
+        if (!$includeClosed) {
+            $where .= " AND a.status = 'pending'";
+        }
+
+        $target = $this->pdo->prepare(
+            "SELECT o.starts_at
+             FROM booking_resource_assignments a
+             JOIN booking_occurrences o ON o.id = a.occurrence_id
+             JOIN booking_groups g ON g.id = o.group_id
+             WHERE o.id = :occurrence_id AND {$where}
+             LIMIT 1"
+        );
+        $target->execute($params + ['occurrence_id' => $occurrenceId]);
+        $startsAt = $target->fetchColumn();
+        if ($startsAt === false) {
+            return null;
+        }
+
+        $pageSize = max(1, min(50, $pageSize));
+        $ahead = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT o.id)
+             FROM booking_resource_assignments a
+             JOIN booking_occurrences o ON o.id = a.occurrence_id
+             JOIN booking_groups g ON g.id = o.group_id
+             WHERE {$where}
+               AND (o.starts_at > :target_starts_at
+                    OR (o.starts_at = :target_starts_at_equal AND o.id < :target_occurrence_id))"
+        );
+        $ahead->execute($params + [
+            'target_starts_at' => $startsAt,
+            'target_starts_at_equal' => $startsAt,
+            'target_occurrence_id' => $occurrenceId,
+        ]);
+        return intdiv((int) $ahead->fetchColumn(), $pageSize) + 1;
     }
 
     public function approve(array $assignmentIds, array $actor): array
@@ -387,8 +477,11 @@ final class BookingService
         return $mailErrors;
     }
 
-    public function withdraw(array $assignmentIds, array $actor): void
+    public function deletePendingRequests(array $assignmentIds, array $actor): void
     {
+        if ($actor['role'] !== 'trainer') {
+            throw new RuntimeException('Für das Löschen fehlen die Rechte.');
+        }
         $assignmentIds = $this->normalizeIds($assignmentIds);
         if ($assignmentIds === []) {
             throw new RuntimeException('Wähle mindestens eine Anfrage aus.');
@@ -396,15 +489,60 @@ final class BookingService
 
         $this->pdo->beginTransaction();
         try {
+            $assignments = [];
             foreach ($assignmentIds as $id) {
-                $details = $this->assignmentDetails($id);
+                $details = $this->assignmentDetails($id, true);
                 if ($details === null
                     || (int) $details['requested_by'] !== (int) $actor['id']
                     || $details['status'] !== 'pending') {
-                    throw new RuntimeException('Du kannst nur eigene offene Anfragen zurückziehen.');
+                    throw new RuntimeException('Du kannst nur eigene offene Anfragen löschen.');
                 }
-                $this->setAssignmentStatus($id, 'withdrawn');
-                $this->refreshOccurrenceStatus((int) $details['occurrence_id']);
+                $assignments[] = $details;
+            }
+
+            $this->deleteOverrideReferences($assignmentIds);
+            $placeholders = implode(',', array_fill(0, count($assignmentIds), '?'));
+            $this->pdo->prepare(
+                "DELETE FROM booking_resource_assignments WHERE id IN ({$placeholders})"
+            )->execute($assignmentIds);
+
+            $occurrences = [];
+            $groups = [];
+            foreach ($assignments as $assignment) {
+                $occurrenceId = (int) $assignment['occurrence_id'];
+                $groupId = (int) $assignment['group_id'];
+                $occurrences[$occurrenceId] = true;
+                $groups[$groupId] = true;
+            }
+
+            $remainingAssignments = $this->pdo->prepare(
+                "SELECT COUNT(*) FROM booking_resource_assignments
+                 WHERE occurrence_id = :id AND status IN ('pending', 'confirmed')"
+            );
+            foreach (array_keys($occurrences) as $occurrenceId) {
+                $remainingAssignments->execute(['id' => $occurrenceId]);
+                if ((int) $remainingAssignments->fetchColumn() === 0) {
+                    $remainingIds = $this->pdo->prepare(
+                        'SELECT id FROM booking_resource_assignments WHERE occurrence_id = :id'
+                    );
+                    $remainingIds->execute(['id' => $occurrenceId]);
+                    $this->deleteOverrideReferences(array_map('intval', $remainingIds->fetchAll(PDO::FETCH_COLUMN)));
+                    $this->pdo->prepare('DELETE FROM booking_occurrences WHERE id = :id')
+                        ->execute(['id' => $occurrenceId]);
+                } else {
+                    $this->refreshOccurrenceStatus($occurrenceId);
+                }
+            }
+
+            $remainingOccurrences = $this->pdo->prepare(
+                'SELECT COUNT(*) FROM booking_occurrences WHERE group_id = :id'
+            );
+            foreach (array_keys($groups) as $groupId) {
+                $remainingOccurrences->execute(['id' => $groupId]);
+                if ((int) $remainingOccurrences->fetchColumn() === 0) {
+                    $this->pdo->prepare('DELETE FROM booking_groups WHERE id = :id')
+                        ->execute(['id' => $groupId]);
+                }
             }
             $this->pdo->commit();
         } catch (Throwable $exception) {
@@ -1388,6 +1526,20 @@ final class BookingService
             array_map('intval', $ids),
             static fn(int $id): bool => $id > 0
         )));
+    }
+
+    private function deleteOverrideReferences(array $assignmentIds): void
+    {
+        if ($assignmentIds === []) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($assignmentIds), '?'));
+        $this->pdo->prepare(
+            "DELETE FROM booking_overrides
+             WHERE new_assignment_id IN ({$placeholders})
+                OR conflicting_assignment_id IN ({$placeholders})"
+        )->execute(array_merge($assignmentIds, $assignmentIds));
     }
 
     private function requiredTitle(mixed $value): string

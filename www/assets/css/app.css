@@ -69,7 +69,35 @@ body {
 }
 
 .calendar-dashboard-layout.has-dashboard {
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  grid-template-columns:
+    minmax(360px, var(--calendar-main-fr, 3fr))
+    12px
+    minmax(240px, var(--calendar-dashboard-fr, 1fr));
+  align-items: stretch;
+  gap: .5rem;
+}
+
+.calendar-dashboard-resizer {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.calendar-dashboard-resizer::before {
+  width: 4px;
+  height: 100%;
+  min-height: 6rem;
+  border-radius: 2px;
+  background: #dce3ea;
+  content: "";
+}
+
+.calendar-dashboard-resizer:hover::before,
+.calendar-dashboard-resizer:focus-visible::before {
+  background: var(--club-navy);
 }
 
 .calendar-main-content {
@@ -77,7 +105,6 @@ body {
 }
 
 .panel-card.calendar-dashboard-panel {
-  max-height: calc(100vh - 7rem);
   overflow: auto;
 }
 
@@ -103,14 +130,7 @@ body {
 }
 
 .booking-card-highlight {
-  outline: 4px solid #f2b632;
-  outline-offset: 2px;
-  animation: booking-card-highlight 2.4s ease-out;
-}
-
-@keyframes booking-card-highlight {
-  0%, 100% { outline-color: transparent; }
-  20%, 75% { outline-color: #f2b632; }
+  box-shadow: inset 0 0 0 4px #f2b632;
 }
 
 .calendar-toolbar,
@@ -249,6 +269,16 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.resource-lane-selected {
+  background: repeating-linear-gradient(
+    to bottom,
+    #fff9e6 0,
+    #fff9e6 63px,
+    #e8edf2 63px,
+    #e8edf2 64px
+  );
 }
 
 .resource-lane {
@@ -457,6 +487,10 @@ dialog {
   border: 0;
   border-radius: .75rem;
   box-shadow: 0 16px 60px rgb(10 25 40 / 35%);
+}
+
+#action-confirm-dialog {
+  width: min(480px, calc(100vw - 1.5rem));
 }
 
 dialog::backdrop {
@@ -885,6 +919,10 @@ dialog::backdrop {
   padding: .8rem 0;
 }
 
+.request-row-selected {
+  background-color: #fff9e6;
+}
+
 .request-row-layout {
   display: flex;
   align-items: flex-start;
@@ -898,15 +936,47 @@ dialog::backdrop {
 }
 
 .request-row-actions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
+  display: grid;
+  flex: 0 0 11rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
   gap: .5rem;
 }
 
 .request-row-actions form {
+  width: 100%;
   margin: 0;
+}
+
+.request-row-actions .btn {
+  width: 100%;
+  min-height: 2rem;
+}
+
+.request-list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-bottom: .25rem;
+}
+
+.request-list-controls .btn {
+  min-width: 9rem;
+}
+
+.request-pagination {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, 1fr) auto minmax(4.5rem, 1fr);
+  align-items: center;
+  gap: .5rem;
+  margin-top: .75rem;
+  text-align: center;
+}
+
+.request-pagination .btn {
+  width: 100%;
 }
 
 @media (max-width: 1000px) {
@@ -914,9 +984,10 @@ dialog::backdrop {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .panel-card.calendar-dashboard-panel {
-    max-height: none;
+  .calendar-dashboard-resizer {
+    display: none;
   }
+
 }
 
 .table-responsive {

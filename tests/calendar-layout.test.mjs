@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { eventDaySegment, layoutDayEvents } from '../www/assets/js/calendar-layout.mjs';
+import {
+  DEFAULT_DAY_END_HOUR,
+  DEFAULT_DAY_START_HOUR,
+  eventDaySegment,
+  layoutDayEvents,
+} from '../www/assets/js/calendar-layout.mjs';
 
 const calendarCss = readFileSync(new URL('../www/assets/css/app.css', import.meta.url), 'utf8');
 const calendarJs = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
@@ -76,16 +81,74 @@ test('vehicle calendar uses the shared resource day and week layouts', () => {
   assert.match(calendarJs, /eventDaySegment\(event,\s*date\)/);
 });
 
-test('calendar uses full width without a dashboard and a 75/25 split when one is available', () => {
+test('resource calendars default to 08:00–19:00 and can show the full day', () => {
+  assert.equal(DEFAULT_DAY_START_HOUR, 8);
+  assert.equal(DEFAULT_DAY_END_HOUR, 19);
+  assert.match(calendarJs, /state\.showFullDay \? 0 : DEFAULT_DAY_START_HOUR/);
+  assert.match(calendarJs, /state\.showFullDay \? 24 : DEFAULT_DAY_END_HOUR/);
+
+  const entries = layoutDayEvents([
+    event(1, '08:30', '09:30'),
+    event(2, '18:30', '19:30'),
+    event(3, '19:00', '20:00'),
+  ], DEFAULT_DAY_START_HOUR, DEFAULT_DAY_END_HOUR);
+  assert.deepEqual(entries.map(entry => entry.event.assignment_id), [1, 2]);
+});
+
+test('request selection marks every related calendar entry without selecting its resource heading', () => {
+  assert.match(views, /data-occurrence-id="'\s*\.\s*\(int\) \$request\['occurrence_id'\]/);
+  assert.match(calendarJs, /wrapper\.dataset\.occurrenceId = event\.occurrence_id/);
+  assert.match(calendarJs, /\.filter\(\(card\) => card\.dataset\.occurrenceId === button\.dataset\.occurrenceId\)/);
+  assert.match(calendarJs, /booking\.closest\('\.resource-lane'\)\?\.classList\.add\('resource-lane-selected'\)/);
+  assert.match(calendarJs, /button\.closest\('\.request-row'\)\?\.classList\.add\('request-row-selected'\)/);
+  assert.match(calendarJs, /bookings\.forEach\(\(booking\) => \{\s*booking\.classList\.add\('booking-card-highlight'\);\s*booking\.closest\('\.resource-lane'\)\?\.classList\.add\('resource-lane-selected'\);/);
+  assert.ok(calendarJs.indexOf('bookings.forEach((booking)') < calendarJs.indexOf('bookings[0].focus({ preventScroll: true })'));
+  assert.doesNotMatch(calendarJs, /\.resource-column-selected/);
+  assert.match(calendarCss, /\.booking-card-highlight\s*\{[^}]*box-shadow:\s*inset 0 0 0 4px #f2b632/s);
+  assert.doesNotMatch(calendarCss, /\.booking-card-highlight\s*\{[^}]*outline:/s);
+  const requestSelection = calendarCss.match(/\.request-row-selected\s*\{([^}]+)\}/);
+  assert.ok(requestSelection);
+  assert.match(requestSelection[1], /background-color:\s*#fff9e6/);
+  assert.doesNotMatch(requestSelection[1], /border|outline|box-shadow/);
+  assert.match(calendarCss, /\.resource-lane-selected\s*\{[^}]*background:\s*repeating-linear-gradient\([\s\S]*?#fff9e6/s);
+  assert.doesNotMatch(calendarCss, /\.resource-column-selected\s+\.resource-column-heading/);
+  assert.doesNotMatch(calendarCss, /@keyframes booking-card-highlight/);
+});
+
+test('calendar dashboard has an adjustable split that remains usable on narrow screens', () => {
   assert.match(calendarCss, /\.page-shell-wide\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;/s);
   assert.match(calendarCss, /\.calendar-dashboard-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
-  assert.match(calendarCss, /\.calendar-dashboard-layout\.has-dashboard\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*3fr\)\s*minmax\(0,\s*1fr\)/s);
+  const dashboardLayout = calendarCss.match(/\.calendar-dashboard-layout\.has-dashboard\s*\{([^}]+)\}/);
+  assert.ok(dashboardLayout);
+  assert.match(dashboardLayout[1], /minmax\(360px,\s*var\(--calendar-main-fr,\s*3fr\)\)\s*12px\s*minmax\(240px,\s*var\(--calendar-dashboard-fr,\s*1fr\)\)/);
+  assert.match(dashboardLayout[1], /align-items:\s*stretch/);
+  assert.match(calendarCss, /\.calendar-dashboard-resizer\s*\{[^}]*cursor:\s*col-resize/);
+  assert.match(calendarCss, /@media \(max-width:\s*1000px\)[\s\S]*?\.calendar-dashboard-resizer\s*\{[^}]*display:\s*none/s);
+  const requestPanel = calendarCss.match(/\.panel-card\.calendar-dashboard-panel\s*\{([^}]+)\}/);
+  assert.ok(requestPanel);
+  assert.match(requestPanel[1], /overflow:\s*auto/);
+  assert.doesNotMatch(requestPanel[1], /max-height:/);
   assert.match(views, /data-calendar-dashboard-layout/);
+  assert.match(views, /data-dashboard-resizer role="separator"/);
   assert.match(views, /has-dashboard/);
   assert.match(views, /data-request-dashboard/);
+  assert.match(calendarJs, /initDashboardResizer\(\)/);
+  assert.match(calendarJs, /sessionStorage\.getItem\(dashboardMainShareStorageKey\)/);
+  assert.match(calendarJs, /sessionStorage\.setItem\(dashboardMainShareStorageKey, String\(mainShare\)\)/);
+  assert.match(calendarJs, /resizer\.addEventListener\('pointerdown'/);
+  assert.match(calendarJs, /resizer\.addEventListener\('pointermove'/);
+  assert.match(calendarJs, /resizer\.addEventListener\('keydown'/);
   assert.match(views, /<h2 class="h4">Buchungsanfragen<\/h2>/);
   assert.match(views, /request-row-actions/);
-  assert.match(calendarCss, /\.request-row-actions\s*\{[^}]*align-items:\s*flex-end/s);
+  assert.match(calendarCss, /\.request-row-actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[^}]*align-items:\s*stretch/s);
+});
+
+test('calendar resource selection persists in the current window session', () => {
+  assert.match(calendarJs, /sessionStorage\.getItem\(calendarResourceTypeStorageKey\)/);
+  assert.match(calendarJs, /savedResourceType === 'pitch' \|\| savedResourceType === 'bus'/);
+  assert.match(calendarJs, /sessionStorage\.setItem\(calendarResourceTypeStorageKey, state\.resourceType\)/);
+  assert.match(views, /id="calendar-resource-select"/);
+  assert.match(calendarCss, /\.request-row-actions\s+\.btn\s*\{[^}]*width:\s*100%/s);
   assert.doesNotMatch(views, /name="reason"|placeholder="Begründung/);
   assert.doesNotMatch(views, /data-dashboard-toggle|Dashboard ausblenden|Dashboard einblenden/);
   assert.doesNotMatch(calendarJs, /data-dashboard-toggle/);

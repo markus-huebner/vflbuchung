@@ -153,7 +153,35 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     check($xpath->query('//*[@id="calendar-date-picker"]')->length === 1, 'The calendar needs direct date selection.');
     check($xpath->query('//section[contains(@class, "calendar-toolbar")]//select[@id="calendar-resource-select"]')->length === 1, 'Choose the calendar in the header.');
     check($xpath->query('//*[@data-resource-type]')->length === 0, 'Replace the old calendar tabs.');
-    check($xpath->query('//*[@id="booking-create-menu"]/following-sibling::select[@id="calendar-resource-select"]')->length === 1, 'Place the create button before the calendar dropdown.');
+    check($xpath->query('//*[@id="booking-create-menu"]')->length === 1, "$role: Render exactly one booking menu.");
+    $staff = in_array($role, ['admin', 'manager'], true);
+    if ($staff) {
+        check(
+            $xpath->query('//*[@id="event-dialog"]//form[@action="/?action=booking-reject"][@data-confirm-action="reject"]')->length === 1,
+            "$role: Confirm rejection from the event dialog."
+        );
+        check(
+            $xpath->query('//*[@id="event-dialog"]//form[@data-cancel-form][@data-confirm-action="delete"]')->length === 1
+                && $xpath->query('//*[@id="event-dialog"]//form[@data-cancel-cabin-form][@data-confirm-action="delete"]')->length === 1,
+            "$role: Confirm deletion of bookings and cabin assignments."
+        );
+    }
+    check(
+        $staff
+            ? $xpath->query('//section[contains(@class, "calendar-toolbar")]//*[@id="booking-create-menu"]/following-sibling::select[@id="calendar-resource-select"]')->length === 1
+            : $xpath->query('//aside[@id="request-dashboard"]//*[@id="booking-create-menu"]')->length === 1
+                && $xpath->query('//section[contains(@class, "calendar-toolbar")]//*[@id="booking-create-menu"]')->length === 0,
+        "$role: Show booking creation in the toolbar only for staff and in the request list for trainers."
+    );
+    check(
+        $xpath->query('//*[@id="booking-create-menu"]//*[@data-booking-option and @data-resource-mode="pitch"]')->length === 1
+            && $xpath->query('//*[@id="booking-create-menu"]//*[@data-booking-option and @data-resource-mode="bus"]')->length === 1,
+        "$role: Offer pitch and vehicle requests."
+    );
+    check(
+        $xpath->query('//*[@id="booking-create-menu"]//*[@data-event-type="external"]')->length === 0,
+        "$role: Do not offer external bookings in the creation menu."
+    );
     check($xpath->query('//select[@id="calendar-resource-select"]/option')->length === 2, 'Offer only pitch and vehicle calendars.');
     check($xpath->query('//*[@data-resource-type="cabin" or @data-calendar-view="cabin" or @data-resource-mode="cabin"]')->length === 0, 'Cabins must not have their own booking or calendar.');
     foreach (['calendar-prev', 'calendar-next', 'calendar-today', 'calendar-date-picker'] as $control) {
@@ -191,9 +219,37 @@ $editButton = $xpath->query('//button[@data-request-edit]');
 check($editButton->length === 1, 'Offer request editing through a dialog trigger.');
 check($editButton->item(0)->textContent === 'Ändern', 'The request action must be labelled Ändern.');
 check($editButton->item(0)->getAttribute('data-occurrence-id') === '9', 'The request dialog must identify its occurrence.');
+$jumpButton = $xpath->query('//button[@data-dashboard-jump]');
 check(
-    $xpath->query('//form[@action="/?action=booking-withdraw"]//input[@name="assignment_ids[]"]')->length === 2,
-    'Withdraw all pending place assignments together.'
+    $jumpButton->length === 1
+        && $jumpButton->item(0)->getAttribute('data-occurrence-id') === '9',
+    'Request calendar navigation must identify the complete occurrence.'
+);
+check(
+    $xpath->query('//form[@action="/?action=booking-delete"][@data-confirm-action="delete"]//input[@name="assignment_ids[]"]')->length === 2,
+    'Delete all pending place assignments together.'
+);
+check(
+    $xpath->query('//form[@action="/?action=booking-delete"]//button[@type="submit"]')->item(0)->textContent === 'Löschen',
+    'Label permanent request removal as Löschen.'
+);
+$allRequestsDocument = new DOMDocument();
+$allRequestsDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . Views::dashboard(['role' => 'trainer'], [$request], 'test-csrf', '', true, true, 2, 21, 3, 10),
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$allRequestsXPath = new DOMXPath($allRequestsDocument);
+check(
+    $allRequestsXPath->query('//a[contains(@href, "requests_page=1") and normalize-space(.)="Zurück"]')->length === 1,
+    'Show pagination for request lists larger than one page.'
+);
+check(
+    $allRequestsXPath->query('//a[contains(@href, "requests_page=3") and normalize-space(.)="Weiter"]')->length === 1,
+    'Show the next ten-item request page.'
+);
+check(
+    $allRequestsXPath->query('//a[contains(@href, "requests_page=4")]')->length === 0,
+    'Do not render a page link beyond the last request page.'
 );
 $trainerCalendar = Views::calendar(['role' => 'trainer'], 'test-csrf', []);
 check(str_contains($trainerCalendar, 'data-allow-cabins="false"'), 'Trainers must not be offered cabin choices.');
@@ -208,8 +264,13 @@ check(
     'Staff approval must open the request editor for the occurrence.'
 );
 check(
-    $xpath->query('//form[@action="/?action=booking-reject"]//input[@name="assignment_ids[]"]')->length === 2,
+    $xpath->query('//form[@action="/?action=booking-reject"][@data-confirm-action="reject"]//input[@name="assignment_ids[]"]')->length === 2,
     'Reject all pending place assignments together.'
+);
+
+check(
+    $xpath->query('//form[@action="/?action=booking-reject"][@data-confirm-action="reject"]')->length === 1,
+    'Confirm rejection from the request dashboard.'
 );
 
 check(
@@ -237,6 +298,52 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
 }
 
 $service = (new ReflectionClass(BookingService::class))->newInstanceWithoutConstructor();
+$layoutDocument = new DOMDocument();
+$layoutDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . Views::layout('Test', '', null, 'test-csrf', 'https://example.test'),
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$layoutXPath = new DOMXPath($layoutDocument);
+check(
+    $layoutXPath->query('//dialog[@id="action-confirm-dialog"]//*[@data-confirm-submit]')->length === 1,
+    'Render the shared confirmation dialog on every page.'
+);
+$adminLayoutDocument = new DOMDocument();
+$adminLayoutDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . Views::layout(
+        'Test',
+        '',
+        ['role' => 'admin', 'display_name' => 'Admin'],
+        'test-csrf',
+        'https://example.test'
+    ),
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$adminLayoutXPath = new DOMXPath($adminLayoutDocument);
+$settingsMenu = '//nav//details[contains(concat(" ", normalize-space(@class), " "), " admin-settings-menu ")]';
+check(
+    $adminLayoutXPath->query($settingsMenu . '/summary[contains(@class, "btn") and normalize-space()="Einstellungen"]')->length === 1
+        && $adminLayoutXPath->query($settingsMenu . '//a[@href="/?page=users"]')->length === 1
+        && $adminLayoutXPath->query($settingsMenu . '//a[@href="/?page=resources"]')->length === 1
+        && $adminLayoutXPath->query('//nav//a[@href="/?page=users" and not(ancestor::details)]')->length === 0
+        && $adminLayoutXPath->query('//nav//a[@href="/?page=resources" and not(ancestor::details)]')->length === 0,
+    'Admins must have a visible settings button with user and resource pages as submenu items.'
+);
+$managerLayoutDocument = new DOMDocument();
+$managerLayoutDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . Views::layout(
+        'Test',
+        '',
+        ['role' => 'manager', 'display_name' => 'Manager'],
+        'test-csrf',
+        'https://example.test'
+    ),
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+check(
+    (new DOMXPath($managerLayoutDocument))->query('//nav//details[contains(@class, "admin-settings-menu")]')->length === 0,
+    'The settings menu must remain restricted to admins.'
+);
 $validateDetails = new ReflectionMethod(BookingService::class, 'validateEventDetails');
 foreach (['training', 'match', 'external', 'bus'] as $eventType) {
     foreach ([null, '', " \t\n", "\u{00A0}\u{2003}"] as $title) {

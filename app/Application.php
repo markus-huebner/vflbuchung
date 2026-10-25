@@ -94,7 +94,7 @@ final class Application
                     ? '/?page=resources&form=create'
                     : '/?page=resources',
                 'resource-active', 'resource-delete' => '/?page=resources',
-                'booking-approve', 'booking-reject', 'booking-withdraw', 'request-edit' => '/?page=dashboard',
+                'booking-approve', 'booking-reject', 'booking-delete', 'request-edit' => '/?page=dashboard',
                 default => '/',
             };
             $this->redirect($target);
@@ -153,8 +153,17 @@ final class Application
             Security::verifyCsrf($_POST['_csrf'] ?? null);
             $actor = $this->requireUser();
             $result = $this->bookings->create($_POST, $actor);
+            $includeClosedRequests = ($_POST['show_all_requests'] ?? '') === '1';
             echo json_encode([
                 'pending' => $actor['role'] === 'trainer',
+                'occurrence_id' => $result['occurrence_id'],
+                'request_page' => $actor['role'] === 'trainer'
+                    ? $this->bookings->requestPageForOccurrence(
+                        $result['occurrence_id'],
+                        $actor,
+                        $includeClosedRequests
+                    )
+                    : null,
                 'occurrence_count' => $result['occurrence_count'],
                 'mail_errors' => $result['mail_errors'],
             ], JSON_THROW_ON_ERROR);
@@ -361,10 +370,10 @@ final class Application
                 ];
                 $this->redirect('/?page=dashboard');
 
-            case 'booking-withdraw':
+            case 'booking-delete':
                 $actor = $this->requireRole(['trainer']);
-                $this->bookings->withdraw($this->postedAssignmentIds(), $actor);
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Anfrage wurde zurückgezogen.'];
+                $this->bookings->deletePendingRequests($this->postedAssignmentIds(), $actor);
+                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die offene Anfrage wurde gelöscht.'];
                 $this->redirect('/?page=dashboard');
 
             case 'request-edit':
@@ -441,11 +450,27 @@ final class Application
                     $user = $this->requireRole(['admin', 'manager', 'trainer']);
                 }
                 $resources = $this->resources->all();
-                $requests = $user !== null && in_array($user['role'], ['admin', 'manager', 'trainer'], true)
-                    ? $this->bookings->requests($user)
-                    : [];
-                $content = Views::calendar($user, $this->csrf, $resources, $requests);
+                $includeClosedRequests = ($_GET['requests'] ?? '') === 'all';
+                $requestPage = filter_var($_GET['requests_page'] ?? 1, FILTER_VALIDATE_INT);
+                $requestPage = $requestPage === false || $requestPage < 1 ? 1 : $requestPage;
+                $requestListing = $user !== null && in_array($user['role'], ['admin', 'manager', 'trainer'], true)
+                    ? $this->bookings->requests($user, $includeClosedRequests, $requestPage)
+                    : ['items' => [], 'total' => 0, 'page' => 1, 'page_count' => 1, 'page_size' => 10];
+                $requestBaseUrl = $page === 'dashboard' ? '/?page=dashboard' : '/';
+                $content = Views::calendar(
+                    $user,
+                    $this->csrf,
+                    $resources,
+                    $requestListing['items'],
+                    $includeClosedRequests,
+                    $requestListing['page'],
+                    $requestListing['total'],
+                    $requestListing['page_count'],
+                    $requestListing['page_size'],
+                    $requestBaseUrl
+                );
                 $clientData = [
+                    'showAllRequests' => $includeClosedRequests,
                     'resources' => array_values(array_map(
                         static fn(array $resource): array => [
                             'id' => (int) $resource['id'],

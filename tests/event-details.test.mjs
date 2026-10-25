@@ -10,8 +10,25 @@ const application = readFileSync(new URL('../app/Application.php', import.meta.u
 const bookingService = readFileSync(new URL('../app/BookingService.php', import.meta.url), 'utf8');
 const showEventSource = source.slice(source.indexOf('function showEvent('), source.indexOf('function createResourceChip('));
 const bookingCardSource = source.slice(source.indexOf('function isRecurring('), source.indexOf('function showEvent('));
+const bookingTitleSource = source.slice(source.indexOf('function syncCombinedTitle('), source.indexOf('function renderResourceChoices('));
 const bookingFeedbackSource = source.slice(source.indexOf('function bookingError('), source.indexOf('async function submitBooking('));
 const submitBookingSource = source.slice(source.indexOf('async function submitBooking('), source.indexOf('async function saveResourceOrder('));
+const pendingRequestEditorSource = source.slice(
+  source.indexOf('async function openPendingRequestEditor('),
+  source.indexOf("document.querySelectorAll('#request-dashboard [data-request-edit]')"),
+);
+const requestEditorBindingsSource = source.slice(
+  source.indexOf("document.querySelectorAll('#request-dashboard [data-request-edit]')"),
+  source.indexOf("bookingForm?.querySelector('[data-request-approve]')"),
+);
+const requestSelectionRestoreSource = source.slice(
+  source.indexOf('function restoreRequestSelection('),
+  source.indexOf('function selectRequestRow('),
+);
+const bookingEditorSource = source.slice(
+  source.indexOf('const openBookingEditor = async'),
+  source.indexOf("detailsDialog?.querySelector('[data-edit-event]')"),
+);
 
 function setup() {
   const fields = new Map();
@@ -247,7 +264,90 @@ test('pending requests open the shared booking dialog for editing', () => {
   assert.match(source, /api=request-details/);
   assert.match(source, /editingRequest = \{ \.\.\.data, can_approve: canApprove, approve: false \}/);
   assert.match(submitBookingSource, /const api = isRequestEdit \? 'request-edit'/);
+  assert.match(submitBookingSource, /else if \(isRequestEdit\) \{\s*dialog\.close\(\);\s*\}/);
   assert.match(application, /if \(\$api === 'request-edit'/);
+});
+
+test('the edited request stays selected after the dialog reloads the list', () => {
+  assert.match(requestEditorBindingsSource, /selectRequestRow\(button\)/);
+  assert.match(submitBookingSource, /sessionStorage\.setItem\('selectedRequestOccurrenceId',\s*String\(editingRequest\.occurrence_id\)\)/);
+
+  const selectedRow = { selectedClass: '' };
+  const rowButton = {
+    dataset: { occurrenceId: '42' },
+    closest(selector) {
+      assert.equal(selector, '.request-row');
+      return selectedRow;
+    },
+  };
+  const storage = new Map([['selectedRequestOccurrenceId', '42']]);
+  const context = vm.createContext({
+    document: {
+      querySelectorAll(selector) {
+        assert.equal(selector, '#request-dashboard [data-occurrence-id]');
+        return [rowButton];
+      },
+    },
+    sessionStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      removeItem: (key) => storage.delete(key),
+    },
+  });
+  selectedRow.classList = {
+    add(name) { selectedRow.selectedClass = name; },
+  };
+  const restoreRequestSelection = vm.runInContext(
+    `${requestSelectionRestoreSource}; restoreRequestSelection`,
+    context,
+  );
+
+  restoreRequestSelection();
+
+  assert.equal(selectedRow.selectedClass, 'request-row-selected');
+  assert.equal(storage.has('selectedRequestOccurrenceId'), false);
+});
+
+test('new trainer requests select the list row and open the matching calendar entry', () => {
+  assert.match(bookingService, /'occurrence_id' => \$firstOccurrenceId/);
+  assert.match(bookingService, /public function requestPageForOccurrence\(/);
+  assert.match(application, /'occurrence_id' => \$result\['occurrence_id'\]/);
+  assert.match(application, /requestPageForOccurrence\(/);
+  assert.match(application, /'showAllRequests' => \$includeClosedRequests/);
+  assert.match(submitBookingSource, /sessionStorage\.setItem\('newRequestOccurrenceId'/);
+  assert.match(source, /sessionStorage\.getItem\('newRequestOccurrenceId'\)/);
+  assert.match(source, /await showRequestInCalendar\(button\)/);
+});
+
+test('prefilling an unchanged booking title clears stale required-field validity', () => {
+  assert.match(pendingRequestEditorSource, /setCombinedTitle\(bookingForm, combined\)/);
+  assert.match(bookingEditorSource, /setCombinedTitle\(bookingForm, combined\)/);
+
+  const context = vm.createContext({});
+  const titleHelpers = vm.runInContext(
+    `${bookingTitleSource}; ({ setCombinedTitle, syncCombinedTitle, validateRequiredNonWhitespace })`,
+    context,
+  );
+  const field = {
+    value: '',
+    dataset: { initialValue: '' },
+    validityMessage: '',
+    setCustomValidity(message) { this.validityMessage = message; },
+  };
+  const form = {
+    elements: {
+      combined_title: field,
+      title: { value: 'Unchanged team note' },
+      team_name: { value: '' },
+    },
+  };
+
+  titleHelpers.validateRequiredNonWhitespace(field);
+  assert.notEqual(field.validityMessage, '');
+
+  titleHelpers.setCombinedTitle(form, 'Unchanged team note');
+  assert.equal(field.validityMessage, '');
+  titleHelpers.syncCombinedTitle(form, true);
+  assert.equal(form.elements.title.value, 'Unchanged team note');
 });
 
 test('booking requests are grouped and review opens the editable dialog', () => {
@@ -255,9 +355,13 @@ test('booking requests are grouped and review opens the editable dialog', () => 
     bookingService.indexOf('public function requests('),
     bookingService.indexOf('public function approve('),
   );
-  assert.match(requestQuery, /GROUP_CONCAT\(CASE WHEN a\.status = 'pending' THEN a\.id END ORDER BY a\.id SEPARATOR ','\)\s+AS pending_assignment_ids/);
-  assert.match(requestQuery, /GROUP BY o\.id/);
+  assert.match(requestQuery, /GROUP_CONCAT\(DISTINCT CASE WHEN a\.status = 'pending' THEN a\.id END ORDER BY a\.id SEPARATOR ','\)\s+AS pending_assignment_ids/);
+  assert.match(requestQuery, /COUNT\(DISTINCT o\.id\) AS occurrence_count/);
+  assert.match(requestQuery, /GROUP BY \{\$requestEntryKey\}/);
+  assert.match(requestQuery, /g\.recurrence_rule IS NOT NULL AND o\.status = 'confirmed'/);
   assert.match(views, /data-request-approve/);
+  assert.match(views, /\$request\['is_series_summary'\]/);
+  assert.match(views, /Serientermine/);
   assert.match(views, />Ändern<\/button>/);
   assert.match(source, /document\.querySelectorAll\('#request-dashboard \[data-request-approve\]'\)/);
   assert.match(source, /data-request-approve/);
@@ -273,10 +377,42 @@ test('booking requests cannot reserve cabins and retain creation fields while ed
   assert.match(source, /editingRequest\.approve/);
 });
 
+test('admin user and resource management are grouped under settings', () => {
+  const layoutSource = views.slice(
+    views.indexOf('public static function layout('),
+    views.indexOf('private static function actionConfirmationDialog('),
+  );
+  assert.match(
+    layoutSource,
+    /if \(\$user\['role'\] === 'admin'\) \{\s*\$nav \.= '<details class="user-actions-menu admin-settings-menu">[\s\S]*?<summary class="btn btn-sm btn-outline-light">Einstellungen<\/summary>[\s\S]*?href="\/\?page=users">Benutzerverwaltung<\/a>[\s\S]*?href="\/\?page=resources">Ressourcenverwaltung<\/a>/,
+  );
+  assert.doesNotMatch(application, /case 'settings':/);
+  assert.match(application, /case 'users':\s*\$this->requireRole\(\['admin'\]\)/);
+  assert.match(application, /case 'resources':\s*\$this->requireRole\(\['admin'\]\)/);
+});
+
 test('hidden rejection action is not forced visible by a display utility', () => {
-  const rejectForm = views.match(/<form method="post" action="\/\?action=booking-reject"([^>]*)data-event-reject hidden>/);
+  const rejectForm = views.match(/<form method="post" action="\/\?action=booking-reject"([^>]*)data-event-reject[^>]*hidden>/);
   assert.ok(rejectForm);
   assert.doesNotMatch(rejectForm[1], /\bclass="[^"]*\bd-flex\b/);
+});
+
+test('rejecting a booking request requires confirmation', () => {
+  assert.match(views, /id="action-confirm-dialog"[\s\S]*data-confirm-title[\s\S]*data-confirm-message[\s\S]*data-confirm-submit/);
+  assert.equal([...views.matchAll(/action="\/\?action=booking-reject"[^>]*data-confirm-action="reject"/g)].length, 2);
+  assert.match(source, /querySelectorAll\('form\[data-confirm-action\]'\)/);
+  assert.match(source, /actionConfirmDialog\.showModal\(\)/);
+  assert.match(source, /actionConfirmDialog\.querySelector\('\[data-confirm-submit\]'\)[\s\S]*?form\.requestSubmit\(\)/);
+  assert.doesNotMatch(source, /window\.confirm/);
+});
+
+test('deleting a booking or cabin requires custom confirmation after choosing series scope', () => {
+  assert.equal([...views.matchAll(/data-cancel-form data-confirm-action="delete"/g)].length, 1);
+  assert.equal([...views.matchAll(/data-cancel-cabin-form data-confirm-action="delete"/g)].length, 1);
+  assert.match(views, /action="\/\?action=booking-delete" data-confirm-action="delete"/);
+  assert.match(source, /form\.dataset\.scopeConfirmed !== 'true'[\s\S]*?requestRecurrenceScope\('delete', form\)/);
+  assert.match(source, /Möchten Sie diese Kabinenbelegung wirklich löschen\?/);
+  assert.match(source, /Möchten Sie diese Buchung wirklich löschen\?/);
 });
 
 test('booking removal uses deletion wording throughout the UI and feedback', () => {

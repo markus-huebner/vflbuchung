@@ -3,7 +3,12 @@ import '../css/app.css';
 
 import { initBookingDates } from './booking-dates.mjs';
 import { initDatePicker } from './date-picker.mjs';
-import { eventDaySegment, layoutDayEvents } from './calendar-layout.mjs';
+import {
+  DEFAULT_DAY_END_HOUR,
+  DEFAULT_DAY_START_HOUR,
+  eventDaySegment,
+  layoutDayEvents,
+} from './calendar-layout.mjs';
 import { initTimePicker } from './time-picker.mjs';
 
 const state = {
@@ -14,6 +19,15 @@ const state = {
   resources: [],
   events: [],
 };
+const calendarResourceTypeStorageKey = 'vflbuchung:calendar-resource-type';
+const dashboardMainShareStorageKey = 'vflbuchung:calendar-dashboard-main-share';
+const dashboardMainShareMin = 35;
+const dashboardMainShareMax = 85;
+const dashboardMainShareDefault = 75;
+const savedResourceType = sessionStorage.getItem(calendarResourceTypeStorageKey);
+if (savedResourceType === 'pitch' || savedResourceType === 'bus') {
+  state.resourceType = savedResourceType;
+}
 
 const app = window.VereinApp || {};
 const messageBox = document.querySelector('#app-message');
@@ -21,9 +35,11 @@ const dialog = document.querySelector('#booking-dialog');
 const bookingForm = document.querySelector('#booking-form');
 const detailsDialog = document.querySelector('#event-dialog');
 const scopeDialog = document.querySelector('#recurrence-scope-dialog');
+const actionConfirmDialog = document.querySelector('#action-confirm-dialog');
 let selectedEvent = null;
 let editingBooking = null;
 let editingRequest = null;
+let pendingConfirmationForm = null;
 let pendingScopeAction = null;
 
 function announce(message, kind = 'info') {
@@ -95,6 +111,61 @@ async function loadResources() {
   renderResourceChoices();
 }
 
+function initDashboardResizer() {
+  const layout = document.querySelector('.calendar-dashboard-layout.has-dashboard');
+  const resizer = layout?.querySelector('[data-dashboard-resizer]');
+  if (!layout || !resizer) return;
+
+  const savedShare = sessionStorage.getItem(dashboardMainShareStorageKey);
+  const parsedShare = savedShare === null ? dashboardMainShareDefault : Number(savedShare);
+  let mainShare = Number.isFinite(parsedShare)
+    ? Math.min(dashboardMainShareMax, Math.max(dashboardMainShareMin, parsedShare))
+    : dashboardMainShareDefault;
+
+  const setMainShare = (share, persist = false) => {
+    mainShare = Math.min(dashboardMainShareMax, Math.max(dashboardMainShareMin, share));
+    layout.style.setProperty('--calendar-main-fr', `${mainShare}fr`);
+    layout.style.setProperty('--calendar-dashboard-fr', `${100 - mainShare}fr`);
+    resizer.setAttribute('aria-valuenow', String(Math.round(mainShare)));
+    if (persist) sessionStorage.setItem(dashboardMainShareStorageKey, String(mainShare));
+  };
+  setMainShare(mainShare);
+
+  let activePointerId = null;
+  let pointerOffset = 0;
+  resizer.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    activePointerId = event.pointerId;
+    pointerOffset = event.clientX - resizer.getBoundingClientRect().left;
+    resizer.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  resizer.addEventListener('pointermove', (event) => {
+    if (event.pointerId !== activePointerId) return;
+    const bounds = layout.getBoundingClientRect();
+    const gap = Number.parseFloat(window.getComputedStyle(layout).columnGap) || 0;
+    const availableWidth = bounds.width - resizer.getBoundingClientRect().width - (gap * 2);
+    if (availableWidth <= 0) return;
+    const mainWidth = event.clientX - bounds.left - gap - pointerOffset;
+    setMainShare((mainWidth / availableWidth) * 100, true);
+  });
+  const stopResizing = (event) => {
+    if (event.pointerId === activePointerId) activePointerId = null;
+  };
+  resizer.addEventListener('pointerup', stopResizing);
+  resizer.addEventListener('pointercancel', stopResizing);
+  resizer.addEventListener('keydown', (event) => {
+    let nextShare;
+    if (event.key === 'ArrowLeft') nextShare = mainShare - 2;
+    else if (event.key === 'ArrowRight') nextShare = mainShare + 2;
+    else if (event.key === 'Home') nextShare = dashboardMainShareMin;
+    else if (event.key === 'End') nextShare = dashboardMainShareMax;
+    else return;
+    event.preventDefault();
+    setMainShare(nextShare, true);
+  });
+}
+
 function renderCalendar() {
   document.querySelectorAll('[data-calendar-view]').forEach((element) => {
     element.hidden = element.dataset.calendarView !== state.resourceType;
@@ -142,6 +213,7 @@ function eventCard(event, compact = false, visibleRange = null) {
   wrapper.type = 'button';
   wrapper.className = `booking-card booking-${event.event_type || 'training'}${compact ? ' booking-card-compact' : ''}`;
   wrapper.dataset.assignmentId = event.assignment_id;
+  wrapper.dataset.occurrenceId = event.occurrence_id;
   wrapper.classList.toggle('booking-card-recurring', isRecurring(event));
   wrapper.classList.toggle('booking-pending', event.status === 'pending');
   fillBookingCard(wrapper, event, visibleRange);
@@ -201,8 +273,8 @@ function renderResourceDay() {
   const axis = document.createElement('div');
   axis.className = 'resource-time-axis';
   axis.append(document.createElement('div'));
-  const firstHour = state.showFullDay ? 0 : 8;
-  const lastHour = state.showFullDay ? 24 : 20;
+  const firstHour = state.showFullDay ? 0 : DEFAULT_DAY_START_HOUR;
+  const lastHour = state.showFullDay ? 24 : DEFAULT_DAY_END_HOUR;
   const hourCount = lastHour - firstHour;
   const layouts = resources.map(resource => {
     const events = state.events
@@ -464,6 +536,13 @@ function validateRequiredNonWhitespace(field) {
   field.setCustomValidity(hasNonWhitespace ? '' : 'Bitte gib eine Mannschaft oder einen Hinweis an.');
 }
 
+function setCombinedTitle(form, value) {
+  const field = form.elements.combined_title;
+  field.value = value;
+  field.dataset.initialValue = value;
+  validateRequiredNonWhitespace(field);
+}
+
 function initRequiredNonWhitespace(form) {
   const field = form.querySelector('[data-required-non-whitespace]');
   if (!field) return;
@@ -627,6 +706,9 @@ async function submitBooking(event) {
   submit.disabled = true;
   try {
     const formData = new FormData(bookingForm);
+    if (!editing) {
+      formData.set('show_all_requests', app.showAllRequests ? '1' : '0');
+    }
     const api = isRequestEdit ? 'request-edit' : editingBooking ? 'booking-edit' : 'booking-create';
     if (isRequestEdit) {
       formData.set('occurrence_id', editingRequest.occurrence_id);
@@ -651,8 +733,22 @@ async function submitBooking(event) {
     );
     bookingForm.dataset.saved = 'true';
     updateBookingFields();
-    if (document.querySelector('#request-list')) {
-      dialog.addEventListener('close', () => window.location.reload(), { once: true });
+    const hasRequestList = Boolean(document.querySelector('#request-list'));
+    if (hasRequestList) {
+      const returnUrl = new URL(window.location.href);
+      if (result.pending && Number.isInteger(result.request_page) && result.request_page > 0) {
+        returnUrl.searchParams.set('requests_page', String(result.request_page));
+      }
+      dialog.addEventListener('close', () => {
+        if (isRequestEdit) {
+          sessionStorage.setItem('selectedRequestOccurrenceId', String(editingRequest.occurrence_id));
+        } else if (result.pending && result.occurrence_id) {
+          const occurrenceId = String(result.occurrence_id);
+          sessionStorage.setItem('selectedRequestOccurrenceId', occurrenceId);
+          sessionStorage.setItem('newRequestOccurrenceId', occurrenceId);
+        }
+        window.location.assign(returnUrl.toString());
+      }, { once: true });
     }
     if (!editing) {
       announce(
@@ -660,7 +756,8 @@ async function submitBooking(event) {
         mailFailed ? 'warning' : 'success',
       );
       dialog.close();
-    } else if (isRequestEdit && result.approved > 0) {
+      if (result.pending && hasRequestList) return;
+    } else if (isRequestEdit) {
       dialog.close();
     }
     try {
@@ -778,26 +875,56 @@ function initResourceOrdering() {
   });
 }
 
-function initControls() {
-  document.querySelectorAll('[data-dashboard-jump]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const date = berlinDateTimeInput(button.dataset.start).split('T')[0];
-      state.date = new Date(`${date}T12:00:00`);
-      state.view = 'day';
-      state.resourceType = button.dataset.resourceType;
-      try {
-        await loadCalendar();
-        const booking = [...document.querySelectorAll('.booking-card')]
-          .find((card) => card.dataset.assignmentId === button.dataset.assignmentId);
-        if (!booking) throw new Error('Der angefragte Eintrag ist im Kalender nicht verfügbar.');
-        booking.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        booking.focus({ preventScroll: true });
-        booking.classList.add('booking-card-highlight');
-        window.setTimeout(() => booking.classList.remove('booking-card-highlight'), 2400);
-      } catch (error) {
-        announce(error.message, 'danger');
-      }
+function restoreRequestSelection() {
+  const selectedOccurrenceId = sessionStorage.getItem('selectedRequestOccurrenceId');
+  if (!selectedOccurrenceId) return;
+  const button = [...document.querySelectorAll('#request-dashboard [data-occurrence-id]')]
+    .find((entry) => entry.dataset.occurrenceId === selectedOccurrenceId);
+  button?.closest('.request-row')?.classList.add('request-row-selected');
+  sessionStorage.removeItem('selectedRequestOccurrenceId');
+}
+
+function selectRequestRow(button) {
+  document.querySelectorAll('.request-row-selected').forEach((row) => {
+    row.classList.remove('request-row-selected');
+  });
+  button.closest('.request-row')?.classList.add('request-row-selected');
+}
+
+async function showRequestInCalendar(button) {
+  selectRequestRow(button);
+  document.querySelectorAll('.booking-card-highlight').forEach((booking) => {
+    booking.classList.remove('booking-card-highlight');
+  });
+  document.querySelectorAll('.resource-lane-selected').forEach((lane) => {
+    lane.classList.remove('resource-lane-selected');
+  });
+  const date = berlinDateTimeInput(button.dataset.start).split('T')[0];
+  state.date = new Date(`${date}T12:00:00`);
+  state.view = 'day';
+  state.resourceType = button.dataset.resourceType;
+  sessionStorage.setItem(calendarResourceTypeStorageKey, state.resourceType);
+  try {
+    await loadCalendar();
+    const bookings = [...document.querySelectorAll('.booking-card')]
+      .filter((card) => card.dataset.occurrenceId === button.dataset.occurrenceId);
+    if (bookings.length === 0) throw new Error('Der angefragte Eintrag ist im Kalender nicht verfügbar.');
+    bookings.forEach((booking) => {
+      booking.classList.add('booking-card-highlight');
+      booking.closest('.resource-lane')?.classList.add('resource-lane-selected');
     });
+    bookings[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    bookings[0].focus({ preventScroll: true });
+  } catch (error) {
+    announce(error.message, 'danger');
+  }
+}
+
+function initControls() {
+  initDashboardResizer();
+  restoreRequestSelection();
+  document.querySelectorAll('[data-dashboard-jump]').forEach((button) => {
+    button.addEventListener('click', () => void showRequestInCalendar(button));
   });
   const bookingDates = bookingForm ? initBookingDates(bookingForm) : null;
   if (bookingForm) initRequiredNonWhitespace(bookingForm);
@@ -862,6 +989,7 @@ function initControls() {
     try {
       state.resourceType = select.value;
       await loadCalendar();
+      sessionStorage.setItem(calendarResourceTypeStorageKey, state.resourceType);
     } catch (error) {
       state.resourceType = previous;
       select.value = previous;
@@ -936,8 +1064,7 @@ function initControls() {
         bookingForm.elements[name].value = data[name] ?? '';
       }
       const combined = [data.team_name, data.title].filter(Boolean).join(' – ');
-      bookingForm.elements.combined_title.value = combined;
-      bookingForm.elements.combined_title.dataset.initialValue = combined;
+      setCombinedTitle(bookingForm, combined);
       bookingForm.elements.frequency.value = data.recurrence_rule?.frequency || 'none';
       bookingForm.elements.interval.value = data.recurrence_rule?.interval || 1;
       bookingForm.elements.limit_type.value = data.recurrence_rule?.limit_type || 'until';
@@ -961,10 +1088,16 @@ function initControls() {
   }
 
   document.querySelectorAll('#request-dashboard [data-request-edit]').forEach((button) => {
-    button.addEventListener('click', () => void openPendingRequestEditor(button, false));
+    button.addEventListener('click', () => {
+      selectRequestRow(button);
+      void openPendingRequestEditor(button, false);
+    });
   });
   document.querySelectorAll('#request-dashboard [data-request-approve]').forEach((button) => {
-    button.addEventListener('click', () => void openPendingRequestEditor(button, true));
+    button.addEventListener('click', () => {
+      selectRequestRow(button);
+      void openPendingRequestEditor(button, true);
+    });
   });
   bookingForm?.querySelector('[data-request-approve]')?.addEventListener('click', () => {
     if (!editingRequest?.can_approve) return;
@@ -1002,17 +1135,64 @@ function initControls() {
       bookingForm.elements.count.value = editingBooking.scope_counts[bookingForm.elements.scope.value];
     }
   });
-  document.querySelectorAll('[data-cancel-form], [data-cancel-cabin-form]').forEach((form) => {
+  document.querySelectorAll('form[data-confirm-action]').forEach((form) => {
     form.addEventListener('submit', (event) => {
-      if (form.dataset.scopeConfirmed === 'true') {
-        delete form.dataset.scopeConfirmed;
+      if (form.dataset.confirmed === 'true') {
+        delete form.dataset.confirmed;
         return;
       }
-      if (isRecurring(selectedEvent)) {
+      if (form.dataset.confirmAction === 'delete'
+        && form.matches('[data-cancel-form], [data-cancel-cabin-form]')
+        && isRecurring(selectedEvent)
+        && form.dataset.scopeConfirmed !== 'true') {
         event.preventDefault();
         requestRecurrenceScope('delete', form);
+        return;
       }
+
+      delete form.dataset.scopeConfirmed;
+      event.preventDefault();
+      if (!actionConfirmDialog) {
+        announce('Der Bestätigungsdialog ist nicht verfügbar.', 'danger');
+        return;
+      }
+
+      const action = form.dataset.confirmAction;
+      const rejecting = action === 'reject';
+      const cabinDeletion = form.matches('[data-cancel-cabin-form]');
+      const requestDeletion = form.action.includes('booking-delete');
+      const title = rejecting
+        ? 'Buchungsanfrage ablehnen?'
+        : requestDeletion ? 'Buchungsanfrage löschen?' : 'Buchung löschen?';
+      const message = rejecting
+        ? 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
+        : cabinDeletion
+          ? 'Möchten Sie diese Kabinenbelegung wirklich löschen?'
+          : requestDeletion
+            ? 'Möchten Sie diese Buchungsanfrage wirklich löschen?'
+            : 'Möchten Sie diese Buchung wirklich löschen?';
+      actionConfirmDialog.querySelector('[data-confirm-title]').textContent = title;
+      actionConfirmDialog.querySelector('[data-confirm-message]').textContent = message;
+      actionConfirmDialog.querySelector('[data-confirm-submit]').textContent = rejecting
+        ? 'Anfrage ablehnen' : 'Löschen';
+      pendingConfirmationForm = form;
+      actionConfirmDialog.showModal();
     });
+  });
+  actionConfirmDialog?.querySelector('[data-confirm-submit]')?.addEventListener('click', () => {
+    if (!pendingConfirmationForm) return;
+    const form = pendingConfirmationForm;
+    pendingConfirmationForm = null;
+    actionConfirmDialog.close();
+    form.dataset.confirmed = 'true';
+    form.requestSubmit();
+  });
+  actionConfirmDialog?.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => {
+    pendingConfirmationForm = null;
+    actionConfirmDialog.close();
+  });
+  actionConfirmDialog?.addEventListener('cancel', () => {
+    pendingConfirmationForm = null;
   });
   const openBookingEditor = async (scope) => {
     if (!selectedEvent || !bookingForm) return;
@@ -1036,8 +1216,7 @@ function initControls() {
         bookingForm.elements[name].value = data[name] ?? '';
       }
       const combined = [data.team_name, data.title].filter(Boolean).join(' – ');
-      bookingForm.elements.combined_title.value = combined;
-      bookingForm.elements.combined_title.dataset.initialValue = combined;
+      setCombinedTitle(bookingForm, combined);
       bookingDates.setRange(berlinDateTimeInput(data.start), berlinDateTimeInput(data.end));
       const rule = data.recurrence_rule;
       bookingForm.elements.frequency.value = rule?.frequency || 'none';
@@ -1106,5 +1285,17 @@ function initControls() {
 
 initControls();
 loadResources()
-  .then(loadCalendar)
+  .then(async () => {
+    const newRequestOccurrenceId = sessionStorage.getItem('newRequestOccurrenceId');
+    if (newRequestOccurrenceId) {
+      sessionStorage.removeItem('newRequestOccurrenceId');
+      const button = [...document.querySelectorAll('#request-dashboard [data-dashboard-jump]')]
+        .find((entry) => entry.dataset.occurrenceId === newRequestOccurrenceId);
+      if (button) {
+        await showRequestInCalendar(button);
+        return;
+      }
+    }
+    await loadCalendar();
+  })
   .catch((error) => announce(error.message, 'danger'));

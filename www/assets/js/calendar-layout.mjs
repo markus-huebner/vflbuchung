@@ -5,6 +5,9 @@ const berlinTime = new Intl.DateTimeFormat('en-GB', {
   hourCycle: 'h23',
 });
 
+export const DEFAULT_DAY_START_HOUR = 8;
+export const DEFAULT_DAY_END_HOUR = 19;
+
 function minutesOfDay(value) {
   const parts = Object.fromEntries(berlinTime.formatToParts(new Date(value)).map(part => [part.type, part.value]));
   return Number(parts.hour) * 60 + Number(parts.minute);
