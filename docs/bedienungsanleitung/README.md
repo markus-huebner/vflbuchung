@@ -146,10 +146,13 @@ Admins öffnen über den sichtbaren Button **Einstellungen** das Untermenü **Be
 ### Benutzerverwaltung
 
 - Benutzer per E-Mail einladen oder ohne E-Mail-Adresse anlegen.
+- Beim Einladen und Anlegen werden Vor- und Nachname getrennt erfasst.
 - Rollen und Kontostatus verwalten und Passwörter ändern.
 - Beim Löschen eines Benutzers bleiben Buchungen und Buchungshistorie erhalten; die Zuordnung zum gelöschten Konto entfällt.
 
 Der letzte aktive Admin kann nicht gelöscht werden.
+
+Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachnamen sowie die E-Mail-Adresse bearbeiten. Der Nachname ist optional. Der Benutzername wird dort angezeigt, kann aber nicht selbst geändert werden.
 
 ### Ressourcenverwaltung
 

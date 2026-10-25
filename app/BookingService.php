@@ -297,7 +297,8 @@ final class BookingService
                     GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR ',') AS resource_ids,
                     GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names,
                     MIN(rc.code) AS resource_type,
-                    u.display_name AS requester_name, u.email AS requester_email,
+                    TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS requester_name,
+                    u.email AS requester_email,
                     GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS cabins
              FROM booking_resource_assignments a
              JOIN booking_occurrences o ON o.id = a.occurrence_id
@@ -308,7 +309,7 @@ final class BookingService
              LEFT JOIN booking_cabin_assignments bca ON bca.occurrence_id = o.id
              LEFT JOIN resources c ON c.id = bca.cabin_id
              WHERE {$where}
-             GROUP BY {$requestEntryKey}, g.id, u.id, u.display_name, u.email
+             GROUP BY {$requestEntryKey}, g.id, u.id, u.first_name, u.last_name, u.email
              ORDER BY MIN(o.starts_at) DESC, MIN(o.id)
              LIMIT {$pageSize} OFFSET {$offset}"
         );
@@ -581,7 +582,8 @@ final class BookingService
                     "SELECT a.id, a.status, a.resource_id, o.id AS occurrence_id, o.group_id,
                             o.occurrence_no, o.event_type, o.title, o.team_name,
                             g.requested_by, o.starts_at, o.ends_at,
-                            u.email AS requester_email, u.display_name AS requester_name
+                            u.email AS requester_email,
+                            TRIM(CONCAT(u.first_name, \' \', u.last_name)) AS requester_name
                      FROM booking_resource_assignments a
                      JOIN booking_occurrences o ON o.id = a.occurrence_id
                      JOIN booking_groups g ON g.id = o.group_id
@@ -1310,7 +1312,8 @@ final class BookingService
             'SELECT a.id, a.status, a.resource_id, rc.code AS resource_type, o.id AS occurrence_id,
                     o.occurrence_no,
                     o.group_id, o.event_type, o.title, o.team_name, g.requested_by, o.starts_at, o.ends_at,
-                    u.email AS requester_email, u.display_name AS requester_name
+                    u.email AS requester_email,
+                    TRIM(CONCAT(u.first_name, \' \', u.last_name)) AS requester_name
              FROM booking_resource_assignments a
              JOIN booking_occurrences o ON o.id = a.occurrence_id
              JOIN booking_groups g ON g.id = o.group_id
@@ -1329,7 +1332,8 @@ final class BookingService
     {
         $statement = $this->pdo->prepare(
             'SELECT o.*, g.recurrence_rule, g.requested_by,
-                    u.email AS requester_email, u.display_name AS requester_name
+                    u.email AS requester_email,
+                    TRIM(CONCAT(u.first_name, \' \', u.last_name)) AS requester_name
              FROM booking_occurrences o
              JOIN booking_groups g ON g.id = o.group_id
              LEFT JOIN users u ON u.id = g.requested_by AND u.status = \'active\'
@@ -1445,7 +1449,7 @@ final class BookingService
     private function notifyApprovers(int $groupId): array
     {
         $statement = $this->pdo->query(
-            "SELECT DISTINCT u.email, u.display_name
+            "SELECT DISTINCT u.email, TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS display_name
              FROM users u
              WHERE u.status = 'active' AND u.email IS NOT NULL
                AND u.role IN ('admin', 'manager')"
@@ -1472,9 +1476,9 @@ final class BookingService
     private function notifyGroupRequester(int $groupId, string $state, string $reason = ''): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT u.email, u.display_name
+            "SELECT u.email, TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS display_name
              FROM booking_groups g JOIN users u ON u.id = g.requested_by
-             WHERE g.id = :id AND u.status = \'active\' AND u.email IS NOT NULL'
+             WHERE g.id = :id AND u.status = 'active' AND u.email IS NOT NULL"
         );
         $statement->execute(['id' => $groupId]);
         $requester = $statement->fetch();

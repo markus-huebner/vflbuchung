@@ -89,6 +89,7 @@ final class Application
                 'password-reset' => '/?page=reset&token=' . rawurlencode((string) ($_POST['token'] ?? '')),
                 'user-invite' => '/?page=users&form=invite',
                 'user-create' => '/?page=users&form=create',
+                'profile-update' => '/?page=profile',
                 'user-password', 'user-role', 'user-deactivate', 'user-delete' => '/?page=users',
                 'resource-save' => trim((string) ($_POST['id'] ?? '')) === ''
                     ? '/?page=resources&form=create'
@@ -235,7 +236,8 @@ final class Application
                     (string) ($_POST['setup_token'] ?? ''),
                     (string) ($_POST['email'] ?? ''),
                     (string) ($_POST['username'] ?? ''),
-                    (string) ($_POST['display_name'] ?? ''),
+                    (string) ($_POST['first_name'] ?? ''),
+                    (string) ($_POST['last_name'] ?? ''),
                     (string) ($_POST['password'] ?? '')
                 );
                 $this->auth->loginAfterSetup((string) $_POST['email']);
@@ -262,7 +264,8 @@ final class Application
                 $this->users->invite(
                     (string) ($_POST['email'] ?? ''),
                     (string) ($_POST['username'] ?? ''),
-                    (string) ($_POST['display_name'] ?? ''),
+                    (string) ($_POST['first_name'] ?? ''),
+                    (string) ($_POST['last_name'] ?? ''),
                     (string) ($_POST['role'] ?? '')
                 );
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Einladung wurde versendet.'];
@@ -272,13 +275,25 @@ final class Application
                 $this->requireRole(['admin']);
                 $this->users->createWithoutEmail(
                     (string) ($_POST['username'] ?? ''),
-                    (string) ($_POST['display_name'] ?? ''),
+                    (string) ($_POST['first_name'] ?? ''),
+                    (string) ($_POST['last_name'] ?? ''),
                     (string) ($_POST['role'] ?? ''),
                     (string) ($_POST['password'] ?? ''),
                     (string) ($_POST['password_confirm'] ?? '')
                 );
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Der Benutzer ohne E-Mail-Adresse wurde angelegt.'];
                 $this->redirect('/?page=users');
+
+            case 'profile-update':
+                $actor = $this->requireUser();
+                $this->users->updateOwnProfile(
+                    (int) $actor['id'],
+                    (string) ($_POST['email'] ?? ''),
+                    (string) ($_POST['first_name'] ?? ''),
+                    (string) ($_POST['last_name'] ?? '')
+                );
+                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Deine Daten wurden gespeichert.'];
+                $this->redirect('/?page=profile');
 
             case 'user-password':
                 $this->requireRole(['admin']);
@@ -520,6 +535,11 @@ final class Application
                 );
                 break;
 
+            case 'profile':
+                $user = $this->requireUser();
+                $content = Views::profile($user, $this->csrf);
+                break;
+
             case 'resources':
                 $this->requireRole(['admin']);
                 $content = Views::resources(
@@ -626,6 +646,7 @@ final class Application
             'setup' => 'Ersteinrichtung',
             'invite' => 'Konto einrichten',
             'forgot', 'reset' => 'Passwort',
+            'profile' => 'Mein Profil',
             'dashboard' => 'Belegungsplan',
             'users' => 'Benutzerverwaltung',
             'resources' => 'Ressourcen',

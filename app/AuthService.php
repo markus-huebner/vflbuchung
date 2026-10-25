@@ -22,7 +22,7 @@ final class AuthService
         }
 
         $statement = $this->pdo->prepare(
-            "SELECT id, email, username, display_name, role
+            "SELECT id, email, username, first_name, last_name, role
              FROM users
              WHERE id = :id AND status = 'active'"
         );
@@ -90,7 +90,8 @@ final class AuthService
         string $setupToken,
         string $email,
         string $username,
-        string $displayName,
+        string $firstName,
+        string $lastName,
         string $password
     ): void {
         $expectedToken = $this->config->get('APP_SETUP_TOKEN');
@@ -100,6 +101,8 @@ final class AuthService
 
         $this->validatePassword($password);
         $username = self::normalizeUsername($username);
+        $firstName = self::validateFirstName($firstName);
+        $lastName = self::validateLastName($lastName);
         $this->pdo->beginTransaction();
         try {
             $setting = $this->pdo->query(
@@ -114,13 +117,14 @@ final class AuthService
             }
 
             $statement = $this->pdo->prepare(
-                "INSERT INTO users (email, username, display_name, password_hash, role, status)
-                 VALUES (:email, :username, :display_name, :password_hash, 'admin', 'active')"
+                "INSERT INTO users (email, username, first_name, last_name, password_hash, role, status)
+                 VALUES (:email, :username, :first_name, :last_name, :password_hash, 'admin', 'active')"
             );
             $statement->execute([
                 'email' => $this->normalizeEmail($email),
                 'username' => $username,
-                'display_name' => $this->validateDisplayName($displayName),
+                'first_name' => $firstName,
+                'last_name' => $lastName,
                 'password_hash' => password_hash($password, PASSWORD_DEFAULT),
             ]);
             $this->pdo->prepare(
@@ -168,14 +172,29 @@ final class AuthService
         return $normalized;
     }
 
-    public static function validateDisplayName(string $name): string
+    public static function validateFirstName(string $firstName): string
     {
-        $name = trim($name);
-        if ($name === '' || mb_strlen($name) > 120) {
-            throw new RuntimeException('Der Name muss zwischen 1 und 120 Zeichen lang sein.');
+        $firstName = trim($firstName);
+        if ($firstName === '' || mb_strlen($firstName) > 120) {
+            throw new RuntimeException('Der Vorname muss zwischen 1 und 120 Zeichen lang sein.');
         }
 
-        return $name;
+        return $firstName;
+    }
+
+    public static function validateLastName(string $lastName): string
+    {
+        $lastName = trim($lastName);
+        if (mb_strlen($lastName) > 120) {
+            throw new RuntimeException('Der Nachname darf höchstens 120 Zeichen lang sein.');
+        }
+
+        return $lastName;
+    }
+
+    public static function fullName(string $firstName, string $lastName): string
+    {
+        return trim($firstName . ' ' . $lastName);
     }
 
     public static function normalizeUsername(string $username): string

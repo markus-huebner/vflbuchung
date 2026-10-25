@@ -313,7 +313,7 @@ $adminLayoutDocument->loadHTML(
     '<?xml encoding="UTF-8">' . Views::layout(
         'Test',
         '',
-        ['role' => 'admin', 'display_name' => 'Admin'],
+        ['role' => 'admin', 'first_name' => 'Admin', 'last_name' => ''],
         'test-csrf',
         'https://example.test'
     ),
@@ -325,6 +325,7 @@ check(
     $adminLayoutXPath->query($settingsMenu . '/summary[contains(@class, "btn") and normalize-space()="Einstellungen"]')->length === 1
         && $adminLayoutXPath->query($settingsMenu . '//a[@href="/?page=users"]')->length === 1
         && $adminLayoutXPath->query($settingsMenu . '//a[@href="/?page=resources"]')->length === 1
+        && $adminLayoutXPath->query('//nav//a[@href="/?page=profile" and normalize-space()="Mein Profil"]')->length === 1
         && $adminLayoutXPath->query('//nav//a[@href="/?page=users" and not(ancestor::details)]')->length === 0
         && $adminLayoutXPath->query('//nav//a[@href="/?page=resources" and not(ancestor::details)]')->length === 0,
     'Admins must have a visible settings button with user and resource pages as submenu items.'
@@ -334,7 +335,7 @@ $managerLayoutDocument->loadHTML(
     '<?xml encoding="UTF-8">' . Views::layout(
         'Test',
         '',
-        ['role' => 'manager', 'display_name' => 'Manager'],
+        ['role' => 'manager', 'first_name' => 'Manager', 'last_name' => ''],
         'test-csrf',
         'https://example.test'
     ),
@@ -343,6 +344,45 @@ $managerLayoutDocument->loadHTML(
 check(
     (new DOMXPath($managerLayoutDocument))->query('//nav//details[contains(@class, "admin-settings-menu")]')->length === 0,
     'The settings menu must remain restricted to admins.'
+);
+$profileDocument = new DOMDocument();
+$profileDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . Views::profile([
+        'first_name' => 'Test',
+        'last_name' => 'User',
+        'username' => 'test.user',
+        'email' => null,
+    ], 'test-csrf'),
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$profileXPath = new DOMXPath($profileDocument);
+$profileFieldIds = [];
+foreach ($profileXPath->query('//form[@action="/?action=profile-update"]/div/input[@id]') as $input) {
+    $profileFieldIds[] = $input->getAttribute('id');
+}
+check(
+    $profileXPath->query('//form[@action="/?action=profile-update"]//input[@name="first_name"]')->length === 1
+        && $profileXPath->query('//form[@action="/?action=profile-update"]//input[@name="last_name"]')->length === 1
+        && $profileXPath->query('//form[@action="/?action=profile-update"]//input[@name="username"]')->length === 0
+        && $profileXPath->query('//form[@action="/?action=profile-update"]//input[@readonly and @tabindex="-1" and @value="test.user"]')->length === 1
+        && $profileFieldIds === ['profile-username', 'profile-first-name', 'profile-last-name', 'profile-email'],
+    'The profile must put the read-only, keyboard-skipped username first, followed by editable fields.'
+);
+$setupHtml = Views::setup('test-csrf');
+check(
+    str_contains($setupHtml, 'name="first_name"')
+        && str_contains($setupHtml, 'name="last_name"')
+        && !str_contains($setupHtml, 'name="display_name"'),
+    'The initial admin setup must collect first and last names separately.'
+);
+$inviteHtml = Views::users([], 'test-csrf', '', 'invite');
+$createHtml = Views::users([], 'test-csrf', '', 'create');
+check(
+    str_contains($inviteHtml, 'name="first_name"')
+        && str_contains($inviteHtml, 'name="last_name"')
+        && str_contains($createHtml, 'name="first_name"')
+        && str_contains($createHtml, 'name="last_name"'),
+    'Admin user forms must collect first and last names separately.'
 );
 $validateDetails = new ReflectionMethod(BookingService::class, 'validateEventDetails');
 foreach (['training', 'match', 'external', 'bus'] as $eventType) {

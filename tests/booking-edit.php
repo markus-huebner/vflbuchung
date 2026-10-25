@@ -16,8 +16,8 @@ if (!preg_match('/^vflbuchung_test_[a-z0-9]+$/', $config->get('DB_NAME'))) {
 $pdo = Database::connect($config);
 $service = new BookingService($pdo, new Mailer($config), $config);
 foreach (['admin', 'manager', 'trainer'] as $role) {
-    $pdo->prepare("INSERT INTO users (username, display_name, role, status) VALUES (:role, :name, :role_value, 'active')")
-        ->execute(['role' => $role, 'name' => $role, 'role_value' => $role]);
+    $pdo->prepare("INSERT INTO users (username, first_name, last_name, role, status) VALUES (:role, :first_name, '', :role_value, 'active')")
+        ->execute(['role' => $role, 'first_name' => $role, 'role_value' => $role]);
     $actors[$role] = ['id' => (int) $pdo->lastInsertId(), 'role' => $role];
 }
 $admin = $actors['admin'];
@@ -247,7 +247,7 @@ check(
     'Staff must see one grouped request with every pending place assignment.'
 );
 $pdo->prepare(
-    "INSERT INTO users (username, display_name, role, status) VALUES ('request-list', 'Request list', 'trainer', 'active')"
+    "INSERT INTO users (username, first_name, last_name, role, status) VALUES ('request-list', 'Request', 'List', 'trainer', 'active')"
 )->execute();
 $paginationActor = ['id' => (int) $pdo->lastInsertId(), 'role' => 'trainer'];
 $paginationRequests = [];

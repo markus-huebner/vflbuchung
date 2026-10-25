@@ -24,7 +24,11 @@ final class Views
                     . '<div class="user-actions-menu-items"><a href="/?page=users">Benutzerverwaltung</a>'
                     . '<a href="/?page=resources">Ressourcenverwaltung</a></div></details>';
             }
-            $nav .= '<span class="text-white-50 small">' . Security::escape($user['display_name']) . '</span>';
+            $nav .= '<span class="text-white-50 small">' . Security::escape(AuthService::fullName(
+                (string) $user['first_name'],
+                (string) $user['last_name']
+            )) . '</span>';
+            $nav .= '<a class="nav-link py-0 text-white" href="/?page=profile">Mein Profil</a>';
             $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button class="btn btn-sm btn-outline-light" type="submit">Abmelden</button></form>';
         } else {
             $nav .= '<a class="nav-link" href="/?page=login">Anmelden</a>';
@@ -501,14 +505,16 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             $id = (int) $user['id'];
             $roleLabels = ['admin' => 'Admin', 'manager' => 'Verwalter', 'trainer' => 'Trainer'];
             $statusLabels = ['active' => 'Aktiv', 'invited' => 'Eingeladen', 'inactive' => 'Deaktiviert'];
-            $rows .= '<tr><td class="fw-semibold">' . Security::escape($user['display_name'])
+            $fullName = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
+            $rows .= '<tr><td class="fw-semibold">' . Security::escape($user['first_name'])
+                . '</td><td>' . Security::escape($user['last_name'])
                 . '</td><td>' . Security::escape((string) ($user['email'] ?? '—'))
                 . '</td><td>' . Security::escape((string) ($user['username'] ?? '—'))
                 . '</td><td><form method="post" action="/?action=user-role" class="d-flex gap-2">'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf)
                 . '"><input type="hidden" name="id" value="' . $id
                 . '"><select class="form-select form-select-sm" name="role" aria-label="Rolle für '
-                . Security::escape($user['display_name']) . '">';
+                . Security::escape($fullName) . '">';
             foreach ($roleLabels as $role => $label) {
                 $rows .= '<option value="' . $role . '"' . ($user['role'] === $role ? ' selected' : '')
                     . '>' . $label . '</option>';
@@ -529,11 +535,11 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '" type="password" name="password_confirm" minlength="12" maxlength="200" autocomplete="new-password" required>'
                 . '<button class="btn btn-sm btn-primary" type="submit">Passwort speichern</button></form></details>'
                 . '<button class="btn btn-sm btn-outline-danger text-nowrap" type="button" data-delete-user'
-                . ' data-user-id="' . $id . '" data-user-name="' . Security::escape($user['display_name'])
+                . ' data-user-id="' . $id . '" data-user-name="' . Security::escape($fullName)
                 . '">Löschen</button></div></td></tr>';
         }
 
-        $empty = $rows === '' ? '<tr><td colspan="6" class="text-center text-secondary py-4">'
+        $empty = $rows === '' ? '<tr><td colspan="7" class="text-center text-secondary py-4">'
             . 'Es sind noch keine Benutzer angelegt.</td></tr>' : $rows;
 
         $header = '<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">'
@@ -553,7 +559,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
 
         return $header . '<section class="panel-card p-3"><div class="table-responsive">'
             . '<table class="table align-middle mb-0">'
-            . '<thead><tr><th>Name</th><th>E-Mail</th><th>Benutzername</th><th>Rolle</th><th>Status</th>'
+            . '<thead><tr><th>Vorname</th><th>Nachname</th><th>E-Mail</th><th>Benutzername</th><th>Rolle</th><th>Status</th>'
             . '<th>Aktionen</th></tr></thead><tbody>' . $empty . '</tbody></table></div></section>'
             . '<dialog id="delete-user-dialog" aria-labelledby="delete-user-title">'
             . '<form method="post" action="/?action=user-delete">'
@@ -567,6 +573,30 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . 'Abbrechen</button><button class="btn btn-danger" type="submit">Endgültig löschen</button></div></form></dialog>';
     }
 
+    public static function profile(array $user, string $csrf): string
+    {
+        return '<section class="panel-card mx-auto p-4" style="max-width:640px">'
+            . '<h1 class="h3">Meine Daten</h1>'
+            . '<p class="text-secondary">Hier kannst du deinen Vornamen, Nachnamen und deine E-Mail-Adresse ändern.</p>'
+            . '<form method="post" action="/?action=profile-update">'
+            . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
+            . '<div class="mb-3"><label class="form-label" for="profile-username">Benutzername</label>'
+            . '<input class="form-control" id="profile-username" readonly tabindex="-1" value="'
+            . Security::escape((string) $user['username']) . '">'
+            . '<div class="form-text">Der Benutzername kann nicht selbst geändert werden.</div></div>'
+            . '<div class="mb-3"><label class="form-label" for="profile-first-name">Vorname</label>'
+            . '<input class="form-control" id="profile-first-name" name="first_name" maxlength="120" required value="'
+            . Security::escape((string) $user['first_name']) . '"></div>'
+            . '<div class="mb-3"><label class="form-label" for="profile-last-name">Nachname</label>'
+            . '<input class="form-control" id="profile-last-name" name="last_name" maxlength="120" value="'
+            . Security::escape((string) $user['last_name']) . '">'
+            . '<div class="form-text">Optional.</div></div>'
+            . '<div class="mb-3"><label class="form-label" for="profile-email">E-Mail</label>'
+            . '<input class="form-control" id="profile-email" name="email" type="email" maxlength="254" value="'
+            . Security::escape((string) ($user['email'] ?? '')) . '"></div>'
+            . '<button class="btn btn-primary" type="submit">Daten speichern</button></form></section>';
+    }
+
     private static function inviteUserForm(string $csrf): string
     {
         return '<a class="btn btn-outline-secondary mb-3" href="/?page=users">Zur Benutzerliste</a>'
@@ -575,8 +605,11 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<p class="text-secondary">Die eingeladene Person legt ihr Passwort über den Einladungslink selbst fest.</p>'
             . '<form method="post" action="/?action=user-invite">'
             . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
-            . '<div class="mb-3"><label class="form-label" for="invite-user-name">Name</label>'
-            . '<input class="form-control" id="invite-user-name" name="display_name" maxlength="120" required></div>'
+            . '<div class="mb-3"><label class="form-label" for="invite-user-first-name">Vorname</label>'
+            . '<input class="form-control" id="invite-user-first-name" name="first_name" maxlength="120" required></div>'
+            . '<div class="mb-3"><label class="form-label" for="invite-user-last-name">Nachname</label>'
+            . '<input class="form-control" id="invite-user-last-name" name="last_name" maxlength="120">'
+            . '<div class="form-text">Optional.</div></div>'
             . '<div class="mb-3"><label class="form-label" for="invite-user-email">E-Mail</label>'
             . '<input class="form-control" id="invite-user-email" name="email" type="email" maxlength="254" required></div>'
             . '<div class="mb-3"><label class="form-label" for="invite-user-username">Benutzername</label>'
@@ -598,8 +631,11 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<p class="text-secondary">Die Anmeldung erfolgt mit Benutzername und Startpasswort.</p>'
             . '<form method="post" action="/?action=user-create">'
             . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
-            . '<div class="mb-3"><label class="form-label" for="create-user-name">Name</label>'
-            . '<input class="form-control" id="create-user-name" name="display_name" maxlength="120" required></div>'
+            . '<div class="mb-3"><label class="form-label" for="create-user-first-name">Vorname</label>'
+            . '<input class="form-control" id="create-user-first-name" name="first_name" maxlength="120" required></div>'
+            . '<div class="mb-3"><label class="form-label" for="create-user-last-name">Nachname</label>'
+            . '<input class="form-control" id="create-user-last-name" name="last_name" maxlength="120">'
+            . '<div class="form-text">Optional.</div></div>'
             . '<div class="mb-3"><label class="form-label" for="create-user-username">Benutzername</label>'
             . '<input class="form-control" id="create-user-username" name="username" minlength="3" maxlength="80" '
             . 'pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}" autocomplete="username" required>'
@@ -731,7 +767,16 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     public static function setup(string $csrf, string $error = ''): string
     {
         return '<section class="panel-card mx-auto p-4" style="max-width:560px"><h1 class="h3">Ersten Admin einrichten</h1><p>Der Setup-Schlüssel ist erforderlich. Nach dem Anlegen des Kontos ist dieser Assistent gesperrt.</p>' . self::inlineError($error) . '
-<form method="post" action="/?action=setup"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><div class="mb-3"><label class="form-label" for="setup-token">Setup-Schlüssel</label><input class="form-control" id="setup-token" type="password" name="setup_token" autocomplete="off" required></div><div class="mb-3"><label class="form-label" for="setup-name">Name</label><input class="form-control" id="setup-name" name="display_name" maxlength="120" required></div><div class="mb-3"><label class="form-label" for="setup-email">E-Mail</label><input class="form-control" id="setup-email" type="email" name="email" maxlength="254" required></div><div class="mb-3"><label class="form-label" for="setup-username">Benutzername</label><input class="form-control" id="setup-username" name="username" minlength="3" maxlength="80" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}" autocomplete="username" required><div class="form-text">3–80 Zeichen: Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich.</div></div><div class="mb-3"><label class="form-label" for="setup-password">Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="setup-password" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" required></div><button class="btn btn-primary" type="submit">Admin-Konto erstellen</button></form></section>';
+<form method="post" action="/?action=setup">
+  <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
+  <div class="mb-3"><label class="form-label" for="setup-token">Setup-Schlüssel</label><input class="form-control" id="setup-token" type="password" name="setup_token" autocomplete="off" required></div>
+  <div class="mb-3"><label class="form-label" for="setup-first-name">Vorname</label><input class="form-control" id="setup-first-name" name="first_name" maxlength="120" required></div>
+  <div class="mb-3"><label class="form-label" for="setup-last-name">Nachname</label><input class="form-control" id="setup-last-name" name="last_name" maxlength="120"><div class="form-text">Optional.</div></div>
+  <div class="mb-3"><label class="form-label" for="setup-email">E-Mail</label><input class="form-control" id="setup-email" type="email" name="email" maxlength="254" required></div>
+  <div class="mb-3"><label class="form-label" for="setup-username">Benutzername</label><input class="form-control" id="setup-username" name="username" minlength="3" maxlength="80" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}" autocomplete="username" required><div class="form-text">3–80 Zeichen: Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich.</div></div>
+  <div class="mb-3"><label class="form-label" for="setup-password">Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="setup-password" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" required></div>
+  <button class="btn btn-primary" type="submit">Admin-Konto erstellen</button>
+</form></section>';
     }
 
     public static function invite(string $token, string $csrf, string $error = ''): string

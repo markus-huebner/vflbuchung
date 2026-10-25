@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     email VARCHAR(254) NULL,
+    first_name VARCHAR(120) NOT NULL,
+    last_name VARCHAR(120) NOT NULL DEFAULT '',
     username VARCHAR(80) NOT NULL,
-    display_name VARCHAR(120) NOT NULL,
     password_hash VARCHAR(255) NULL,
     role ENUM('admin', 'manager', 'trainer') NOT NULL,
     status ENUM('invited', 'active', 'inactive') NOT NULL DEFAULT 'invited',

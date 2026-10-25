@@ -15,7 +15,13 @@ final class UserService
     ) {
     }
 
-    public function invite(string $email, string $username, string $name, string $role): void
+    public function invite(
+        string $email,
+        string $username,
+        string $firstName,
+        string $lastName,
+        string $role
+    ): void
     {
         if (!in_array($role, ['admin', 'manager', 'trainer'], true)) {
             throw new RuntimeException('Diese Rolle kann nicht eingeladen werden.');
@@ -23,20 +29,22 @@ final class UserService
 
         $email = AuthService::normalizeEmail($email);
         $username = AuthService::normalizeUsername($username);
-        $name = AuthService::validateDisplayName($name);
+        $firstName = AuthService::validateFirstName($firstName);
+        $lastName = AuthService::validateLastName($lastName);
         $token = Security::randomToken();
         $expiresAt = (new \DateTimeImmutable('+48 hours'))->format('Y-m-d H:i:s');
 
         $this->pdo->beginTransaction();
         try {
             $statement = $this->pdo->prepare(
-                "INSERT INTO users (email, username, display_name, role, status, invite_token_hash, invite_expires_at)
-                 VALUES (:email, :username, :display_name, :role, 'invited', :token_hash, :expires_at)"
+                "INSERT INTO users (email, username, first_name, last_name, role, status, invite_token_hash, invite_expires_at)
+                 VALUES (:email, :username, :first_name, :last_name, :role, 'invited', :token_hash, :expires_at)"
             );
             $statement->execute([
                 'email' => $email,
                 'username' => $username,
-                'display_name' => $name,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
                 'role' => $role,
                 'token_hash' => Security::tokenHash($token),
                 'expires_at' => $expiresAt,
@@ -46,11 +54,11 @@ final class UserService
             $this->mailer->send(
                 $email,
                 'Einladung zum Vereins-Buchungssystem',
-                '<p>Hallo ' . Security::escape($name) . ',</p><p>Dein Benutzername lautet <strong>'
+                '<p>Hallo ' . Security::escape($firstName) . ',</p><p>Dein Benutzername lautet <strong>'
                     . Security::escape($username) . '</strong>. Richte dein Konto über den folgenden Link ein. '
                     . 'Der Link ist 48 Stunden gültig.</p><p><a href="' . Security::escape($url)
                     . '">Konto einrichten</a></p>',
-                "Hallo {$name},\n\nDein Benutzername lautet: {$username}\n\n"
+                "Hallo {$firstName},\n\nDein Benutzername lautet: {$username}\n\n"
                     . "Richte dein Konto über diesen Link ein (48 Stunden gültig):\n{$url}"
             );
             $this->pdo->commit();
@@ -72,7 +80,8 @@ final class UserService
 
     public function createWithoutEmail(
         string $username,
-        string $name,
+        string $firstName,
+        string $lastName,
         string $role,
         string $password,
         string $passwordConfirmation
@@ -82,7 +91,8 @@ final class UserService
         }
 
         $username = AuthService::normalizeUsername($username);
-        $name = AuthService::validateDisplayName($name);
+        $firstName = AuthService::validateFirstName($firstName);
+        $lastName = AuthService::validateLastName($lastName);
         AuthService::validatePassword($password);
         if (!hash_equals($password, $passwordConfirmation)) {
             throw new RuntimeException('Die Passwörter stimmen nicht überein.');
@@ -90,12 +100,13 @@ final class UserService
 
         try {
             $statement = $this->pdo->prepare(
-                "INSERT INTO users (email, username, display_name, password_hash, role, status)
-                 VALUES (NULL, :username, :display_name, :password_hash, :role, 'active')"
+                "INSERT INTO users (email, username, first_name, last_name, password_hash, role, status)
+                 VALUES (NULL, :username, :first_name, :last_name, :password_hash, :role, 'active')"
             );
             $statement->execute([
                 'username' => $username,
-                'display_name' => $name,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
                 'password_hash' => password_hash($password, PASSWORD_DEFAULT),
                 'role' => $role,
             ]);
@@ -148,7 +159,7 @@ final class UserService
     {
         $email = AuthService::normalizeEmail($email);
         $statement = $this->pdo->prepare(
-            "SELECT id, display_name FROM users WHERE email = :email AND status = 'active' LIMIT 1"
+            "SELECT id, first_name, last_name FROM users WHERE email = :email AND status = 'active' LIMIT 1"
         );
         $statement->execute(['email' => $email]);
         $user = $statement->fetch();
@@ -168,12 +179,13 @@ final class UserService
         ]);
 
         $url = $this->config->get('APP_URL') . '/?page=reset&token=' . rawurlencode($token);
-        $name = Security::escape((string) $user['display_name']);
+        $fullName = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
+        $name = Security::escape($fullName);
         $this->mailer->send(
             $email,
             'Passwort zurücksetzen',
             '<p>Hallo ' . $name . ',</p><p>Über den folgenden Link kannst du dein Passwort zurücksetzen. Er ist eine Stunde gültig.</p><p><a href="' . Security::escape($url) . '">Passwort zurücksetzen</a></p>',
-            "Hallo {$user['display_name']},\n\nSetze dein Passwort über diesen Link zurück (1 Stunde gültig):\n{$url}"
+            "Hallo {$fullName},\n\nSetze dein Passwort über diesen Link zurück (1 Stunde gültig):\n{$url}"
         );
     }
 
@@ -213,8 +225,35 @@ final class UserService
     public function all(): array
     {
         return $this->pdo->query(
-            'SELECT id, email, username, display_name, role, status, created_at FROM users ORDER BY display_name'
+            'SELECT id, email, username, first_name, last_name, role, status, created_at
+             FROM users ORDER BY first_name, last_name'
         )->fetchAll();
+    }
+
+    public function updateOwnProfile(int $userId, string $email, string $firstName, string $lastName): void
+    {
+        $email = trim($email) === '' ? null : AuthService::normalizeEmail($email);
+        $firstName = AuthService::validateFirstName($firstName);
+        $lastName = AuthService::validateLastName($lastName);
+
+        try {
+            $statement = $this->pdo->prepare(
+                "UPDATE users
+                 SET email = :email, first_name = :first_name, last_name = :last_name
+                 WHERE id = :id AND status = 'active'"
+            );
+            $statement->execute([
+                'email' => $email,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'id' => $userId,
+            ]);
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000') {
+                throw new RuntimeException('Diese E-Mail-Adresse ist bereits vergeben.', 0, $exception);
+            }
+            throw $exception;
+        }
     }
 
     public function setPassword(int $id, string $password, string $passwordConfirmation): void
