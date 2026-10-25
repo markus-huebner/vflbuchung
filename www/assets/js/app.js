@@ -23,6 +23,7 @@ const detailsDialog = document.querySelector('#event-dialog');
 const scopeDialog = document.querySelector('#recurrence-scope-dialog');
 let selectedEvent = null;
 let editingBooking = null;
+let editingRequest = null;
 let pendingScopeAction = null;
 
 function announce(message, kind = 'info') {
@@ -140,6 +141,7 @@ function eventCard(event, compact = false, visibleRange = null) {
   const wrapper = document.createElement('button');
   wrapper.type = 'button';
   wrapper.className = `booking-card booking-${event.event_type || 'training'}${compact ? ' booking-card-compact' : ''}`;
+  wrapper.dataset.assignmentId = event.assignment_id;
   wrapper.classList.toggle('booking-card-recurring', isRecurring(event));
   wrapper.classList.toggle('booking-pending', event.status === 'pending');
   fillBookingCard(wrapper, event, visibleRange);
@@ -336,8 +338,13 @@ function showEvent(event) {
   set('[data-event-status]', pending ? 'Anfrage (offen)' : 'Bestätigt');
   const editButton = detailsDialog.querySelector('[data-edit-event]');
   if (editButton) editButton.hidden = pending || event.occurrence_status === 'pending';
-  const requestsLink = detailsDialog.querySelector('[data-event-request]');
-  if (requestsLink) requestsLink.hidden = !pending;
+  const approveForm = detailsDialog.querySelector('[data-event-approve]');
+  const rejectForm = detailsDialog.querySelector('[data-event-reject]');
+  [approveForm, rejectForm].forEach((form) => {
+    if (!form) return;
+    form.hidden = !pending;
+    form.elements.assignment_id.value = event.assignment_id;
+  });
   set('[data-event-destination]', event.destination);
   set('[data-event-purpose]', event.purpose);
   set('[data-event-driver]', event.driver_name);
@@ -385,7 +392,7 @@ function showEvent(event) {
 
 function requestRecurrenceScope(action, form = null) {
   pendingScopeAction = { action, form };
-  const verb = action === 'edit' ? 'Änderung' : 'Stornierung';
+  const verb = action === 'edit' ? 'Änderung' : 'Löschung';
   scopeDialog.querySelector('[data-scope-message]').textContent =
     `Dieser Termin gehört zu einer Regelterminserie. Soll die ${verb} nur diesen Termin oder diesen und alle zukünftigen Termine betreffen?`;
   detailsDialog.close();
@@ -476,14 +483,15 @@ function renderResourceChoices() {
   const mode = isBus ? 'bus' : (bookingForm?.elements.resource_mode?.value || 'pitch');
   const resourceType = isBus ? 'bus' : mode;
   const available = [...state.resources];
-  for (const resource of editingBooking?.resources || []) {
+  for (const resource of [...(editingBooking?.resources || []), ...(editingRequest?.resources || [])]) {
     if (!available.some((item) => Number(item.id) === Number(resource.id))) {
       available.push({ ...resource, name: `${resource.name} (inaktiv)` });
     }
   }
   const resources = available.filter((resource) => resource.type === resourceType);
-  const selectedIds = new Set(editingBooking?.resource_ids || []);
+  const selectedIds = new Set(editingBooking?.resource_ids || editingRequest?.resource_ids || []);
   const cabinIds = new Set(editingBooking?.cabin_ids || []);
+  const allowCabins = bookingForm?.dataset.allowCabins === 'true' && !editingRequest;
   const group = document.createElement('fieldset');
   group.className = 'resource-choice-group';
   if (mode === 'pitch') group.classList.add('pitch-choice-group');
@@ -505,7 +513,7 @@ function renderResourceChoices() {
   resources.forEach((resource) => {
     const card = document.createElement('div');
     card.className = `resource-card resource-card-${resource.type}`;
-    const initiallySelected = editingBooking
+    const initiallySelected = editingBooking || editingRequest
       ? selectedIds.has(Number(resource.id))
       : resources.length === 1;
     card.append(createResourceChip(
@@ -517,7 +525,7 @@ function renderResourceChoices() {
 
     group.append(card);
   });
-  if (mode === 'pitch') {
+  if (mode === 'pitch' && allowCabins) {
     const cabins = available.filter((resource) => resource.type === 'cabin');
     const cabinGroup = document.createElement('fieldset');
     cabinGroup.className = 'resource-choice-group cabin-choice-group';
@@ -544,6 +552,8 @@ function renderResourceChoices() {
 function updateBookingFields() {
   const eventType = bookingForm?.elements.event_type?.value || 'training';
   const resourceMode = bookingForm?.elements.resource_mode?.value || 'pitch';
+  const requestEdit = Boolean(editingRequest);
+  const editing = Boolean(editingBooking) || requestEdit;
   const eventTypeChoice = document.querySelector('#booking-event-type-choice');
   if (eventTypeChoice) eventTypeChoice.hidden = resourceMode !== 'pitch';
   document.querySelectorAll('[data-event-type-field]').forEach((element) => {
@@ -552,20 +562,22 @@ function updateBookingFields() {
   const recurrence = document.querySelector('#recurrence-fields');
   if (recurrence) recurrence.hidden = eventType === 'bus';
   bookingForm?.querySelectorAll('[data-edit-only]').forEach((element) => {
-    element.hidden = !editingBooking;
+    element.hidden = !editing;
   });
   if (bookingForm) {
     const labels = { pitch: 'Platzbelegung', bus: 'Fahrzeugbuchung' };
-    bookingForm.dataset.mode = editingBooking ? 'edit' : 'create';
+    bookingForm.dataset.mode = requestEdit ? 'request-edit' : editingBooking ? 'edit' : 'create';
     bookingForm.querySelector('#booking-dialog-title').textContent =
-      `${labels[resourceMode]} ${editingBooking ? 'ändern' : 'anlegen'}`;
+      `${labels[resourceMode]} ${editing ? 'ändern' : 'anlegen'}`;
     const submit = bookingForm.querySelector('[data-booking-submit]');
     const saved = bookingForm.dataset.saved === 'true';
-    submit.textContent = saved ? 'Gespeichert' : editingBooking ? 'Änderungen speichern' : 'Speichern';
+    const approve = bookingForm.querySelector('[data-request-approve]');
+    if (approve) approve.hidden = !editingRequest?.can_approve;
+    submit.textContent = saved ? 'Gespeichert' : editing ? 'Änderungen speichern' : 'Speichern';
     submit.disabled = saved;
     bookingForm.querySelector('[data-booking-close]').textContent = saved ? 'Schließen' : 'Abbrechen';
     bookingForm.elements.combined_title.maxLength =
-      editingBooking && ['training', 'match'].includes(eventType) ? 303 : 180;
+      editing && ['training', 'match'].includes(eventType) ? 303 : 180;
   }
   updateRecurrenceFields();
 }
@@ -597,7 +609,9 @@ async function submitBooking(event) {
   if (!bookingForm.reportValidity()) return;
   const eventType = bookingForm.elements.event_type.value;
   const resourceType = eventType === 'bus' ? 'bus' : bookingForm.elements.resource_mode.value;
-  syncCombinedTitle(bookingForm, Boolean(editingBooking) && ['training', 'match'].includes(eventType));
+  const isRequestEdit = Boolean(editingRequest);
+  const editing = Boolean(editingBooking) || isRequestEdit;
+  syncCombinedTitle(bookingForm, editing && ['training', 'match'].includes(eventType));
   const selectedResource = resourceType === 'bus'
     ? bookingForm.querySelector('[data-resource-choice][data-resource-kind="bus"][aria-pressed="true"]')
     : bookingForm.querySelector(`[data-resource-choice][data-resource-kind="${resourceType}"][aria-pressed="true"]`);
@@ -607,14 +621,18 @@ async function submitBooking(event) {
       : 'Wähle ein Fahrzeug aus.', 'danger');
     return;
   }
-  const editing = Boolean(editingBooking);
   const submit = bookingForm.querySelector('[data-booking-submit]');
   bookingError();
   bookingForm.dataset.saved = '';
   submit.disabled = true;
   try {
     const formData = new FormData(bookingForm);
-    const response = await fetch(`/?api=${editing ? 'booking-edit' : 'booking-create'}`, {
+    const api = isRequestEdit ? 'request-edit' : editingBooking ? 'booking-edit' : 'booking-create';
+    if (isRequestEdit) {
+      formData.set('occurrence_id', editingRequest.occurrence_id);
+      formData.set('approve', editingRequest.approve ? '1' : '0');
+    }
+    const response = await fetch(`/?api=${api}`, {
       method: 'POST', body: formData, headers: { Accept: 'application/json' },
     });
     const result = await response.json();
@@ -622,7 +640,9 @@ async function submitBooking(event) {
       bookingError(result.error || 'Die Buchung konnte nicht gespeichert werden.');
       return;
     }
-    const label = editing ? `Änderungen für ${result.updated} Termin(e) gespeichert.`
+    const label = isRequestEdit && result.approved > 0 ? 'Die Anfrage wurde freigegeben.'
+      : isRequestEdit ? 'Die Anfrage wurde geändert.'
+      : editingBooking ? `Änderungen für ${result.updated} Termin(e) gespeichert.`
       : result.pending ? 'Anfrage wurde übermittelt.' : 'Buchung wurde angelegt.';
     const mailFailed = Boolean(result.mail_errors?.length);
     bookingError(
@@ -639,6 +659,8 @@ async function submitBooking(event) {
         mailFailed ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label,
         mailFailed ? 'warning' : 'success',
       );
+      dialog.close();
+    } else if (isRequestEdit && result.approved > 0) {
       dialog.close();
     }
     try {
@@ -757,6 +779,26 @@ function initResourceOrdering() {
 }
 
 function initControls() {
+  document.querySelectorAll('[data-dashboard-jump]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const date = berlinDateTimeInput(button.dataset.start).split('T')[0];
+      state.date = new Date(`${date}T12:00:00`);
+      state.view = 'day';
+      state.resourceType = button.dataset.resourceType;
+      try {
+        await loadCalendar();
+        const booking = [...document.querySelectorAll('.booking-card')]
+          .find((card) => card.dataset.assignmentId === button.dataset.assignmentId);
+        if (!booking) throw new Error('Der angefragte Eintrag ist im Kalender nicht verfügbar.');
+        booking.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        booking.focus({ preventScroll: true });
+        booking.classList.add('booking-card-highlight');
+        window.setTimeout(() => booking.classList.remove('booking-card-highlight'), 2400);
+      } catch (error) {
+        announce(error.message, 'danger');
+      }
+    });
+  });
   const bookingDates = bookingForm ? initBookingDates(bookingForm) : null;
   if (bookingForm) initRequiredNonWhitespace(bookingForm);
   const datePicker = initDatePicker();
@@ -855,6 +897,7 @@ function initControls() {
     button.addEventListener('click', () => {
       if (!bookingForm || !dialog) return;
       editingBooking = null;
+      editingRequest = null;
       bookingError();
       bookingForm.reset();
       bookingForm.dataset.saved = '';
@@ -872,6 +915,61 @@ function initControls() {
       bookingMenu.open = false;
       dialog.showModal();
     });
+  });
+  async function openPendingRequestEditor(button, canApprove) {
+    if (!bookingForm || !dialog || !bookingDates) return;
+    const occurrenceId = button.dataset.occurrenceId;
+    button.disabled = true;
+    try {
+      const response = await fetch(`/?api=request-details&occurrence_id=${encodeURIComponent(occurrenceId)}`, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Die Anfrage konnte nicht geladen werden.');
+      editingBooking = null;
+      editingRequest = { ...data, can_approve: canApprove, approve: false };
+      bookingError();
+      bookingForm.reset();
+      bookingForm.dataset.saved = '';
+      for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
+        'destination', 'purpose', 'driver_name', 'private_notes']) {
+        bookingForm.elements[name].value = data[name] ?? '';
+      }
+      const combined = [data.team_name, data.title].filter(Boolean).join(' – ');
+      bookingForm.elements.combined_title.value = combined;
+      bookingForm.elements.combined_title.dataset.initialValue = combined;
+      bookingForm.elements.frequency.value = data.recurrence_rule?.frequency || 'none';
+      bookingForm.elements.interval.value = data.recurrence_rule?.interval || 1;
+      bookingForm.elements.limit_type.value = data.recurrence_rule?.limit_type || 'until';
+      bookingForm.elements.until.value = data.recurrence_rule?.until || '';
+      bookingForm.elements.count.value = data.recurrence_rule?.limit_type === 'count'
+        ? data.scope_counts.one : 10;
+      bookingForm.elements.count.dataset.modified = '';
+      bookingForm.elements.scope.value = 'one';
+      bookingForm.querySelectorAll('[name="weekdays[]"]').forEach((input) => {
+        input.checked = (data.recurrence_rule?.weekdays || []).includes(input.value);
+      });
+      bookingDates.setRange(berlinDateTimeInput(data.start), berlinDateTimeInput(data.end));
+      updateBookingFields();
+      renderResourceChoices();
+      dialog.showModal();
+    } catch (error) {
+      announce(error.message, 'danger');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  document.querySelectorAll('#request-dashboard [data-request-edit]').forEach((button) => {
+    button.addEventListener('click', () => void openPendingRequestEditor(button, false));
+  });
+  document.querySelectorAll('#request-dashboard [data-request-approve]').forEach((button) => {
+    button.addEventListener('click', () => void openPendingRequestEditor(button, true));
+  });
+  bookingForm?.querySelector('[data-request-approve]')?.addEventListener('click', () => {
+    if (!editingRequest?.can_approve) return;
+    editingRequest.approve = true;
+    bookingForm.requestSubmit();
   });
   bookingForm?.querySelector('#event-type-select')?.addEventListener('change', updateBookingFields);
   document.addEventListener('click', (event) => {
@@ -916,16 +1014,12 @@ function initControls() {
       }
     });
   });
-  document.querySelectorAll('.request-edit-form').forEach((form) => {
-    initRequiredNonWhitespace(form);
-    initBookingDates(form);
-    form.addEventListener('submit', () => syncCombinedTitle(form, form.dataset.allowTeamName === 'true'));
-  });
   const openBookingEditor = async (scope) => {
     if (!selectedEvent || !bookingForm) return;
     const button = detailsDialog.querySelector('[data-edit-event]');
     const occurrenceId = selectedEvent.occurrence_id;
     button.disabled = true;
+    editingRequest = null;
     try {
       const response = await fetch(`/?api=booking-details&occurrence_id=${occurrenceId}`, {
         headers: { Accept: 'application/json' },

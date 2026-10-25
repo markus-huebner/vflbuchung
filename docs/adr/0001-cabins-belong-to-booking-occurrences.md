@@ -13,6 +13,6 @@ Jede Kabinenzuordnung wird am Buchungstermin gespeichert. Eine Platzbuchung ben�
 
 ## Folgen
 
-- Konfliktprüfung, Kabinenkalender, Bearbeitung, Stornierung und Ressourcenlöschung berücksichtigen Kabinenzuordnungen auf Buchungsterminebene.
-- Wird eine Platzzuordnung storniert, bleiben die Kabinen erhalten, solange weitere Platzzuordnungen bestehen. Mit dem Löschen des Buchungstermins werden auch seine Kabinenzuordnungen entfernt.
+- Konfliktprüfung, Kabinenkalender, Bearbeitung, Löschung und Ressourcenlöschung berücksichtigen Kabinenzuordnungen auf Buchungsterminebene.
+- Wird eine Platzzuordnung gelöscht, bleiben die Kabinen erhalten, solange weitere Platzzuordnungen bestehen. Mit dem Löschen des Buchungstermins werden auch seine Kabinenzuordnungen entfernt.
 - Die Migration übernimmt eine Kabine nur einmal, falls sie im vorherigen platzbezogenen Schema innerhalb desselben Termins mehrfach zugeordnet war.

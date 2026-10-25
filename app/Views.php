@@ -18,7 +18,6 @@ final class Views
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
         $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
-            $nav .= '<a class="nav-link" href="/?page=dashboard">Dashboard</a>';
             if ($user['role'] === 'admin') {
                 $nav .= '<a class="nav-link" href="/?page=users">Benutzer</a><a class="nav-link" href="/?page=resources">Ressourcen</a>';
             }
@@ -34,6 +33,9 @@ final class Views
             $flashHtml = '<div class="alert alert-' . Security::escape($flash['type'] ?? 'info') . '" role="status">'
                 . Security::escape($flash['message']) . '</div>';
         }
+        $pageShellClass = str_contains($content, 'data-calendar-dashboard-layout')
+            ? 'page-shell page-shell-wide'
+            : 'page-shell';
 
         $appData = json_encode(array_merge([
             'csrfToken' => $csrfToken,
@@ -56,12 +58,12 @@ final class Views
 </head>
 <body>
 <nav class="navbar navbar-expand navbar-club"><div class="container-fluid">' . $nav . '</div></nav>
-<main class="page-shell">' . $flashHtml . $content . '</main>
+<main class="' . $pageShellClass . '">' . $flashHtml . $content . '</main>
 </body>
 </html>';
     }
 
-    public static function calendar(?array $user, string $csrf, array $resources): string
+    public static function calendar(?array $user, string $csrf, array $resources, array $requests = []): string
     {
         $bookingOptions = [
             ['event_type' => 'training', 'resource_mode' => 'pitch', 'label' => 'Platzbelegung'],
@@ -86,8 +88,13 @@ final class Views
 
         $bookingDialog = $user === null ? '' : self::bookingDialog($user, $csrf, $eventTypes);
         $detailsDialog = self::eventDialog($user, $csrf);
+        $dashboardAvailable = in_array($user['role'] ?? '', ['admin', 'manager', 'trainer'], true);
+        $dashboard = $dashboardAvailable ? self::dashboard($user, $requests, $csrf, '', true) : '';
+        $layoutClass = 'calendar-dashboard-layout' . ($dashboardAvailable ? ' has-dashboard' : '');
 
-        return '<div id="app-message" class="alert" role="status" hidden></div>
+        return '<div class="' . $layoutClass . '" data-calendar-dashboard-layout>
+<div class="calendar-main-content">
+<div id="app-message" class="alert" role="status" hidden></div>
 <section class="calendar-toolbar">
   <div><h1>Belegungsplan</h1><p class="text-secondary mb-0">Plätze mit ihren Kabinen und Fahrzeuge auf einen Blick.</p></div>
   <div class="calendar-actions">
@@ -136,13 +143,18 @@ final class Views
     <span class="legend-item legend-pending"><span class="legend-pending-colors" aria-hidden="true"><span style="--legend-color:var(--booking-training)"></span><span style="--legend-color:var(--booking-match)"></span><span style="--legend-color:var(--booking-external)"></span><span style="--legend-color:var(--booking-bus)"></span></span>Anfrage</span>
   </div>
 </section>
+</div>
+' . $dashboard . '
+</div>
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
     }
 
     private static function bookingDialog(array $user, string $csrf, string $eventTypes): string
     {
+        $allowCabins = in_array($user['role'] ?? '', ['admin', 'manager'], true);
+
         return '<dialog id="booking-dialog" aria-labelledby="booking-dialog-title">
-<form id="booking-form" method="post">
+<form id="booking-form" method="post" data-allow-cabins="' . ($allowCabins ? 'true' : 'false') . '">
   <div class="dialog-header"><h2 id="booking-dialog-title" class="h5 mb-0">Platzbelegung anlegen</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
   <div class="dialog-body">
     <div class="alert alert-danger mb-0" data-booking-error role="alert" aria-live="assertive" hidden></div>
@@ -179,7 +191,7 @@ final class Views
       <input type="hidden" name="scope" value="one">
     </div>
   </div>
-  <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close data-booking-close>Abbrechen</button><button type="submit" class="btn btn-primary" data-booking-submit>Speichern</button></div>
+  <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close data-booking-close>Abbrechen</button><button type="button" class="btn btn-success" data-request-approve hidden>Freigeben</button><button type="submit" class="btn btn-primary" data-booking-submit>Speichern</button></div>
 </form>
 </dialog>';
     }
@@ -229,10 +241,20 @@ final class Views
     private static function eventDialog(?array $user, string $csrf): string
     {
         $cancel = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Stornieren</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Kabinenbelegung stornieren</button></form>'
+            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Löschen</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Kabinenbelegung löschen</button></form>'
             : '';
         $edit = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<button type="button" class="btn btn-outline-primary" data-edit-event>Ändern</button><a class="btn btn-outline-primary" href="/?page=dashboard" data-event-request hidden>Anfragen verwalten</a>'
+            ? '<button type="button" class="btn btn-outline-primary" data-edit-event>Ändern</button>'
+            : '';
+        $requestActions = in_array($user['role'] ?? '', ['admin', 'manager'], true)
+            ? '<form method="post" action="/?action=booking-approve" data-event-approve hidden>'
+                . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
+                . '<input type="hidden" name="assignment_id" value="">'
+                . '<button class="btn btn-success" type="submit">Anfrage annehmen</button></form>'
+                . '<form method="post" action="/?action=booking-reject" data-event-reject hidden>'
+                . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
+                . '<input type="hidden" name="assignment_id" value="">'
+                . '<button class="btn btn-outline-danger" type="submit">Ablehnen</button></form>'
             : '';
         $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
             ? '<dt class="col-sm-4" data-event-bus-field>Fahrer (intern)</dt><dd class="col-sm-8" data-event-bus-field data-event-driver></dd>
@@ -257,7 +279,7 @@ final class Views
       ' . $privateDetails . '
     </dl>
   </div>
-  <div class="dialog-footer">' . $cancel . $edit . '<button type="button" class="btn btn-primary" data-dialog-close>Schließen</button></div>
+  <div class="dialog-footer">' . $requestActions . $cancel . $edit . '<button type="button" class="btn btn-primary" data-dialog-close>Schließen</button></div>
 </dialog>';
     }
 
@@ -288,7 +310,13 @@ final class Views
 <p class="mt-3 mb-0"><a href="/?page=forgot">Passwort vergessen?</a></p></section>';
     }
 
-    public static function dashboard(?array $user, array $requests, string $csrf, string $error = ''): string
+    public static function dashboard(
+        ?array $user,
+        array $requests,
+        string $csrf,
+        string $error = '',
+        bool $embedded = false
+    ): string
     {
         if ($user === null) {
             return '';
@@ -298,8 +326,16 @@ final class Views
         $rows = '';
         foreach ($requests as $request) {
             $status = self::statusLabel($request['assignment_status']);
+            $pendingIds = array_values(array_filter(
+                array_map('intval', explode(',', (string) ($request['pending_assignment_ids'] ?? ''))),
+                static fn(int $id): bool => $id > 0
+            ));
+            $assignmentInputs = implode('', array_map(
+                static fn(int $id): string => '<input type="hidden" name="assignment_ids[]" value="' . $id . '">',
+                $pendingIds
+            ));
             $details = [
-                $request['resource_name'],
+                $request['resource_names'],
                 $request['team_name'],
                 $request['destination'],
                 $request['purpose'],
@@ -311,67 +347,55 @@ final class Views
             $end = Recurrence::fromDatabase($request['ends_at'])
                 ->setTimezone(new \DateTimeZone('Europe/Berlin'))
                 ->format('H:i');
-            $startInput = Recurrence::fromDatabase($request['starts_at'])
-                ->setTimezone(new \DateTimeZone('Europe/Berlin'))
-                ->format('Y-m-d\TH:i');
-            $endInput = Recurrence::fromDatabase($request['ends_at'])
-                ->setTimezone(new \DateTimeZone('Europe/Berlin'))
-                ->format('Y-m-d\TH:i');
-            $requestTitle = (string) ($request['title'] ?? '');
-            $requestTeamName = (string) ($request['team_name'] ?? '');
-            $combinedTitle = implode(' – ', array_filter(
-                [$requestTeamName, $requestTitle],
-                static fn (string $part): bool => trim($part) !== ''
-            ));
-            $titleInputId = 'request-title-' . (int) $request['assignment_id'];
-            $allowTeamName = in_array($request['event_type'], ['training', 'match'], true);
-            $titleLabel = 'Mannschaft / Hinweis';
-            $rows .= '<article class="request-row"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong class="booking-title">' . Security::escape($request['title']) . '</strong> <span class="request-status">' . Security::escape($status) . '</span><div class="request-details">' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</div>';
+            $assignmentId = (int) $request['assignment_id'];
+            $resourceType = $request['resource_type'] === 'bus' ? 'bus' : 'pitch';
+            $entryDetails = '<strong class="booking-title">' . Security::escape($request['title']) . '</strong>'
+                . ' <span class="request-status">' . Security::escape($status) . '</span>'
+                . '<span class="request-details">' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</span>';
+            $jumpButton = in_array($request['assignment_status'], ['pending', 'confirmed'], true)
+                ? '<button type="button" class="dashboard-entry-link" data-dashboard-jump'
+                    . ' data-assignment-id="' . $assignmentId . '"'
+                    . ' data-resource-type="' . $resourceType . '"'
+                    . ' data-start="' . Security::escape(Recurrence::fromDatabase($request['starts_at'])->format(DATE_ATOM)) . '">'
+                    . $entryDetails . '</button>'
+                : '<div class="dashboard-entry-closed">' . $entryDetails . '</div>';
+            $rows .= '<article class="request-row"><div class="request-row-layout"><div class="request-row-content">'
+                . $jumpButton;
             if ($staff) {
                 $rows .= '<div class="small text-secondary">Anfrage von ' . Security::escape($request['requester_name'] ?? 'Verwalter') . '</div>';
             }
             if (($request['rejection_reason'] ?? '') !== '') {
                 $rows .= '<div class="small text-danger">Begründung: ' . Security::escape($request['rejection_reason']) . '</div>';
             }
-            if (!$staff && $request['assignment_status'] === 'pending') {
-                $rows .= '<details class="mt-2"><summary>Anfrage ändern</summary>'
-                    . '<form method="post" action="/?action=request-edit" class="request-edit-form mt-2"'
-                    . ' data-allow-team-name="' . ($allowTeamName ? 'true' : 'false') . '">'
-                    . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
-                    . '<input type="hidden" name="assignment_id" value="' . (int) $request['assignment_id'] . '">'
-                    . '<input type="hidden" name="title" value="' . Security::escape($requestTitle) . '">'
-                    . '<input type="hidden" name="team_name" value="' . Security::escape($requestTeamName) . '">'
-                    . '<div class="mb-2"><label class="form-label" for="' . $titleInputId . '">'
-                    . Security::escape($titleLabel) . '</label><textarea class="form-control form-control-sm"'
-                    . ' id="' . $titleInputId . '" name="combined_title" maxlength="303" rows="2" required'
-                    . ' data-required-non-whitespace data-initial-value="' . Security::escape($combinedTitle) . '">'
-                    . Security::escape($combinedTitle) . '</textarea></div>'
-                    . self::bookingDateTimeFields('request-' . (int) $request['assignment_id'], $startInput, $endInput)
-                    . '<button class="btn btn-sm btn-outline-primary mt-2"'
-                    . ' type="submit">Änderung speichern</button></form></details>';
-            }
-            $rows .= '</div><div class="d-flex align-items-start flex-wrap gap-2">';
+            $rows .= '</div><div class="request-row-actions">';
 
             if ($staff && $request['assignment_status'] === 'pending') {
-                $rows .= '<form method="post" action="/?action=booking-approve" class="d-flex gap-2 align-items-center"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value="' . (int) $request['assignment_id'] . '">';
-                $rows .= '<button class="btn btn-sm btn-success" type="submit">Freigeben</button></form>
-<form method="post" action="/?action=booking-reject" class="d-flex gap-2"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value="' . (int) $request['assignment_id'] . '"><input class="form-control form-control-sm" name="reason" maxlength="500" placeholder="Begründung (optional)"><button class="btn btn-sm btn-outline-danger" type="submit">Ablehnen</button></form>';
+                $rows .= '<button class="btn btn-sm btn-success" type="button" data-request-approve'
+                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Freigeben</button>'
+                    . '<form method="post" action="/?action=booking-reject"><input type="hidden" name="_csrf" value="'
+                    . Security::escape($csrf) . '">' . $assignmentInputs . '<button class="btn btn-sm btn-outline-danger"'
+                    . ' type="submit">Ablehnen</button></form>';
             } elseif (!$staff && $request['assignment_status'] === 'pending') {
-                $rows .= '<form method="post" action="/?action=booking-withdraw"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value="' . (int) $request['assignment_id'] . '"><button class="btn btn-sm btn-outline-secondary" type="submit">Zurückziehen</button></form>';
+                $rows .= '<button type="button" class="btn btn-sm btn-outline-primary" data-request-edit'
+                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Ändern</button>'
+                    . '<form method="post" action="/?action=booking-withdraw"><input type="hidden" name="_csrf" value="'
+                    . Security::escape($csrf) . '">' . $assignmentInputs
+                    . '<button class="btn btn-sm btn-outline-secondary" type="submit">Zurückziehen</button></form>';
             }
             $rows .= '</div></div></article>';
         }
 
         $empty = $staff ? 'Es gibt keine offenen Anfragen.' : 'Du hast noch keine Anfragen.';
         $description = $staff
-            ? 'Offene Traineranfragen und ihre Freigaben.'
+            ? 'Offene Buchungsanfragen zur Freigabe.'
             : 'Deine Anfragen und deren aktueller Status.';
 
-        return '<section class="panel-card p-4">
-<h1 class="h3">Dashboard</h1><p class="text-secondary">' . $description . '</p>
+        return '<aside id="request-dashboard" class="panel-card calendar-dashboard-panel p-3"'
+            . ($embedded ? ' data-request-dashboard' : '') . '>
+<h2 class="h4">Buchungsanfragen</h2><p class="text-secondary">' . $description . '</p>
 ' . self::inlineError($error) . '
 <div id="request-list">' . ($rows !== '' ? $rows : '<p class="mb-0">' . $empty . '</p>') . '</div>
-<p class="mt-3 mb-0"><a class="btn btn-primary" href="/">Zum Belegungsplan</a></p></section>';
+' . ($embedded ? '' : '<p class="mt-3 mb-0"><a class="btn btn-primary" href="/">Zum Belegungsplan</a></p>') . '</aside>';
     }
 
     public static function users(array $users, string $csrf, string $error = '', string $form = ''): string

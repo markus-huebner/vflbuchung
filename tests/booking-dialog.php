@@ -163,9 +163,12 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
 
 $request = [
     'assignment_id' => 42,
+    'occurrence_id' => 9,
+    'pending_assignment_ids' => '42,43',
     'assignment_status' => 'pending',
     'event_type' => 'training',
-    'resource_name' => 'Test pitch',
+    'resource_type' => 'pitch',
+    'resource_names' => 'Test pitch, Test pitch 2',
     'title' => 'Test title',
     'team_name' => null,
     'destination' => null,
@@ -180,19 +183,34 @@ $document->loadHTML(
     LIBXML_NOERROR | LIBXML_NOWARNING
 );
 $xpath = new DOMXPath($document);
-$form = '//form[contains(@class, "request-edit-form")]';
-checkDateTimeFields($xpath, $form);
-checkRequiredTitle($xpath, $form);
 check(
-    $xpath->evaluate('string(' . $form . '//input[@data-booking-date]/@value)') === '2026-10-24',
-    'Request date: Existing booking times must use Europe/Berlin.'
+    $xpath->query('//form[contains(@class, "request-edit-form")]')->length === 0,
+    'Do not render a separate inline request-edit form.'
 );
-foreach (['start' => '15:07', 'end' => '17:03'] as $part => $time) {
-    check(
-        $xpath->evaluate('string(' . $form . '//input[@data-booking-time="' . $part . '"]/@value)') === $time,
-        "Request $part: Preserve the existing minute-accurate time."
-    );
-}
+$editButton = $xpath->query('//button[@data-request-edit]');
+check($editButton->length === 1, 'Offer request editing through a dialog trigger.');
+check($editButton->item(0)->textContent === 'Ändern', 'The request action must be labelled Ändern.');
+check($editButton->item(0)->getAttribute('data-occurrence-id') === '9', 'The request dialog must identify its occurrence.');
+check(
+    $xpath->query('//form[@action="/?action=booking-withdraw"]//input[@name="assignment_ids[]"]')->length === 2,
+    'Withdraw all pending place assignments together.'
+);
+$trainerCalendar = Views::calendar(['role' => 'trainer'], 'test-csrf', []);
+check(str_contains($trainerCalendar, 'data-allow-cabins="false"'), 'Trainers must not be offered cabin choices.');
+$staffCalendar = Views::calendar(['role' => 'manager'], 'test-csrf', []);
+check(str_contains($staffCalendar, 'data-request-approve hidden'), 'The dialog must offer approval while reviewing a request.');
+
+$staffDashboard = Views::dashboard(['role' => 'manager'], [$request], 'test-csrf');
+$document->loadHTML('<?xml encoding="UTF-8">' . $staffDashboard, LIBXML_NOERROR | LIBXML_NOWARNING);
+$xpath = new DOMXPath($document);
+check(
+    $xpath->query('//button[@data-request-approve][@data-occurrence-id="9"]')->length === 1,
+    'Staff approval must open the request editor for the occurrence.'
+);
+check(
+    $xpath->query('//form[@action="/?action=booking-reject"]//input[@name="assignment_ids[]"]')->length === 2,
+    'Reject all pending place assignments together.'
+);
 
 check(
     !str_contains(Views::calendar(null, 'test-csrf', []), 'id="booking-form"'),

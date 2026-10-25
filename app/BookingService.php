@@ -249,12 +249,18 @@ final class BookingService
         }
 
         $statement = $this->pdo->prepare(
-            "SELECT a.id AS assignment_id, o.id AS occurrence_id, g.id AS group_id,
-                    a.status AS assignment_status, o.status AS occurrence_status,
+            "SELECT COALESCE(MIN(CASE WHEN a.status = 'pending' THEN a.id END), MIN(a.id)) AS assignment_id,
+                    GROUP_CONCAT(CASE WHEN a.status = 'pending' THEN a.id END ORDER BY a.id SEPARATOR ',')
+                        AS pending_assignment_ids,
+                    o.id AS occurrence_id, g.id AS group_id,
+                    CASE WHEN SUM(a.status = 'pending') > 0 THEN 'pending' ELSE o.status END AS assignment_status,
+                    o.status AS occurrence_status,
                     o.event_type, o.title, o.team_name,
                     o.destination, o.purpose, o.driver_name, o.private_notes,
                     o.starts_at, o.ends_at, o.rejection_reason,
-                    r.id AS resource_id, r.name AS resource_name, rc.code AS resource_type,
+                    GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR ',') AS resource_ids,
+                    GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names,
+                    MIN(rc.code) AS resource_type,
                     u.display_name AS requester_name, u.email AS requester_email,
                     (SELECT GROUP_CONCAT(c.name ORDER BY c.name SEPARATOR ', ')
                      FROM booking_cabin_assignments bca
@@ -267,7 +273,10 @@ final class BookingService
              JOIN resource_categories rc ON rc.id = r.category_id
              LEFT JOIN users u ON u.id = g.requested_by
              WHERE {$where}
-             ORDER BY o.starts_at DESC, o.id, r.name"
+             GROUP BY o.id, g.id, o.status, o.event_type, o.title, o.team_name, o.destination,
+                      o.purpose, o.driver_name, o.private_notes, o.starts_at, o.ends_at,
+                      o.rejection_reason, u.id, u.display_name, u.email
+             ORDER BY o.starts_at DESC, o.id"
         );
         $statement->execute($params);
 
@@ -406,64 +415,13 @@ final class BookingService
         }
     }
 
-    public function editPendingRequest(int $assignmentId, array $data, array $actor): void
-    {
-        if ($actor['role'] !== 'trainer') {
-            throw new RuntimeException('Nur Trainer können eigene offene Anfragen ändern.');
-        }
-
-        $this->pdo->beginTransaction();
-        try {
-            $details = $this->assignmentDetails($assignmentId, true);
-            if ($details === null
-                || (int) $details['requested_by'] !== (int) $actor['id']
-                || $details['status'] !== 'pending') {
-                throw new RuntimeException('Du kannst nur eigene offene Anfragen ändern.');
-            }
-            if ($details['resource_type'] === 'cabin') {
-                throw new RuntimeException('Kabinen können nur zusammen mit einem Platz gebucht werden.');
-            }
-
-            $start = Recurrence::parseLocalDateTime((string) ($data['starts_at'] ?? ''));
-            $end = Recurrence::parseLocalDateTime((string) ($data['ends_at'] ?? ''));
-            if ($end <= $start) {
-                throw new RuntimeException('Das Ende muss nach dem Beginn liegen.');
-            }
-            if ($start->format('Y-m-d') !== $end->format('Y-m-d')) {
-                throw new RuntimeException('Buchungen müssen am selben Tag enden.');
-            }
-
-            $title = $this->requiredTitle($data['title'] ?? null);
-            $teamName = in_array($details['event_type'], ['training', 'match'], true)
-                ? $this->optionalText($data['team_name'] ?? $details['team_name'], 120)
-                : null;
-            $this->pdo->prepare(
-                'UPDATE booking_occurrences
-                 SET title = :title, team_name = :team_name, starts_at = :starts_at, ends_at = :ends_at
-                 WHERE id = :id AND status = \'pending\''
-            )->execute([
-                'title' => $title,
-                'team_name' => $teamName,
-                'starts_at' => Recurrence::toDatabase($start),
-                'ends_at' => Recurrence::toDatabase($end),
-                'id' => $details['occurrence_id'],
-            ]);
-            $this->pdo->commit();
-        } catch (Throwable $exception) {
-            if ($this->pdo->inTransaction()) {
-                $this->pdo->rollBack();
-            }
-            throw $exception;
-        }
-    }
-
     public function cancel(int $assignmentId, array $actor, string $scope = 'one'): array
     {
         if (!in_array($actor['role'], ['admin', 'manager'], true)) {
-            throw new RuntimeException('Für Stornierungen fehlen die Rechte.');
+            throw new RuntimeException('Für das Löschen fehlen die Rechte.');
         }
         if (!in_array($scope, ['one', 'future'], true)) {
-            throw new RuntimeException('Stornierungsumfang ungültig.');
+            throw new RuntimeException('Löschumfang ungültig.');
         }
 
         $details = $this->assignmentDetails($assignmentId);
@@ -536,7 +494,7 @@ final class BookingService
             'mail_errors' => $this->notifyRequester(
             $details['requester_email'] ?? null,
             $details['requester_name'] ?? null,
-            'storniert'
+            'gelöscht'
             ),
         ];
     }
@@ -544,10 +502,10 @@ final class BookingService
     public function cancelCabin(int $occurrenceId, int $cabinId, array $actor, string $scope = 'one'): array
     {
         if (!in_array($actor['role'], ['admin', 'manager'], true)) {
-            throw new RuntimeException('Für Stornierungen fehlen die Rechte.');
+            throw new RuntimeException('Für das Löschen fehlen die Rechte.');
         }
         if (!in_array($scope, ['one', 'future'], true)) {
-            throw new RuntimeException('Stornierungsumfang ungültig.');
+            throw new RuntimeException('Löschumfang ungültig.');
         }
 
         $this->pdo->beginTransaction();
@@ -584,7 +542,7 @@ final class BookingService
         return ['cancelled' => $deleted, 'mail_errors' => $this->notifyRequester(
             $details['requester_email'] ?? null,
             $details['requester_name'] ?? null,
-            'Kabinenbelegung storniert'
+            'Kabinenbelegung gelöscht'
         )];
     }
 
@@ -648,31 +606,123 @@ final class BookingService
         ];
     }
 
+    public function editablePendingRequest(int $occurrenceId, array $actor): array
+    {
+        $row = $this->occurrenceDetails($occurrenceId);
+        $isStaff = in_array($actor['role'], ['admin', 'manager'], true);
+        if ($row === null || $row['status'] !== 'pending'
+            || (!$isStaff && ($actor['role'] !== 'trainer' || (int) $row['requested_by'] !== (int) $actor['id']))) {
+            throw new RuntimeException('Die offene Buchungsanfrage wurde nicht gefunden.');
+        }
+
+        $resources = $this->pdo->prepare(
+            "SELECT r.id, r.name, rc.code AS type, r.is_active
+             FROM booking_resource_assignments a
+             JOIN resources r ON r.id = a.resource_id
+             JOIN resource_categories rc ON rc.id = r.category_id
+             WHERE a.occurrence_id = :id AND a.status = 'pending' ORDER BY r.sort_order, r.id"
+        );
+        $resources->execute(['id' => $occurrenceId]);
+        $assigned = $resources->fetchAll();
+        if ($assigned === []) {
+            throw new RuntimeException('Die Anfrage hat keine offenen Ressourcenzuordnungen.');
+        }
+
+        $zone = new DateTimeZone('Europe/Berlin');
+        $pendingScopeCounts = [
+            'one' => 1,
+            'future' => count($this->occurrencesForScope(
+                (int) $row['group_id'], $occurrenceId, 'future', false, false, true
+            )),
+            'all' => count($this->occurrencesForScope(
+                (int) $row['group_id'], $occurrenceId, 'all', false, false, true
+            )),
+        ];
+
+        return [
+            'occurrence_id' => $occurrenceId,
+            'event_type' => $row['event_type'],
+            'resource_mode' => $assigned[0]['type'],
+            'resource_ids' => array_map('intval', array_column($assigned, 'id')),
+            'cabin_ids' => [],
+            'resources' => $assigned,
+            'title' => $row['title'],
+            'team_name' => $row['team_name'],
+            'destination' => $row['destination'],
+            'purpose' => $row['purpose'],
+            'driver_name' => $row['driver_name'],
+            'private_notes' => $row['private_notes'],
+            'start' => Recurrence::fromDatabase($row['starts_at'])->setTimezone($zone)->format(DATE_ATOM),
+            'end' => Recurrence::fromDatabase($row['ends_at'])->setTimezone($zone)->format(DATE_ATOM),
+            'recurrence_rule' => $row['recurrence_rule'] === null
+                ? null : json_decode($row['recurrence_rule'], true, 512, JSON_THROW_ON_ERROR),
+            'scope_counts' => $pendingScopeCounts,
+        ];
+    }
+
     public function editOccurrence(int $occurrenceId, array $data, array $actor): array
     {
-        if (!in_array($actor['role'], ['admin', 'manager'], true)) {
-            throw new RuntimeException('Für Änderungen fehlen die Rechte.');
+        return $this->editOccurrenceData($occurrenceId, $data, $actor, false, false);
+    }
+
+    public function editPendingRequest(
+        int $occurrenceId, array $data, array $actor, bool $approve = false
+    ): array {
+        if ($approve && !in_array($actor['role'], ['admin', 'manager'], true)) {
+            throw new RuntimeException('Für Freigaben fehlen die Rechte.');
         }
+
+        return $this->editOccurrenceData($occurrenceId, $data, $actor, true, $approve);
+    }
+
+    private function editOccurrenceData(
+        int $occurrenceId, array $data, array $actor, bool $requestEdit, bool $approve
+    ): array {
         $scope = (string) ($data['scope'] ?? 'one');
         if (!in_array($scope, ['one', 'future', 'all'], true)) {
             throw new RuntimeException('Änderungsumfang ungültig.');
         }
         $target = $this->occurrenceDetails($occurrenceId);
-        if ($target === null || $target['status'] !== 'confirmed') {
+        if ($requestEdit) {
+            $isStaff = in_array($actor['role'], ['admin', 'manager'], true);
+            if ($target === null || $target['status'] !== 'pending'
+                || (!$isStaff && ($actor['role'] !== 'trainer'
+                    || (int) $target['requested_by'] !== (int) $actor['id']))) {
+                throw new RuntimeException('Die offene Buchungsanfrage wurde nicht gefunden.');
+            }
+        } elseif (!in_array($actor['role'], ['admin', 'manager'], true)) {
+            throw new RuntimeException('Für Änderungen fehlen die Rechte.');
+        } elseif ($target === null || $target['status'] !== 'confirmed') {
             throw new RuntimeException('Der bestätigte Termin wurde nicht gefunden.');
         }
 
         $input = $this->validateBookingInput($data, $actor);
+        if ($requestEdit && $input['cabin_ids'] !== []) {
+            throw new RuntimeException('Buchungsanfragen können keine Kabinen belegen.');
+        }
         $this->pdo->beginTransaction();
+        $approved = 0;
+        $approvalGroupId = null;
         try {
             $groupId = (int) $target['group_id'];
             $this->pdo->prepare('SELECT id FROM booking_groups WHERE id = :id FOR UPDATE')
                 ->execute(['id' => $groupId]);
             $target = $this->occurrenceDetails($occurrenceId, true);
-            if ($target === null || $target['status'] !== 'confirmed' || (int) $target['group_id'] !== $groupId) {
+            $expectedStatus = $requestEdit ? 'pending' : 'confirmed';
+            if ($target === null || $target['status'] !== $expectedStatus
+                || (int) $target['group_id'] !== $groupId
+                || ($requestEdit && !in_array($actor['role'], ['admin', 'manager'], true)
+                    && (int) $target['requested_by'] !== (int) $actor['id'])) {
                 throw new RuntimeException('Die Buchung wurde inzwischen geändert. Bitte öffne sie erneut.');
             }
-            $selected = $this->occurrencesForScope($groupId, $occurrenceId, $scope, true);
+            $selected = $this->occurrencesForScope(
+                $groupId,
+                $occurrenceId,
+                $scope,
+                !$requestEdit,
+                false,
+                $requestEdit
+            );
             $this->lockOccurrenceResources($selected, array_merge($input['resource_ids'], $input['cabin_ids']));
             $this->loadActiveResources(array_merge($input['resource_ids'], $input['cabin_ids']), true);
             $oldRule = $target['recurrence_rule'] === null ? null
@@ -687,7 +737,7 @@ final class BookingService
             $schedule = [];
             foreach ($selected as $id) {
                 $row = $this->occurrenceDetails($id, true);
-                if ($row === null || $row['status'] !== 'confirmed') {
+                if ($row === null || $row['status'] !== $expectedStatus) {
                     throw new RuntimeException('Ein Termin der Buchung wurde inzwischen geändert.');
                 }
                 $start = Recurrence::fromDatabase($row['starts_at'])
@@ -701,7 +751,16 @@ final class BookingService
             if ($ruleChanged) {
                 $schedule = Recurrence::generate($schedule[0]['start'], $schedule[0]['end'], $input['rule']);
             }
-            if ($scope === 'future' || ($scope === 'one' && $ruleChanged)) {
+            $splitPendingRequest = false;
+            if ($requestEdit && $scope === 'all') {
+                $confirmedCount = $this->pdo->prepare(
+                    "SELECT COUNT(*) FROM booking_occurrences
+                     WHERE group_id = :group_id AND status = 'confirmed'"
+                );
+                $confirmedCount->execute(['group_id' => $groupId]);
+                $splitPendingRequest = (int) $confirmedCount->fetchColumn() > 0;
+            }
+            if ($scope === 'future' || ($scope === 'one' && $ruleChanged) || $splitPendingRequest) {
                 $groupId = $this->splitOccurrences($groupId, $selected, (int) $actor['id'], $input['rule']);
             } elseif ($scope === 'all') {
                 $this->updateGroupRule($groupId, $input['rule']);
@@ -720,7 +779,7 @@ final class BookingService
                     (group_id, occurrence_no, event_type, title, team_name, destination, purpose,
                      driver_name, private_notes, starts_at, ends_at, status)
                  VALUES (:group_id, :occurrence_no, :event_type, :title, :team_name, :destination, :purpose,
-                         :driver_name, :private_notes, :starts_at, :ends_at, 'confirmed')"
+                         :driver_name, :private_notes, :starts_at, :ends_at, :status)"
             );
             $maximum = $this->pdo->prepare(
                 'SELECT COALESCE(MAX(occurrence_no), -1) FROM booking_occurrences WHERE group_id = :id'
@@ -740,15 +799,41 @@ final class BookingService
                     $id = $selected[$index];
                     $update->execute($values + ['id' => $id]);
                 } else {
-                    $insert->execute($values + ['group_id' => $groupId, 'occurrence_no' => $nextNumber++]);
+                    $insert->execute($values + [
+                        'group_id' => $groupId,
+                        'occurrence_no' => $nextNumber++,
+                        'status' => $expectedStatus,
+                    ]);
                     $id = (int) $this->pdo->lastInsertId();
                 }
-                $this->replaceResourceAssignments($id, $input['resource_ids']);
-                $this->replaceCabinAssignments($id, $input['cabin_ids']);
+                $this->replaceResourceAssignments(
+                    $id, $input['resource_ids'], $expectedStatus, $requestEdit
+                );
+                $this->replaceCabinAssignments($id, $requestEdit ? [] : $input['cabin_ids']);
+                if ($requestEdit) {
+                    $this->refreshOccurrenceStatus($id);
+                }
                 $updated[$id] = $values;
             }
             foreach (array_slice($selected, count($schedule)) as $id) {
                 $this->pdo->prepare('DELETE FROM booking_occurrences WHERE id = :id')->execute(['id' => $id]);
+            }
+            if ($requestEdit && $approve) {
+                $pending = $this->pdo->prepare(
+                    "SELECT id FROM booking_resource_assignments
+                     WHERE occurrence_id = :id AND status = 'pending' FOR UPDATE"
+                );
+                $pending->execute(['id' => $occurrenceId]);
+                $pendingIds = array_map('intval', $pending->fetchAll(PDO::FETCH_COLUMN));
+                if ($pendingIds === []) {
+                    throw new RuntimeException('Die Anfrage enthält keine offenen Plätze mehr.');
+                }
+                foreach ($pendingIds as $id) {
+                    $this->setAssignmentStatus($id, 'confirmed');
+                }
+                $this->refreshOccurrenceStatus($occurrenceId);
+                $approvalGroupId = (int) $this->occurrenceDetails($occurrenceId)['group_id'];
+                $approved = count($pendingIds);
             }
             $this->pdo->commit();
         } catch (Throwable $exception) {
@@ -758,7 +843,12 @@ final class BookingService
             throw $exception;
         }
 
-        return ['updated' => count($updated)];
+        return [
+            'updated' => count($updated),
+            'approved' => $approved,
+            'mail_errors' => $approvalGroupId === null
+                ? [] : $this->notifyGroupRequester($approvalGroupId, 'freigegeben'),
+        ];
     }
 
     private function validateBookingInput(array $data, array $actor): array
@@ -788,6 +878,13 @@ final class BookingService
         if ($isBus && count($resourceIds) !== 1) {
             throw new RuntimeException('Eine Busbuchung kann genau einen Bus enthalten.');
         }
+        $cabinInput = $data['cabin_ids'] ?? [];
+        if (!is_array($cabinInput)) {
+            throw new RuntimeException('Die Kabinenauswahl ist ungültig.');
+        }
+        if ($actor['role'] === 'trainer' && $this->normalizeIds($cabinInput) !== []) {
+            throw new RuntimeException('Buchungsanfragen können keine Kabinen belegen.');
+        }
         $types = array_values(array_unique(array_column($this->loadActiveResources($resourceIds), 'type')));
         if ($types !== [$resourceMode]) {
             throw new RuntimeException('Die ausgewählten Ressourcen passen nicht zur Buchungsart.');
@@ -804,7 +901,7 @@ final class BookingService
         return [
             'resource_mode' => $resourceMode,
             'resource_ids' => $resourceIds,
-            'cabin_ids' => $this->validateCabins($data['cabin_ids'] ?? [], $resourceMode === 'pitch'),
+            'cabin_ids' => $this->validateCabins($cabinInput, $resourceMode === 'pitch'),
             'start' => $start,
             'end' => $end,
             'rule' => $this->recurrenceRule($data, $isBus),
@@ -947,7 +1044,9 @@ final class BookingService
         $this->lockResources(array_merge($ids, $additionalResourceIds));
     }
 
-    private function replaceResourceAssignments(int $occurrenceId, array $resourceIds): void
+    private function replaceResourceAssignments(
+        int $occurrenceId, array $resourceIds, string $status = 'confirmed', bool $pendingRequest = false
+    ): void
     {
         $existing = $this->pdo->prepare(
             'SELECT id, resource_id, status FROM booking_resource_assignments WHERE occurrence_id = :id FOR UPDATE'
@@ -956,8 +1055,32 @@ final class BookingService
         $remaining = array_fill_keys($resourceIds, true);
         foreach ($existing->fetchAll() as $assignment) {
             $resourceId = (int) $assignment['resource_id'];
+            if ($pendingRequest) {
+                if ($assignment['status'] === 'confirmed') {
+                    if (isset($remaining[$resourceId])) {
+                        throw new RuntimeException('Ein bereits freigegebener Platz kann nicht erneut angefragt werden.');
+                    }
+                    continue;
+                }
+                if ($assignment['status'] === 'pending') {
+                    if (isset($remaining[$resourceId])) {
+                        unset($remaining[$resourceId]);
+                    } else {
+                        $this->pdo->prepare('DELETE FROM booking_resource_assignments WHERE id = :id')
+                            ->execute(['id' => $assignment['id']]);
+                    }
+                    continue;
+                }
+                if (isset($remaining[$resourceId]) && in_array($assignment['status'], ['rejected', 'withdrawn'], true)) {
+                    $this->setAssignmentStatus((int) $assignment['id'], $status);
+                    unset($remaining[$resourceId]);
+                } elseif (isset($remaining[$resourceId])) {
+                    throw new RuntimeException('Ein bereits abgeschlossener Platz kann nicht erneut angefragt werden.');
+                }
+                continue;
+            }
             if (isset($remaining[$resourceId])) {
-                $this->setAssignmentStatus((int) $assignment['id'], 'confirmed');
+                $this->setAssignmentStatus((int) $assignment['id'], $status);
                 unset($remaining[$resourceId]);
             } elseif ($assignment['status'] === 'confirmed') {
                 $this->pdo->prepare('DELETE FROM booking_resource_assignments WHERE id = :id')
@@ -966,10 +1089,14 @@ final class BookingService
         }
         $insert = $this->pdo->prepare(
             "INSERT INTO booking_resource_assignments (occurrence_id, resource_id, status)
-             VALUES (:occurrence_id, :resource_id, 'confirmed')"
+             VALUES (:occurrence_id, :resource_id, :status)"
         );
         foreach (array_keys($remaining) as $resourceId) {
-            $insert->execute(['occurrence_id' => $occurrenceId, 'resource_id' => $resourceId]);
+            $insert->execute([
+                'occurrence_id' => $occurrenceId,
+                'resource_id' => $resourceId,
+                'status' => $status,
+            ]);
         }
     }
 
@@ -1078,7 +1205,12 @@ final class BookingService
     }
 
     private function occurrencesForScope(
-        int $groupId, int $occurrenceId, string $scope, bool $confirmedOnly = false, bool $activeOnly = false
+        int $groupId,
+        int $occurrenceId,
+        string $scope,
+        bool $confirmedOnly = false,
+        bool $activeOnly = false,
+        bool $pendingOnly = false
     ): array
     {
         if ($scope === 'one') {
@@ -1089,6 +1221,8 @@ final class BookingService
         $sql = 'SELECT id FROM booking_occurrences WHERE group_id = :group_id';
         if ($confirmedOnly) {
             $sql .= " AND status = 'confirmed'";
+        } elseif ($pendingOnly) {
+            $sql .= " AND status = 'pending'";
         } elseif ($activeOnly) {
             $sql .= " AND status IN ('confirmed', 'pending')";
         }
@@ -1135,7 +1269,7 @@ final class BookingService
         $old = $this->pdo->prepare(
             "SELECT g.recurrence_rule, COUNT(o.id) AS remaining, MAX(o.starts_at) AS last_start
              FROM booking_groups g LEFT JOIN booking_occurrences o
-               ON o.group_id = g.id AND o.status = 'confirmed'
+               ON o.group_id = g.id AND o.status IN ('confirmed', 'pending')
              WHERE g.id = :id GROUP BY g.id"
         );
         $old->execute(['id' => $groupId]);

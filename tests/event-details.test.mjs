@@ -6,6 +6,8 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../www/assets/css/app.css', import.meta.url), 'utf8');
 const views = readFileSync(new URL('../app/Views.php', import.meta.url), 'utf8');
+const application = readFileSync(new URL('../app/Application.php', import.meta.url), 'utf8');
+const bookingService = readFileSync(new URL('../app/BookingService.php', import.meta.url), 'utf8');
 const showEventSource = source.slice(source.indexOf('function showEvent('), source.indexOf('function createResourceChip('));
 const bookingCardSource = source.slice(source.indexOf('function isRecurring('), source.indexOf('function showEvent('));
 const bookingFeedbackSource = source.slice(source.indexOf('function bookingError('), source.indexOf('async function submitBooking('));
@@ -20,7 +22,7 @@ function setup() {
       if (!fields.has(selector)) {
         fields.set(selector, {
           textContent: '', value: '', hidden: false,
-          elements: { occurrence_id: {}, cabin_id: {}, scope: {} },
+          elements: { occurrence_id: {}, cabin_id: {}, scope: {}, assignment_id: { value: '' } },
         });
       }
       return fields.get(selector);
@@ -193,7 +195,7 @@ test('vehicle resource choices use the same three-column chip layout with single
   );
   assert.match(choicesSource, /group\.classList\.add\('bus-choice-group'\)/);
   assert.match(choicesSource, /createResourceChip\([\s\S]*?isBus,\s*\)/);
-  assert.match(choicesSource, /const initiallySelected = editingBooking\s*\?\s*selectedIds\.has\(Number\(resource\.id\)\)\s*:\s*resources\.length === 1;/);
+  assert.match(choicesSource, /const initiallySelected = editingBooking \|\| editingRequest\s*\?\s*selectedIds\.has\(Number\(resource\.id\)\)\s*:\s*resources\.length === 1;/);
   assert.match(styles, /\.pitch-choice-group,\s*\.cabin-choice-group,\s*\.bus-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
   assert.match(source, /function createResourceChip\(resource, fieldName, initiallySelected = false, singleSelect = false\)/);
 });
@@ -216,7 +218,7 @@ test('clicking a pitch shows all booking details as text in Berlin time', () => 
   assert.equal(ui.dialog.querySelector('[data-cancel-form] input[name="assignment_id"]').value, 12);
 });
 
-test('pending requests show their status without offering confirmed-booking actions', () => {
+test('pending requests expose approval actions rather than confirmed-booking actions', () => {
   const ui = setup();
   ui.show({ ...pitch, status: 'pending', occurrence_status: 'pending' });
   assert.equal(ui.text('status'), 'Anfrage (offen)');
@@ -224,14 +226,68 @@ test('pending requests show their status without offering confirmed-booking acti
   for (const selector of ['[data-edit-event]', '[data-cancel-form]', '[data-cancel-cabin-form]']) {
     assert.equal(ui.dialog.querySelector(selector).hidden, true);
   }
-  assert.equal(ui.dialog.querySelector('[data-event-request]').hidden, false);
+  assert.equal(ui.dialog.querySelector('[data-event-approve]').hidden, false);
+  assert.equal(ui.dialog.querySelector('[data-event-reject]').hidden, false);
+  assert.equal(ui.dialog.querySelector('[data-event-approve]').elements.assignment_id.value, 12);
   ui.show(pitch);
   assert.equal(ui.text('status'), 'Bestätigt');
   assert.equal(ui.dialog.querySelector('[data-edit-event]').hidden, false);
   assert.equal(ui.dialog.querySelector('[data-cancel-form]').hidden, false);
-  assert.equal(ui.dialog.querySelector('[data-event-request]').hidden, true);
+  assert.equal(ui.dialog.querySelector('[data-event-approve]').hidden, true);
+  assert.equal(ui.dialog.querySelector('[data-event-reject]').hidden, true);
   ui.show({ ...pitch, occurrence_status: 'pending' });
   assert.equal(ui.dialog.querySelector('[data-edit-event]').hidden, true);
+});
+
+test('pending requests open the shared booking dialog for editing', () => {
+  assert.match(views, /<form id="booking-form"/);
+  assert.match(views, /data-request-edit/);
+  assert.doesNotMatch(views, /request-edit-form/);
+  assert.match(source, /document\.querySelectorAll\('#request-dashboard \[data-request-edit\]'\)/);
+  assert.match(source, /api=request-details/);
+  assert.match(source, /editingRequest = \{ \.\.\.data, can_approve: canApprove, approve: false \}/);
+  assert.match(submitBookingSource, /const api = isRequestEdit \? 'request-edit'/);
+  assert.match(application, /if \(\$api === 'request-edit'/);
+});
+
+test('booking requests are grouped and review opens the editable dialog', () => {
+  const requestQuery = bookingService.slice(
+    bookingService.indexOf('public function requests('),
+    bookingService.indexOf('public function approve('),
+  );
+  assert.match(requestQuery, /GROUP_CONCAT\(CASE WHEN a\.status = 'pending' THEN a\.id END ORDER BY a\.id SEPARATOR ','\)\s+AS pending_assignment_ids/);
+  assert.match(requestQuery, /GROUP BY o\.id/);
+  assert.match(views, /data-request-approve/);
+  assert.match(views, />Ändern<\/button>/);
+  assert.match(source, /document\.querySelectorAll\('#request-dashboard \[data-request-approve\]'\)/);
+  assert.match(source, /data-request-approve/);
+});
+
+test('booking requests cannot reserve cabins and retain creation fields while editing', () => {
+  assert.match(bookingService, /Buchungsanfragen können keine Kabinen belegen/);
+  assert.match(application, /request-details/);
+  assert.match(application, /editablePendingRequest/);
+  assert.match(views, /data-allow-cabins=/);
+  assert.doesNotMatch(source, /data-request-edit-hidden/);
+  assert.match(source, /editingRequest\?\.resource_ids/);
+  assert.match(source, /editingRequest\.approve/);
+});
+
+test('hidden rejection action is not forced visible by a display utility', () => {
+  const rejectForm = views.match(/<form method="post" action="\/\?action=booking-reject"([^>]*)data-event-reject hidden>/);
+  assert.ok(rejectForm);
+  assert.doesNotMatch(rejectForm[1], /\bclass="[^"]*\bd-flex\b/);
+});
+
+test('booking removal uses deletion wording throughout the UI and feedback', () => {
+  assert.match(views, />Löschen<\/button>/);
+  assert.match(views, />Kabinenbelegung löschen<\/button>/);
+  assert.match(application, /Die Buchung wurde gelöscht/);
+  assert.match(application, /Die Kabinenbelegung wurde gelöscht/);
+  assert.match(source, /action === 'edit' \? 'Änderung' : 'Löschung'/);
+  for (const text of [views, application, bookingService, source]) {
+    assert.doesNotMatch(text, /stornier/i);
+  }
 });
 
 test('vehicle details retain the title and show destination, purpose, driver and both dates', () => {

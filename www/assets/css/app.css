@@ -56,6 +56,63 @@ body {
   padding: 1.25rem;
 }
 
+.page-shell-wide {
+  width: 100%;
+  max-width: none;
+}
+
+.calendar-dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.calendar-dashboard-layout.has-dashboard {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+}
+
+.calendar-main-content {
+  min-width: 0;
+}
+
+.panel-card.calendar-dashboard-panel {
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+}
+
+.dashboard-entry-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.dashboard-entry-link:hover,
+.dashboard-entry-link:focus-visible {
+  color: var(--club-blue);
+  text-decoration: underline;
+}
+
+.dashboard-entry-link .request-details,
+.dashboard-entry-closed .request-details {
+  display: block;
+}
+
+.booking-card-highlight {
+  outline: 4px solid #f2b632;
+  outline-offset: 2px;
+  animation: booking-card-highlight 2.4s ease-out;
+}
+
+@keyframes booking-card-highlight {
+  0%, 100% { outline-color: transparent; }
+  20%, 75% { outline-color: #f2b632; }
+}
+
 .calendar-toolbar,
 .calendar-actions {
   display: flex;
@@ -826,6 +883,40 @@ dialog::backdrop {
 .request-row {
   border-bottom: 1px solid #e7ecf1;
   padding: .8rem 0;
+}
+
+.request-row-layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.request-row-content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.request-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: .5rem;
+}
+
+.request-row-actions form {
+  margin: 0;
+}
+
+@media (max-width: 1000px) {
+  .calendar-dashboard-layout.has-dashboard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .panel-card.calendar-dashboard-panel {
+    max-height: none;
+  }
 }
 
 .table-responsive {

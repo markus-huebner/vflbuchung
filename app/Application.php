@@ -161,6 +161,27 @@ final class Application
             return;
         }
 
+        if ($api === 'request-edit' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+            Security::verifyCsrf($_POST['_csrf'] ?? null);
+            $actor = $this->requireRole(['admin', 'manager', 'trainer']);
+            $result = $this->bookings->editPendingRequest(
+                $this->positiveId($_POST['occurrence_id'] ?? null),
+                $_POST,
+                $actor,
+                ($_POST['approve'] ?? '') === '1'
+            );
+            echo json_encode($result, JSON_THROW_ON_ERROR);
+            return;
+        }
+
+        if ($api === 'request-details' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+            $actor = $this->requireRole(['admin', 'manager', 'trainer']);
+            echo json_encode($this->bookings->editablePendingRequest(
+                $this->positiveId($_GET['occurrence_id'] ?? null), $actor
+            ), JSON_THROW_ON_ERROR);
+            return;
+        }
+
         if ($api === 'booking-details' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $actor = $this->requireRole(['admin', 'manager']);
             echo json_encode($this->bookings->editableOccurrence(
@@ -318,8 +339,7 @@ final class Application
 
             case 'booking-approve':
                 $actor = $this->requireRole(['admin', 'manager']);
-                $id = $this->positiveId($_POST['assignment_id'] ?? null);
-                $result = $this->bookings->approve([$id], $actor);
+                $result = $this->bookings->approve($this->postedAssignmentIds(), $actor);
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
                     'message' => 'Die Anfrage wurde freigegeben.'
@@ -330,7 +350,7 @@ final class Application
             case 'booking-reject':
                 $actor = $this->requireRole(['admin', 'manager']);
                 $mailErrors = $this->bookings->reject(
-                    [$this->positiveId($_POST['assignment_id'] ?? null)],
+                    $this->postedAssignmentIds(),
                     $actor,
                     (string) ($_POST['reason'] ?? '')
                 );
@@ -343,18 +363,28 @@ final class Application
 
             case 'booking-withdraw':
                 $actor = $this->requireRole(['trainer']);
-                $this->bookings->withdraw([$this->positiveId($_POST['assignment_id'] ?? null)], $actor);
+                $this->bookings->withdraw($this->postedAssignmentIds(), $actor);
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Anfrage wurde zurückgezogen.'];
                 $this->redirect('/?page=dashboard');
 
             case 'request-edit':
-                $actor = $this->requireRole(['trainer']);
-                $this->bookings->editPendingRequest(
-                    $this->positiveId($_POST['assignment_id'] ?? null),
+                $actor = $this->requireRole(['admin', 'manager', 'trainer']);
+                $result = $this->bookings->editPendingRequest(
+                    $this->positiveId($_POST['occurrence_id'] ?? null),
                     $_POST,
-                    $actor
+                    $actor,
+                    ($_POST['approve'] ?? '') === '1'
                 );
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Anfrage wurde geändert.'];
+                $message = $result['approved'] > 0
+                    ? 'Die Anfrage wurde freigegeben.'
+                    : 'Die Anfrage wurde geändert.';
+                if ($result['mail_errors'] !== []) {
+                    $message .= ' Die Benachrichtigungs-E-Mail konnte nicht versendet werden.';
+                }
+                $_SESSION['_flash'] = [
+                    'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
+                    'message' => $message,
+                ];
                 $this->redirect('/?page=dashboard');
 
             case 'booking-cancel':
@@ -366,8 +396,8 @@ final class Application
                     $scope
                 );
                 $cancelledMessage = $result['cancelled'] === 1
-                    ? 'Die Buchung wurde storniert.'
-                    : $result['cancelled'] . ' Buchungen wurden storniert.';
+                    ? 'Die Buchung wurde gelöscht.'
+                    : $result['cancelled'] . ' Buchungen wurden gelöscht.';
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
                     'message' => $cancelledMessage
@@ -385,7 +415,7 @@ final class Application
                 );
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
-                    'message' => 'Die Kabinenbelegung wurde storniert.'
+                    'message' => 'Die Kabinenbelegung wurde gelöscht.'
                         . ($result['mail_errors'] !== [] ? ' Die Benachrichtigungs-E-Mail konnte nicht versendet werden.' : ''),
                 ];
                 $this->redirect('/');
@@ -406,8 +436,15 @@ final class Application
 
         switch ($page) {
             case 'calendar':
+            case 'dashboard':
+                if ($page === 'dashboard') {
+                    $user = $this->requireRole(['admin', 'manager', 'trainer']);
+                }
                 $resources = $this->resources->all();
-                $content = Views::calendar($user, $this->csrf, $resources);
+                $requests = $user !== null && in_array($user['role'], ['admin', 'manager', 'trainer'], true)
+                    ? $this->bookings->requests($user)
+                    : [];
+                $content = Views::calendar($user, $this->csrf, $resources, $requests);
                 $clientData = [
                     'resources' => array_values(array_map(
                         static fn(array $resource): array => [
@@ -446,11 +483,6 @@ final class Application
 
             case 'reset':
                 $content = Views::reset((string) ($_GET['token'] ?? ''), $this->csrf);
-                break;
-
-            case 'dashboard':
-                $user = $this->requireRole(['admin', 'manager', 'trainer']);
-                $content = Views::dashboard($user, $this->bookings->requests($user), $this->csrf);
                 break;
 
             case 'users':
@@ -533,6 +565,22 @@ final class Application
         return $id;
     }
 
+    private function postedAssignmentIds(): array
+    {
+        $values = $_POST['assignment_ids'] ?? [];
+        if (!is_array($values)) {
+            throw new RuntimeException('Die Auswahl der Buchungsplätze ist ungültig.');
+        }
+        if ($values === [] && isset($_POST['assignment_id'])) {
+            $values[] = $_POST['assignment_id'];
+        }
+
+        return array_values(array_unique(array_map(
+            fn(mixed $value): int => $this->positiveId($value),
+            $values
+        )));
+    }
+
     private function jsonError(Throwable $exception): void
     {
         if ($exception instanceof RuntimeException || $exception instanceof \InvalidArgumentException) {
@@ -553,7 +601,7 @@ final class Application
             'setup' => 'Ersteinrichtung',
             'invite' => 'Konto einrichten',
             'forgot', 'reset' => 'Passwort',
-            'dashboard' => 'Dashboard',
+            'dashboard' => 'Belegungsplan',
             'users' => 'Benutzerverwaltung',
             'resources' => 'Ressourcen',
             default => 'Belegungsplan',

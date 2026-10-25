@@ -5,6 +5,7 @@ use App\BookingService;
 use App\Config;
 use App\Database;
 use App\Mailer;
+use App\Recurrence;
 
 require getcwd() . '/vendor/autoload.php';
 
@@ -74,11 +75,135 @@ function editData(int $id, array $changes = [], string $scope = 'one'): array
     ], $changes);
 }
 
+$requestEditData = function (int $id, array $actor, array $changes = [], string $scope = 'one') use ($service): array {
+    $details = $service->editablePendingRequest($id, $actor);
+    $rule = $details['recurrence_rule'] ?? ['frequency' => 'none'];
+    if (($rule['limit_type'] ?? '') === 'count') $rule['count'] = $details['scope_counts'][$scope];
+    return array_replace($details, $rule, [
+        'starts_at' => (new DateTimeImmutable($details['start']))->format('Y-m-d\TH:i'),
+        'ends_at' => (new DateTimeImmutable($details['end']))->format('Y-m-d\TH:i'),
+        'scope' => $scope,
+    ], $changes);
+};
+
+$pendingRequestId = createBooking('2031-03-01', [
+    'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
+], $actors['trainer'])[0];
+$pendingRequestEvents = array_values(array_filter(
+    $service->events('2031-03-01', '2031-03-02', 'pitch', false),
+    static fn(array $event): bool => (int) $event['occurrence_id'] === $pendingRequestId
+));
+check(count($pendingRequestEvents) === 2, 'Create a multi-place pending request for the shared edit flow.');
+$groupedTrainerRequests = array_values(array_filter(
+    $service->requests($actors['trainer']),
+    static fn(array $request): bool => (int) $request['occurrence_id'] === $pendingRequestId
+));
+check(
+    count($groupedTrainerRequests) === 1
+        && count(explode(',', $groupedTrainerRequests[0]['pending_assignment_ids'])) === 2
+        && count(explode(',', $groupedTrainerRequests[0]['resource_ids'])) === 2,
+    'A multi-place request must be shown once with all pending assignment IDs.'
+);
+$service->editPendingRequest($pendingRequestId, $requestEditData($pendingRequestId, $actors['trainer'], [
+    'event_type' => 'match',
+    'resource_ids' => [$resources['pitch'][1], $resources['pitch'][2]],
+    'title' => 'Updated request',
+    'team_name' => 'U15',
+    'starts_at' => '2031-03-01T11:15',
+    'ends_at' => '2031-03-01T12:45',
+    'private_notes' => 'Updated request note',
+]), $actors['trainer']);
+$pendingRequestQuery = $pdo->prepare(
+    'SELECT o.event_type, o.title, o.team_name, o.private_notes, o.starts_at, o.ends_at,
+            o.status, a.status AS assignment_status, a.resource_id
+     FROM booking_occurrences o
+     JOIN booking_resource_assignments a ON a.occurrence_id = o.id
+     WHERE o.id = :id ORDER BY a.resource_id'
+);
+$pendingRequestQuery->execute(['id' => $pendingRequestId]);
+$updatedPendingRequests = $pendingRequestQuery->fetchAll();
+check(
+    count($updatedPendingRequests) === 2
+        && (int) $updatedPendingRequests[0]['resource_id'] === $resources['pitch'][1]
+        && (int) $updatedPendingRequests[1]['resource_id'] === $resources['pitch'][2]
+        && $updatedPendingRequests[0]['event_type'] === 'match'
+        && $updatedPendingRequests[0]['title'] === 'Updated request'
+        && $updatedPendingRequests[0]['team_name'] === 'U15'
+        && $updatedPendingRequests[0]['private_notes'] === 'Updated request note'
+        && $updatedPendingRequests[0]['starts_at'] === Recurrence::toDatabase(
+            Recurrence::parseLocalDateTime('2031-03-01T11:15')
+        )
+        && $updatedPendingRequests[0]['ends_at'] === Recurrence::toDatabase(
+            Recurrence::parseLocalDateTime('2031-03-01T12:45')
+        )
+        && $updatedPendingRequests[0]['status'] === 'pending'
+        && $updatedPendingRequests[0]['assignment_status'] === 'pending',
+    'Editing a pending request must update all selected creation fields and preserve its pending state.'
+);
+fails(fn() => createBooking('2031-03-02', [
+    'cabin_ids' => [$resources['cabin'][0]],
+], $actors['trainer']), 'Kabinen belegen');
+
+$seriesRequestId = createBooking('2031-03-02', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 2,
+], $actors['trainer'])[0];
+$service->editPendingRequest($seriesRequestId, $requestEditData(
+    $seriesRequestId,
+    $actors['trainer'],
+    ['frequency' => 'daily', 'limit_type' => 'count', 'count' => 3],
+    'all'
+), $actors['trainer']);
+$seriesRequest = $service->editablePendingRequest($seriesRequestId, $actors['trainer']);
+check(
+    $seriesRequest['scope_counts']['all'] === 3
+        && $seriesRequest['recurrence_rule']['count'] === 3,
+    'Editing a request must preserve the create form recurrence fields and update the pending series.'
+);
+
+$approvalRequestId = createBooking('2031-03-03', [
+    'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
+], $actors['trainer'])[0];
+$staffRequests = array_values(array_filter(
+    $service->requests($manager),
+    static fn(array $request): bool => (int) $request['occurrence_id'] === $approvalRequestId
+));
+check(
+    count($staffRequests) === 1
+        && count(explode(',', $staffRequests[0]['pending_assignment_ids'])) === 2,
+    'Staff must see one grouped request with every pending place assignment.'
+);
+fails(fn() => $service->editPendingRequest(
+    $approvalRequestId,
+    $requestEditData($approvalRequestId, $actors['trainer']),
+    $actors['trainer'],
+    true
+), 'Rechte');
+fails(fn() => $service->editPendingRequest(
+    $approvalRequestId,
+    $requestEditData($approvalRequestId, $manager, ['cabin_ids' => [$resources['cabin'][0]]]),
+    $manager
+), 'Kabinen belegen');
+$approvalResult = $service->editPendingRequest(
+    $approvalRequestId,
+    $requestEditData($approvalRequestId, $manager, ['title' => 'Reviewed request']),
+    $manager,
+    true
+);
+$approvedAssignments = $pdo->prepare(
+    "SELECT COUNT(*) FROM booking_resource_assignments
+     WHERE occurrence_id = :id AND status = 'confirmed'"
+);
+$approvedAssignments->execute(['id' => $approvalRequestId]);
+check(
+    $approvalResult['approved'] === 2 && (int) $approvedAssignments->fetchColumn() === 2,
+    'Approving from the editor must approve every pending place assignment atomically with edits.'
+);
+
 fails(fn() => $service->create([
     'event_type' => 'bus', 'resource_mode' => 'bus', 'resource_ids' => [$resources['bus'][0]],
     'title' => 'Overnight bus', 'starts_at' => '2031-11-01T22:00',
     'ends_at' => '2031-11-02T01:00', 'frequency' => 'none',
-], $admin), 'Buchungen müssen am selben Tag enden');
+], $admin), 'am selben Tag enden');
 
 $id = createBooking('2031-04-01', ['cabin_ids' => [$resources['cabin'][0]]])[0];
 $service->editOccurrence($id, editData($id, [
@@ -219,7 +344,8 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
     $service->editOccurrence($second, editData($second, ['starts_at' => '2033-01-01T10:15']), $manager);
     if ($eventType === 'external') continue;
 
-    $pending = createBooking('2033-01-01', $data, $actors['trainer'])[0];
+    $requestData = array_replace($data, ['cabin_ids' => []]);
+    $pending = createBooking('2033-01-01', $requestData, $actors['trainer'])[0];
     $type = $isBus ? 'bus' : 'pitch';
     $public = $service->events('2033-01-01', '2033-01-02', $type, false);
     $request = array_values(array_filter($public, fn(array $event): bool => $event['occurrence_id'] === $pending));
@@ -248,7 +374,6 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
 
 $pending = createBooking('2033-02-01', [
     'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
-    'cabin_ids' => [$resources['cabin'][0]],
 ], $actors['trainer'])[0];
 $public = $service->events('2033-02-01', '2033-02-02', 'pitch', false);
 check(count($public) === 2 && $public[0]['resource_names'] === 'pitch0, pitch1', 'Show all requested resources before approval.');

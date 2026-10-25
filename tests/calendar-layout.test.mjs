@@ -76,6 +76,24 @@ test('vehicle calendar uses the shared resource day and week layouts', () => {
   assert.match(calendarJs, /eventDaySegment\(event,\s*date\)/);
 });
 
+test('calendar uses full width without a dashboard and a 75/25 split when one is available', () => {
+  assert.match(calendarCss, /\.page-shell-wide\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;/s);
+  assert.match(calendarCss, /\.calendar-dashboard-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(calendarCss, /\.calendar-dashboard-layout\.has-dashboard\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*3fr\)\s*minmax\(0,\s*1fr\)/s);
+  assert.match(views, /data-calendar-dashboard-layout/);
+  assert.match(views, /has-dashboard/);
+  assert.match(views, /data-request-dashboard/);
+  assert.match(views, /<h2 class="h4">Buchungsanfragen<\/h2>/);
+  assert.match(views, /request-row-actions/);
+  assert.match(calendarCss, /\.request-row-actions\s*\{[^}]*align-items:\s*flex-end/s);
+  assert.doesNotMatch(views, /name="reason"|placeholder="Begründung/);
+  assert.doesNotMatch(views, /data-dashboard-toggle|Dashboard ausblenden|Dashboard einblenden/);
+  assert.doesNotMatch(calendarJs, /data-dashboard-toggle/);
+  assert.match(calendarJs, /data-dashboard-jump/);
+  assert.match(calendarJs, /data-event-approve/);
+  assert.match(calendarJs, /data-event-reject/);
+});
+
 test('identical bookings and requests receive separate equally wide columns', () => {
   const entries = layoutDayEvents([
     event(1, '10:00', '11:30'), event(2, '10:00', '11:30', 'pending'), event(3, '10:00', '11:30'),
