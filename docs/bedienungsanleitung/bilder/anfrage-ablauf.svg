@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 410" role="img" aria-labelledby="title desc">
+  <title id="title">Ablauf einer Buchungsanfrage</title>
+  <desc id="desc">Trainer stellt eine Anfrage. Verwalter prüft und bearbeitet sie. Danach wird sie entweder genehmigt und bestätigt oder abgelehnt.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; fill: #1d2935; }
+      .heading { font-size: 20px; font-weight: 700; }
+      .body { font-size: 16px; }
+      .small { font-size: 14px; fill: #536575; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#557185"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="410" rx="18" fill="#f3f6f9"/>
+  <text x="34" y="48" class="heading">Von der Anfrage zur Entscheidung</text>
+
+  <rect x="35" y="125" width="225" height="150" rx="14" fill="#fff" stroke="#8eb6d2" stroke-width="2"/>
+  <circle cx="78" cy="168" r="22" fill="#e7f2fb"/>
+  <text x="78" y="174" text-anchor="middle" class="heading">1</text>
+  <text x="111" y="163" class="heading">Trainer</text>
+  <text x="58" y="211" class="body">Buchungsanfrage</text>
+  <text x="58" y="237" class="body">stellen oder ändern</text>
+  <text x="58" y="261" class="small">Status: offen</text>
+
+  <line x1="265" y1="200" x2="357" y2="200" stroke="#557185" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <rect x="370" y="105" width="270" height="190" rx="14" fill="#fff" stroke="#9db6c5" stroke-width="2"/>
+  <circle cx="415" cy="150" r="22" fill="#edf3f8"/>
+  <text x="415" y="156" text-anchor="middle" class="heading">2</text>
+  <text x="448" y="145" class="heading">Verwalter</text>
+  <text x="395" y="194" class="body">Angaben und Ressourcen</text>
+  <text x="395" y="219" class="body">prüfen, bei Bedarf ändern</text>
+  <text x="395" y="256" class="small">Entscheidung im Anfrage-</text>
+  <text x="395" y="276" class="small">dialog treffen</text>
+
+  <line x1="645" y1="170" x2="737" y2="120" stroke="#557185" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="645" y1="232" x2="737" y2="290" stroke="#557185" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <rect x="750" y="55" width="215" height="130" rx="14" fill="#e4f3ea" stroke="#71b48c" stroke-width="2"/>
+  <text x="775" y="92" class="heading">Genehmigt</text>
+  <text x="775" y="123" class="body">Termin ist bestätigt</text>
+  <text x="775" y="151" class="small">Anfrager bleibt zugeordnet</text>
+
+  <rect x="750" y="230" width="215" height="130" rx="14" fill="#fbe9e9" stroke="#d89b9b" stroke-width="2"/>
+  <text x="775" y="267" class="heading">Abgelehnt</text>
+  <text x="775" y="298" class="body">Anfrage wird geschlossen</text>
+  <text x="775" y="326" class="small">Bestätigung vor Ablehnung</text>
+
+  <text x="35" y="377" class="small">Offene Anfragen sind im Kalender erkennbar. Überschneidungen werden nicht automatisch verhindert.</text>
+</svg>

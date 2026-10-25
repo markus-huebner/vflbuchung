@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 600" role="img" aria-labelledby="title desc">
+  <title id="title">Schematische Übersicht des Belegungsplans</title>
+  <desc id="desc">Kalendersteuerung und Tagesplan auf der linken Seite, Anfrageübersicht auf der rechten Seite, dazwischen ein verstellbarer Trenner.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; fill: #1d2935; }
+      .small { font-size: 14px; }
+      .label { font-size: 16px; font-weight: 700; }
+      .muted { fill: #667686; }
+      .white { fill: #fff; }
+    </style>
+  </defs>
+  <rect width="1100" height="600" rx="18" fill="#f3f6f9"/>
+  <rect x="0" y="0" width="1100" height="66" rx="18" fill="#102f49"/>
+  <rect x="0" y="48" width="1100" height="18" fill="#102f49"/>
+  <circle cx="34" cy="33" r="15" fill="#d9e8f2"/>
+  <text x="62" y="40" font-size="21" font-weight="700" class="white">Platz- und Busbelegung</text>
+  <rect x="858" y="17" width="126" height="34" rx="7" fill="#294b65" stroke="#d7e4ec"/>
+  <text x="921" y="39" text-anchor="middle" class="small white" font-weight="700">Einstellungen ▾</text>
+  <text x="1004" y="39" class="small white">Admin</text>
+
+  <text x="32" y="105" font-size="22" font-weight="700">Belegungsplan</text>
+  <rect x="32" y="120" width="175" height="38" rx="7" fill="#1269a5"/>
+  <text x="119" y="145" text-anchor="middle" class="small white" font-weight="700">+ Buchung anlegen</text>
+  <rect x="218" y="120" width="210" height="38" rx="7" fill="#fff" stroke="#b9c6d1"/>
+  <text x="235" y="145" class="small">Platzbelegung ▾</text>
+  <rect x="32" y="174" width="396" height="44" rx="7" fill="#fff" stroke="#d4dde5"/>
+  <text x="48" y="202" class="small">‹</text>
+  <text x="90" y="202" class="small">Heute</text>
+  <text x="184" y="202" class="label">27. Oktober 2026</text>
+  <text x="394" y="202" class="small">Tag | Woche</text>
+
+  <rect x="32" y="234" width="678" height="320" rx="10" fill="#fff" stroke="#d4dde5"/>
+  <text x="52" y="265" class="label">Tagesansicht · Plätze</text>
+  <text x="230" y="294" class="small muted">08:00</text>
+  <text x="230" y="351" class="small muted">10:00</text>
+  <text x="230" y="408" class="small muted">12:00</text>
+  <text x="230" y="465" class="small muted">14:00</text>
+  <line x1="286" y1="281" x2="690" y2="281" stroke="#e4eaf0"/>
+  <line x1="286" y1="338" x2="690" y2="338" stroke="#e4eaf0"/>
+  <line x1="286" y1="395" x2="690" y2="395" stroke="#e4eaf0"/>
+  <line x1="286" y1="452" x2="690" y2="452" stroke="#e4eaf0"/>
+  <line x1="286" y1="509" x2="690" y2="509" stroke="#e4eaf0"/>
+  <line x1="420" y1="281" x2="420" y2="524" stroke="#e4eaf0"/>
+  <line x1="555" y1="281" x2="555" y2="524" stroke="#e4eaf0"/>
+  <text x="354" y="280" text-anchor="middle" class="small">Platz 1</text>
+  <text x="488" y="280" text-anchor="middle" class="small">Platz 2</text>
+  <text x="622" y="280" text-anchor="middle" class="small">Platz 3</text>
+  <rect x="296" y="306" width="115" height="45" rx="6" fill="#d8f0e4" stroke="#8fc9aa"/>
+  <text x="305" y="325" class="small" font-weight="700">Training</text>
+  <text x="305" y="342" class="small">U15</text>
+  <rect x="431" y="365" width="115" height="58" rx="6" fill="#e7f2fb" stroke="#aacce5"/>
+  <text x="440" y="386" class="small" font-weight="700">Anfrage</text>
+  <text x="440" y="405" class="small">U12</text>
+  <rect x="566" y="425" width="115" height="45" rx="6" fill="#fce8d4" stroke="#e3bb8d"/>
+  <text x="575" y="444" class="small" font-weight="700">Externe</text>
+  <text x="575" y="461" class="small">Belegung</text>
+
+  <rect x="724" y="235" width="7" height="318" rx="3" fill="#b0bfca"/>
+  <path d="M721 385h13M721 393h13M721 401h13" stroke="#fff" stroke-width="2"/>
+  <rect x="746" y="234" width="322" height="320" rx="10" fill="#fff" stroke="#d4dde5"/>
+  <text x="768" y="266" font-size="20" font-weight="700">Buchungsanfragen</text>
+  <text x="768" y="291" class="small muted">Offene Anfragen zur Freigabe</text>
+  <rect x="768" y="305" width="136" height="30" rx="6" fill="#fff" stroke="#aebdca"/>
+  <text x="836" y="325" text-anchor="middle" class="small">Alle Anfragen</text>
+  <line x1="768" y1="350" x2="1045" y2="350" stroke="#e4eaf0"/>
+  <text x="768" y="377" class="small" font-weight="700">U12 · Anfrage</text>
+  <text x="768" y="398" class="small muted">27.10.2026 · Platz 2</text>
+  <rect x="768" y="410" width="98" height="29" rx="5" fill="#198754"/>
+  <text x="817" y="430" text-anchor="middle" class="small white">Freigeben</text>
+  <text x="880" y="430" class="small" fill="#a52a2a">Ablehnen</text>
+  <line x1="768" y1="454" x2="1045" y2="454" stroke="#e4eaf0"/>
+  <text x="768" y="480" class="small" font-weight="700">U13 · Anfrage</text>
+  <text x="768" y="501" class="small muted">28.10.2026 · Platz 1</text>
+  <text x="768" y="530" class="small muted">Die Breite der Bereiche ist verstellbar.</text>
+
+  <text x="32" y="581" class="small muted">Schematische Darstellung – die Oberfläche passt sich der Bildschirmgröße an.</text>
+</svg>

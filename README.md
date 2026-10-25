@@ -2,6 +2,8 @@
 
 Responsives Buchungssystem für Fußballplätze, Kabinen und Vereinsbus. Öffentliche Besucher sehen bestätigte Buchungen und offene Buchungsanfragen ohne Anmeldung; interne Benutzer melden sich für Anfragen und Verwaltung an.
 
+Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, Verwalter und Admins findest du in der [Bedienungsanleitung](docs/bedienungsanleitung/README.md).
+
 ## Lokal mit Docker starten
 
 1. Lege eine lokale Konfiguration an und ersetze den Setup-Schlüssel durch einen zufälligen Wert mit mindestens 32 Zeichen:
@@ -16,9 +18,9 @@ Responsives Buchungssystem für Fußballplätze, Kabinen und Vereinsbus. Öffent
    docker compose up --build -d
    ```
 
-3. Öffne [http://localhost:9000](http://localhost:9000). Beim ersten Start richtet MySQL das Schema mit `database/install.sql` ein und spielt anschließend die Ressourcen aus `database/seed_resources.sql` ein. Wähle im Kalender **Ersten Administrator einrichten** und gib den Wert aus `APP_SETUP_TOKEN` ein.
+3. Öffne [http://localhost:8100](http://localhost:8100). Beim ersten Start richtet MySQL das Schema mit `database/install.sql` ein und spielt anschließend die Ressourcen aus `database/seed_resources.sql` ein. Wähle im Kalender **Ersten Administrator einrichten** und gib den Wert aus `APP_SETUP_TOKEN` ein.
 
-Die lokale Oberfläche läuft auf Port `9000`; phpMyAdmin ist unter `http://localhost:9001` und Mailpit unter `http://localhost:8025` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
+Die lokale Oberfläche läuft auf Port `8100`; phpMyAdmin ist unter `http://localhost:8101` und Mailpit unter `http://localhost:8103` erreichbar. MySQL ist auf Host-Port `8102` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
 
 MySQL führt Dateien in `/docker-entrypoint-initdb.d` nur aus, wenn das Datenverzeichnis erstmals initialisiert wird. Bei einem bestehenden Docker-Volume werden `install.sql` und `seed_resources.sql` nicht automatisch erneut ausgeführt. **Das Volume nicht mit `docker compose down -v` löschen**, wenn vorhandene Daten erhalten bleiben sollen.
 
