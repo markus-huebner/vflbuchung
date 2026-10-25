@@ -16,7 +16,7 @@ final class Config
     {
         $defaults = [
             'APP_ENV' => 'local',
-            'APP_URL' => 'http://localhost:9000',
+            'APP_URL' => 'http://localhost:8100',
             'APP_SETUP_TOKEN' => '',
             'DB_HOST' => '127.0.0.1',
             'DB_PORT' => '3306',

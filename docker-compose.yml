@@ -6,10 +6,10 @@ services:
     container_name: php_apache_web
     restart: always
     ports:
-      - "9000:80"
+      - "8100:80"
     environment:
       APP_ENV: ${APP_ENV:-local}
-      APP_URL: ${APP_URL:-http://localhost:9000}
+      APP_URL: ${APP_URL:-http://localhost:8100}
       APP_SETUP_TOKEN: ${APP_SETUP_TOKEN:?Set APP_SETUP_TOKEN in .env}
       DB_HOST: db
       DB_PORT: 3306
@@ -39,7 +39,7 @@ services:
       MYSQL_USER: ${DB_USER:-webuser}
       MYSQL_PASSWORD: ${DB_PASSWORD:-userpasswort}
     ports:
-      - "9002:3306"
+      - "8102:3306"
     volumes:
       - db_data:/var/lib/mysql
       - ./database/install.sql:/docker-entrypoint-initdb.d/001_install.sql:ro
@@ -55,7 +55,7 @@ services:
     container_name: phpmyadmin_web
     restart: always
     ports:
-      - "9001:80"  # phpMyAdmin ist nun unter http://localhost:9001 erreichbar
+      - "8101:80"  # phpMyAdmin ist unter http://localhost:8101 erreichbar
     environment:
       PMA_HOST: db
       PMA_USER: root
@@ -69,7 +69,7 @@ services:
     container_name: mailpit_web
     restart: unless-stopped
     ports:
-      - "8025:8025"
+      - "8103:8025"
 
 volumes:
   db_data:
