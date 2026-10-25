@@ -16,7 +16,7 @@ final class Views
     ): string {
         $assetRoot = dirname(__DIR__) . '/www/assets/build';
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
-        $nav = '<a class="navbar-brand fw-semibold" href="/">Vereinsbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
+        $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
             $nav .= '<a class="nav-link" href="/?page=dashboard">Dashboard</a>';
             if ($user['role'] === 'admin') {
@@ -49,7 +49,7 @@ final class Views
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <meta name="csrf-token" content="' . Security::escape($csrfToken) . '">
-    <title>' . Security::escape($title) . ' · Vereinsbelegung</title>
+    <title>' . Security::escape($title) . ' · Platz- und Busbelegung</title>
     <link rel="stylesheet" href="/assets/build/app.css?v=' . Security::escape($assetVersion) . '">
     <script>window.VereinApp=' . $appData . ';</script>
     <script src="/assets/build/app.js?v=' . Security::escape($assetVersion) . '" defer></script>
@@ -120,17 +120,20 @@ final class Views
 </section>
 <section class="calendar-frame">
   <div data-calendar-view="pitch">
-    <div id="pitch-day" class="pitch-day-scroll"></div>
-    <div id="pitch-week" class="pitch-week-scroll" hidden></div>
+    <div id="pitch-day" class="resource-day-scroll"></div>
+    <div id="pitch-week" class="resource-week-scroll" hidden></div>
   </div>
-<div id="bus-calendar" data-calendar-view="bus" hidden></div>
+  <div data-calendar-view="bus" hidden>
+    <div id="bus-day" class="resource-day-scroll"></div>
+    <div id="bus-week" class="resource-week-scroll" hidden></div>
+  </div>
   <div class="calendar-legend">
     <span class="legend-item" style="--legend-color:var(--booking-training)">Training</span>
     <span class="legend-item" style="--legend-color:var(--booking-match)">Spiel</span>
     <span class="legend-item" style="--legend-color:var(--booking-external)">Externe Belegung</span>
     <span class="legend-item" style="--legend-color:var(--booking-bus)">Fahrzeug</span>
     <span class="legend-item legend-recurring"><span aria-hidden="true">↻</span> Regeltermin</span>
-    <span class="legend-item legend-pending" style="--legend-color:var(--booking-training)">Anfrage: hellere Kategoriefarbe, gestrichelter Rand</span>
+    <span class="legend-item legend-pending"><span class="legend-pending-colors" aria-hidden="true"><span style="--legend-color:var(--booking-training)"></span><span style="--legend-color:var(--booking-match)"></span><span style="--legend-color:var(--booking-external)"></span><span style="--legend-color:var(--booking-bus)"></span></span>Anfrage</span>
   </div>
 </section>
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
@@ -142,20 +145,18 @@ final class Views
 <form id="booking-form" method="post">
   <div class="dialog-header"><h2 id="booking-dialog-title" class="h5 mb-0">Platzbelegung anlegen</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
   <div class="dialog-body">
-    <p class="alert alert-danger" data-booking-error role="alert" hidden></p>
+    <div class="alert alert-danger mb-0" data-booking-error role="alert" aria-live="assertive" hidden></div>
     <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
     <input type="hidden" name="occurrence_id">
     <div class="row g-3">
       <input type="hidden" id="resource-mode" name="resource_mode" value="pitch">
       <div class="col-md-4" id="booking-event-type-choice"><label class="form-label" for="event-type-select">Kategorie</label><select class="form-select" id="event-type-select" name="event_type">' . $eventTypes . '<option value="bus" hidden>Fahrzeug</option></select></div>
-      <div class="col-md-8"><label class="form-label" id="booking-title-label" for="event-title">Titel / Mannschaft</label><input class="form-control" id="event-title" name="combined_title" maxlength="180" pattern=".*\S.*" required data-initial-value=""><input type="hidden" name="title"><input type="hidden" name="team_name"></div>
+      <div class="col-12"><label class="form-label" id="booking-title-label" for="event-title">Mannschaft / Hinweis</label><textarea class="form-control" id="event-title" name="combined_title" maxlength="180" rows="2" required data-required-non-whitespace data-initial-value=""></textarea><input type="hidden" name="title"><input type="hidden" name="team_name"></div>
       <div class="col-12">' . self::bookingDateTimeFields('booking') . '</div>
       <div class="col-12">
         <div id="resource-choices" class="resource-choices mt-2"></div>
       </div>
-      <div class="col-md-6" data-event-type-field="bus"><label class="form-label" for="destination">Ziel</label><input class="form-control" id="destination" name="destination" maxlength="180"></div>
-      <div class="col-md-6" data-event-type-field="bus"><label class="form-label" for="purpose">Zweck</label><input class="form-control" id="purpose" name="purpose" maxlength="180"></div>
-      <div class="col-md-6" data-event-type-field="bus"><label class="form-label" for="driver-name">Fahrer (intern)</label><input class="form-control" id="driver-name" name="driver_name" maxlength="120"></div>
+      <input type="hidden" name="destination"><input type="hidden" name="purpose"><input type="hidden" name="driver_name">
       <div class="col-12"><label class="form-label" for="private-notes">Interne Notiz (optional)</label><textarea class="form-control" id="private-notes" name="private_notes" maxlength="4000" rows="2"></textarea></div>
       <div class="col-12" id="recurrence-fields">
         <label class="form-label" for="frequency">Wiederholung</label>
@@ -178,31 +179,37 @@ final class Views
       <input type="hidden" name="scope" value="one">
     </div>
   </div>
-  <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button><button type="submit" class="btn btn-primary" data-booking-submit>Speichern</button></div>
+  <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close data-booking-close>Abbrechen</button><button type="submit" class="btn btn-primary" data-booking-submit>Speichern</button></div>
 </form>
 </dialog>';
     }
 
     private static function bookingDateTimeFields(string $prefix, string $startsAt = '', string $endsAt = ''): string
     {
-        $html = '<div class="row g-3" data-booking-dates>';
+        $dateId = Security::escape($prefix . '-date');
+        $html = '<div class="row g-2" data-booking-dates>'
+            . '<div class="col-md-4"><label class="form-label" for="' . $dateId . '">Datum</label>'
+            . '<input class="form-control" id="' . $dateId . '" type="date" data-booking-date value="'
+            . Security::escape(substr($startsAt, 0, 10)) . '" required></div>';
         foreach ([
             ['part' => 'start', 'label' => 'Beginn', 'name' => 'starts_at', 'value' => $startsAt],
             ['part' => 'end', 'label' => 'Ende', 'name' => 'ends_at', 'value' => $endsAt],
         ] as $field) {
-            $id = Security::escape($prefix . '-' . $field['part']);
-            $html .= '<fieldset class="col-md-6"><legend class="form-label fs-6 mb-2">'
-                . $field['label'] . '</legend><div class="row g-2">'
-                . '<div class="col-7"><label class="form-label" for="' . $id . '-date">Datum</label>'
-                . '<input class="form-control" id="' . $id . '-date" type="date"'
-                . ' data-booking-date="' . $field['part'] . '" value="'
-                . Security::escape(substr($field['value'], 0, 10)) . '" required></div>'
-                . '<div class="col-5"><label class="form-label" for="' . $id . '-time">Uhrzeit</label>'
-                . '<input class="form-control" id="' . $id . '-time" type="time" step="900"'
+            $id = Security::escape($prefix . '-' . $field['part'] . '-time');
+            $html .= '<div class="col-md-4"><label class="form-label" for="' . $id . '">'
+                . $field['label'] . '</label>'
+                . '<div class="time-input-wrap" data-time-picker>'
+                . '<input class="form-control time-picker-input" id="' . $id . '" type="text" inputmode="text"'
+                . ' pattern="(?:[01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" placeholder="HH:MM"'
                 . ' data-booking-time="' . $field['part'] . '" value="'
-                . Security::escape(substr($field['value'], 11, 5)) . '" required></div></div>'
+                . Security::escape(substr($field['value'], 11, 5)) . '" required>'
+                . '<button class="time-picker-trigger" type="button" aria-label="Viertelstündliche Uhrzeiten auswählen"'
+                . ' aria-haspopup="menu" aria-expanded="false" aria-controls="' . $id . '-menu" data-time-picker-trigger>'
+                . '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+                . '</button><div class="time-picker-menu" id="' . $id . '-menu" role="menu"'
+                . ' aria-label="Viertelstündliche Uhrzeiten" hidden></div></div></div>'
                 . '<input type="hidden" name="' . $field['name'] . '" value="'
-                . Security::escape($field['value']) . '"></fieldset>';
+                . Security::escape($field['value']) . '">';
         }
 
         return $html . '</div>';
@@ -233,7 +240,7 @@ final class Views
             : '';
 
         return '<dialog id="event-dialog" aria-labelledby="event-dialog-title">
-  <div class="dialog-header"><h2 class="h5 mb-0" id="event-dialog-title" data-event-title></h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
+  <div class="dialog-header"><h2 class="h5 mb-0 booking-title" id="event-dialog-title" data-event-title></h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
   <div class="dialog-body">
     <p class="alert alert-danger" data-event-error role="alert" hidden></p>
     <dl class="row mb-0">
@@ -318,8 +325,8 @@ final class Views
             ));
             $titleInputId = 'request-title-' . (int) $request['assignment_id'];
             $allowTeamName = in_array($request['event_type'], ['training', 'match'], true);
-            $titleLabel = 'Titel / Mannschaft';
-            $rows .= '<article class="request-row"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>' . Security::escape($request['title']) . '</strong> <span class="request-status">' . Security::escape($status) . '</span><div>' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</div>';
+            $titleLabel = 'Mannschaft / Hinweis';
+            $rows .= '<article class="request-row"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong class="booking-title">' . Security::escape($request['title']) . '</strong> <span class="request-status">' . Security::escape($status) . '</span><div class="request-details">' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</div>';
             if ($staff) {
                 $rows .= '<div class="small text-secondary">Anfrage von ' . Security::escape($request['requester_name'] ?? 'Verwalter') . '</div>';
             }
@@ -335,10 +342,10 @@ final class Views
                     . '<input type="hidden" name="title" value="' . Security::escape($requestTitle) . '">'
                     . '<input type="hidden" name="team_name" value="' . Security::escape($requestTeamName) . '">'
                     . '<div class="mb-2"><label class="form-label" for="' . $titleInputId . '">'
-                    . Security::escape($titleLabel) . '</label><input class="form-control form-control-sm"'
-                    . ' id="' . $titleInputId . '" name="combined_title" maxlength="303" pattern=".*\S.*" required'
-                    . ' value="' . Security::escape($combinedTitle) . '" data-initial-value="'
-                    . Security::escape($combinedTitle) . '"></div>'
+                    . Security::escape($titleLabel) . '</label><textarea class="form-control form-control-sm"'
+                    . ' id="' . $titleInputId . '" name="combined_title" maxlength="303" rows="2" required'
+                    . ' data-required-non-whitespace data-initial-value="' . Security::escape($combinedTitle) . '">'
+                    . Security::escape($combinedTitle) . '</textarea></div>'
                     . self::bookingDateTimeFields('request-' . (int) $request['assignment_id'], $startInput, $endInput)
                     . '<button class="btn btn-sm btn-outline-primary mt-2"'
                     . ' type="submit">Änderung speichern</button></form></details>';

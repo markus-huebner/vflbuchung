@@ -19,22 +19,47 @@ function checkDateTimeFields(DOMXPath $xpath, string $form): void
         $xpath->query($form . '//input[@type="datetime-local"]')->length === 0,
         'Booking dates and times must be selected separately.'
     );
+    $dates = $xpath->query($form . '//input[@data-booking-date]');
+    check(
+        $dates->length === 1
+            && $dates->item(0)->getAttribute('type') === 'date'
+            && $dates->item(0)->hasAttribute('required'),
+        'Booking forms must have exactly one required date field.'
+    );
+    $dateId = $dates->item(0)->getAttribute('id');
+    check($xpath->query($form . '//label[@for="' . $dateId . '"]')->length === 1, "$dateId: Missing date label.");
     foreach (['start', 'end'] as $part) {
-        foreach (['date', 'time'] as $type) {
-            $inputs = $xpath->query($form . '//input[@data-booking-' . $type . '="' . $part . '"]');
-            check(
-                $inputs->length === 1
-                    && $inputs->item(0)->getAttribute('type') === $type
-                    && $inputs->item(0)->hasAttribute('required'),
-                "$part: Missing required $type input."
-            );
-            $id = $inputs->item(0)->getAttribute('id');
-            check($xpath->query($form . '//label[@for="' . $id . '"]')->length === 1, "$id: Missing label.");
-            if ($type === 'time') {
-                check($inputs->item(0)->getAttribute('step') === '900', "$part: Preserve 15-minute time steps.");
-            }
-        }
+        $inputs = $xpath->query($form . '//input[@data-booking-time="' . $part . '"]');
+        check(
+            $inputs->length === 1
+                && $inputs->item(0)->getAttribute('type') === 'text'
+                && $inputs->item(0)->hasAttribute('required'),
+            "$part: Missing required time input."
+        );
+        $id = $inputs->item(0)->getAttribute('id');
+        check(
+            $xpath->evaluate('string(' . $form . '//label[@for="' . $id . '"])') === ($part === 'start' ? 'Beginn' : 'Ende'),
+            "$id: Time field must be labelled " . ($part === 'start' ? 'Beginn' : 'Ende') . '.'
+        );
+        check(
+            $inputs->item(0)->getAttribute('pattern') === '(?:[01][0-9]|2[0-3]):[0-5][0-9]'
+                && $inputs->item(0)->getAttribute('maxlength') === '5'
+                && $inputs->item(0)->getAttribute('placeholder') === 'HH:MM'
+                && $inputs->item(0)->getAttribute('inputmode') === 'text'
+                && !$inputs->item(0)->hasAttribute('title'),
+            "$part: Allow keyboard entry of any valid minute in 24-hour format."
+        );
     }
+    check(
+        $xpath->query($form . '//div[@data-time-picker]')->length === 2
+            && $xpath->query($form . '//button[@data-time-picker-trigger][@aria-haspopup="menu"]')->length === 2
+            && $xpath->query($form . '//div[contains(@class, "time-picker-menu")][@role="menu"][@hidden]')->length === 2,
+        'Provide a quarter-hour suggestion menu for both booking time fields.'
+    );
+    check(
+        $xpath->query($form . '//text()[contains(., "minutengenau")]')->length === 0,
+        'Do not show the removed time-format hint.'
+    );
     foreach (['starts_at', 'ends_at'] as $name) {
         check(
             $xpath->query($form . '//input[@type="hidden" and @name="' . $name . '"]')->length === 1,
@@ -45,15 +70,19 @@ function checkDateTimeFields(DOMXPath $xpath, string $form): void
 
 function checkRequiredTitle(DOMXPath $xpath, string $form): void
 {
-    $inputs = $xpath->query($form . '//input[@name="combined_title"]');
-    check($inputs->length === 1, 'The booking form must offer one title field.');
-    $input = $inputs->item(0);
-    check($input instanceof DOMElement, 'The title field must be an input element.');
-    check($input->hasAttribute('required'), 'Title / team must be required.');
-    check($input->getAttribute('pattern') === '.*\S.*', 'Whitespace-only titles must be rejected.');
+    $fields = $xpath->query($form . '//textarea[@name="combined_title"]');
+    check($fields->length === 1, 'The booking form must offer one multi-line title field.');
+    $field = $fields->item(0);
+    check($field instanceof DOMElement, 'The title field must be a textarea element.');
+    check($field->hasAttribute('required'), 'The team / note field must be required.');
     check(
-        $xpath->evaluate('string(' . $form . '//label[@for="' . $input->getAttribute('id') . '"])') === 'Titel / Mannschaft',
-        'The title field must be labelled Titel / Mannschaft.'
+        $field->hasAttribute('data-required-non-whitespace'),
+        'Whitespace-only team / note values must be rejected.'
+    );
+    check((int) $field->getAttribute('rows') >= 2, 'The team / note field must be multi-line.');
+    check(
+        $xpath->evaluate('string(' . $form . '//label[@for="' . $field->getAttribute('id') . '"])') === 'Mannschaft / Hinweis',
+        'The title field must be labelled Mannschaft / Hinweis.'
     );
 }
 
@@ -99,16 +128,27 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     );
     foreach (['destination', 'purpose', 'driver_name'] as $field) {
         check(
-            $xpath->query($form . '//*[@data-event-type-field="bus"]//*[@name="' . $field . '"]')->length === 1,
-            "$role: The vehicle field $field must remain available."
+            $xpath->query($form . '//input[@type!="hidden"][@name="' . $field . '"]')->length === 0,
+            "$role: The removed vehicle field $field must not be visible."
         );
     }
+    check(
+        $xpath->query($form . '//div[contains(concat(" ", normalize-space(@class), " "), " col-12 ")][.//textarea[@name="combined_title"]]')->length === 1,
+        "$role: The Mannschaft / Hinweis field must span the booking dialog."
+    );
     checkDateTimeFields($xpath, $form);
     checkRequiredTitle($xpath, $form);
+    check(
+        $xpath->query('//*[@id="booking-dialog"]//*[@data-booking-error][@aria-live]')->length === 1,
+        "$role: Show booking feedback inside the booking dialog."
+    );
     check($xpath->query('//*[@id="booking-form"]')->length === 1, 'Use exactly one create/edit booking form.');
     check($xpath->query('//*[@name="force_conflicts"]')->length === 0, 'Double bookings must not require an override checkbox.');
     check($xpath->query('//*[@id="edit-booking-dialog"]')->length === 0, 'Remove the separate edit dialog.');
-    check($xpath->query($form . '//select[@name="scope"]')->length === 1, 'Keep the series editing scope.');
+    check(
+        $xpath->query($form . '//input[@type="hidden" and @name="scope"]')->length === 1,
+        'Keep the series editing scope.'
+    );
     check($xpath->query($form . '//input[@name="occurrence_id"]')->length === 1, 'The shared form needs the edited ID.');
     check($xpath->query('//*[@id="calendar-date-picker"]')->length === 1, 'The calendar needs direct date selection.');
     check($xpath->query('//section[contains(@class, "calendar-toolbar")]//select[@id="calendar-resource-select"]')->length === 1, 'Choose the calendar in the header.');
@@ -131,8 +171,8 @@ $request = [
     'destination' => null,
     'purpose' => null,
     'cabins' => null,
-    'starts_at' => '2026-10-24 13:00:00',
-    'ends_at' => '2026-10-24 15:00:00',
+    'starts_at' => '2026-10-24 13:07:00',
+    'ends_at' => '2026-10-24 15:03:00',
 ];
 $document = new DOMDocument();
 $document->loadHTML(
@@ -143,16 +183,15 @@ $xpath = new DOMXPath($document);
 $form = '//form[contains(@class, "request-edit-form")]';
 checkDateTimeFields($xpath, $form);
 checkRequiredTitle($xpath, $form);
-foreach ([
-    'date' => ['start' => '2026-10-24', 'end' => '2026-10-24'],
-    'time' => ['start' => '15:00', 'end' => '17:00'],
-] as $type => $parts) {
-    foreach ($parts as $part => $expected) {
-        check(
-            $xpath->evaluate('string(' . $form . '//input[@data-booking-' . $type . '="' . $part . '"]/@value)') === $expected,
-            "Request $part $type: Existing booking times must use Europe/Berlin."
-        );
-    }
+check(
+    $xpath->evaluate('string(' . $form . '//input[@data-booking-date]/@value)') === '2026-10-24',
+    'Request date: Existing booking times must use Europe/Berlin.'
+);
+foreach (['start' => '15:07', 'end' => '17:03'] as $part => $time) {
+    check(
+        $xpath->evaluate('string(' . $form . '//input[@data-booking-time="' . $part . '"]/@value)') === $time,
+        "Request $part: Preserve the existing minute-accurate time."
+    );
 }
 
 check(
@@ -187,7 +226,7 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
             $validateDetails->invoke($service, ['title' => $title, 'purpose' => 'Vehicle purpose'], $eventType);
         } catch (RuntimeException $exception) {
             check(
-                $exception->getMessage() === 'Bitte gib einen Titel oder eine Mannschaft an.',
+                $exception->getMessage() === 'Bitte gib eine Mannschaft oder einen Hinweis an.',
                 "$eventType: Missing titles must report the required-field error."
             );
             continue;
@@ -202,7 +241,7 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
         $validateDetails->invoke($service, ['title' => str_repeat('ä', 181)], $eventType);
     } catch (RuntimeException $exception) {
         check(
-            $exception->getMessage() === 'Titel / Mannschaft darf höchstens 180 Zeichen lang sein.',
+            $exception->getMessage() === 'Mannschaft / Hinweis darf höchstens 180 Zeichen lang sein.',
             "$eventType: Enforce the existing 180-character title limit."
         );
         continue;

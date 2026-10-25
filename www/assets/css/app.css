@@ -13,6 +13,8 @@ body {
   color: #233244;
 }
 
+.booking-title,
+.request-details,
 .event-notes {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -20,6 +22,22 @@ body {
 
 .navbar-club {
   background: var(--club-navy);
+}
+
+.navbar-club .navbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: clamp(.85rem, 3vw, 1.25rem);
+  white-space: nowrap;
+}
+
+.navbar-brand-logo {
+  display: block;
+  flex: 0 0 auto;
+  width: 2.15rem;
+  height: 2.5rem;
+  object-fit: contain;
 }
 
 .navbar-club .navbar-brand,
@@ -127,24 +145,25 @@ body {
   color: var(--club-navy);
 }
 
-.pitch-day-scroll,
-.pitch-week-scroll {
+.resource-day-scroll,
+.resource-week-scroll {
   overflow: auto;
 }
 
-.pitch-day-grid {
+.resource-day-grid {
   --axis-width: 58px;
   display: grid;
-  grid-template-columns: var(--axis-width) repeat(var(--resource-count), minmax(150px, 1fr));
-  min-width: calc(var(--axis-width) + var(--resource-count) * 150px);
+  width: 100%;
+  grid-template-columns: var(--axis-width) repeat(var(--resource-count), minmax(0, 1fr));
+  min-width: 0;
 }
 
-.pitch-time-axis,
-.pitch-column {
+.resource-time-axis,
+.resource-column {
   position: relative;
 }
 
-.pitch-time-axis {
+.resource-time-axis {
   padding-top: 42px;
   background: #f8fafc;
   color: #58697a;
@@ -152,13 +171,13 @@ body {
   text-align: right;
 }
 
-.pitch-hour {
+.resource-hour {
   height: 64px;
   padding-right: .45rem;
   transform: translateY(-.5rem);
 }
 
-.pitch-column-heading {
+.resource-column-heading {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -171,9 +190,11 @@ body {
   font-size: .85rem;
   text-align: center;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.pitch-lane {
+.resource-lane {
   position: relative;
   border-left: 1px solid #e4e9ef;
   background: repeating-linear-gradient(
@@ -185,12 +206,12 @@ body {
   );
 }
 
-.pitch-hour-line {
+.resource-hour-line {
   height: 64px;
   border-bottom: 1px solid #e8edf2;
 }
 
-.pitch-event.booking-card {
+.resource-event.booking-card {
   position: absolute;
   left: 3px;
   z-index: 1;
@@ -227,8 +248,7 @@ body {
 }
 
 .booking-pending {
-  background-color: color-mix(in srgb, var(--event-color) 78%, white) !important;
-  border-style: dashed !important;
+  background-color: color-mix(in srgb, var(--event-color) 40%, white) !important;
 }
 
 .booking-card {
@@ -261,8 +281,7 @@ body {
   display: none;
 }
 
-.booking-card.booking-pending,
-.fc-event.booking-pending {
+.booking-card.booking-pending {
   color: #142638;
 }
 
@@ -282,6 +301,11 @@ body {
   font-weight: 700;
 }
 
+.booking-category,
+.booking-cabin {
+  overflow-wrap: anywhere;
+}
+
 .legend-recurring {
   color: #17324d;
   font-weight: 700;
@@ -293,30 +317,40 @@ body {
   font-size: .72rem;
 }
 
-.pitch-week-table {
-  min-width: 1100px;
+.resource-week-table {
+  width: 100%;
   margin: 0;
   font-size: .75rem;
+  table-layout: fixed;
 }
 
-.pitch-week-table thead th {
+.resource-week-table .resource-week-resource-column {
+  width: 150px;
+}
+
+.resource-week-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
   background: #edf3f8;
   color: var(--club-navy);
+  overflow-wrap: anywhere;
 }
 
-.pitch-week-table tbody th {
+.resource-week-table tbody th {
   min-width: 115px;
   background: #f8fafc;
   white-space: nowrap;
 }
 
-.pitch-week-table td {
-  min-width: 145px;
+.resource-week-table td {
+  min-width: 0;
   height: 90px;
   vertical-align: top;
+}
+
+.resource-week-table .booking-time {
+  overflow-wrap: anywhere;
 }
 
 .calendar-legend {
@@ -340,8 +374,22 @@ body {
 }
 
 .legend-pending::before {
-  border: 1px dashed var(--legend-color);
-  background: color-mix(in srgb, var(--legend-color) 78%, white);
+  display: none;
+}
+
+.legend-pending-colors {
+  display: inline-flex;
+  gap: .15rem;
+  margin-right: .35rem;
+  vertical-align: -1px;
+}
+
+.legend-pending-colors > span {
+  flex: 0 0 .8rem;
+  height: .8rem;
+  border: 1px solid var(--legend-color);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--legend-color) 40%, white);
 }
 
 dialog {
@@ -399,13 +447,15 @@ dialog::backdrop {
 }
 
 .calendar-date-button:hover,
-.date-picker-trigger:hover {
+.date-picker-trigger:hover,
+.time-picker-trigger:hover {
   border-color: var(--club-blue);
   background: #edf3f8;
 }
 
 .calendar-date-button svg,
-.date-picker-trigger svg {
+.date-picker-trigger svg,
+.time-picker-trigger svg {
   flex: 0 0 auto;
   width: 1.25rem;
   height: 1.25rem;
@@ -421,30 +471,99 @@ dialog::backdrop {
   height: 1rem;
 }
 
-.date-input-wrap {
+.date-input-wrap,
+.time-input-wrap {
+  position: relative;
   display: flex;
   min-width: 0;
 }
 
-.date-input-wrap .date-picker-input {
+.date-input-wrap .date-picker-input,
+.time-input-wrap .time-picker-input {
+  flex: 1 1 auto;
   min-width: 0;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+}
+
+.date-input-wrap:hover .date-picker-input,
+.time-input-wrap:hover .time-picker-input,
+.date-input-wrap:hover .date-picker-trigger,
+.time-input-wrap:hover .time-picker-trigger {
+  border-color: var(--club-blue);
+}
+
+.date-input-wrap:focus-within,
+.time-input-wrap:focus-within {
+  border-radius: .375rem;
+  box-shadow: 0 0 0 .25rem var(--bs-focus-ring-color);
+}
+
+.date-input-wrap:focus-within .date-picker-input,
+.date-input-wrap:focus-within .date-picker-trigger,
+.time-input-wrap:focus-within .time-picker-input,
+.time-input-wrap:focus-within .time-picker-trigger {
+  border-color: #86b7fe;
+}
+
+.date-input-wrap:focus-within .date-picker-input,
+.time-input-wrap:focus-within .time-picker-input {
+  box-shadow: none;
 }
 
 .date-picker-input::-webkit-calendar-picker-indicator {
   display: none;
 }
 
-.date-picker-trigger {
+.date-picker-trigger,
+.time-picker-trigger {
   display: grid;
   flex: 0 0 2.6rem;
   place-items: center;
   border: 1px solid #dee2e6;
-  border-left: 0;
+  margin-left: -1px;
   border-radius: 0 .375rem .375rem 0;
   background: #f5f8fb;
   color: var(--club-blue);
+}
+
+.time-picker-menu {
+  position: absolute;
+  top: calc(100% + .25rem);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  width: min(20rem, calc(100vw - 2rem));
+  max-height: min(26rem, calc(100vh - 2rem));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .25rem;
+  overflow: auto;
+  padding: .45rem;
+  border: 1px solid #d9e1e8;
+  border-radius: .5rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(10 25 40 / 18%);
+}
+
+.time-picker-menu[hidden] {
+  display: none;
+}
+
+.time-picker-option {
+  padding: .25rem .1rem;
+  border: 1px solid transparent;
+  border-radius: .3rem;
+  background: #fff;
+  color: var(--club-navy);
+  font-size: .85rem;
+  line-height: 1.25;
+}
+
+.time-picker-option:hover,
+.time-picker-option:focus-visible,
+.time-picker-option[aria-checked="true"] {
+  border-color: var(--club-blue);
+  background: #edf3f8;
 }
 
 .date-picker-dialog {
@@ -554,7 +673,6 @@ dialog::backdrop {
 
 .date-picker-day:focus-visible,
 .date-picker-nav:focus-visible,
-.date-picker-trigger:focus-visible,
 .calendar-date-button:focus-visible {
   outline: 3px solid #76a5c8;
   outline-offset: 2px;
@@ -612,9 +730,19 @@ dialog::backdrop {
   padding: .75rem;
 }
 
+.pitch-choice-group,
+.cabin-choice-group,
+.bus-choice-group {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .resource-choice-group > legend,
 .resource-choice-group > p {
   grid-column: 1 / -1;
+}
+
+.resource-choice-group > * {
+  min-width: 0;
 }
 
 .resource-card {
@@ -626,7 +754,8 @@ dialog::backdrop {
 }
 
 .resource-card-pitch,
-.resource-card-cabin {
+.resource-card-cabin,
+.resource-card-bus {
   padding: 0;
   border: 0;
   background: transparent;
@@ -642,6 +771,7 @@ dialog::backdrop {
 
 .resource-choice-chip {
   width: 100%;
+  overflow-wrap: anywhere;
   padding: .45rem .65rem;
   border: 1px solid #d9e1e8;
   border-radius: .4rem;
@@ -651,7 +781,8 @@ dialog::backdrop {
 }
 
 .resource-choice-chip[data-resource-kind="pitch"],
-.resource-choice-chip[data-resource-kind="cabin"] {
+.resource-choice-chip[data-resource-kind="cabin"],
+.resource-choice-chip[data-resource-kind="bus"] {
   border-color: transparent;
 }
 
@@ -661,7 +792,8 @@ dialog::backdrop {
 }
 
 .resource-choice-chip[data-resource-kind="pitch"]:hover,
-.resource-choice-chip[data-resource-kind="cabin"]:hover {
+.resource-choice-chip[data-resource-kind="cabin"]:hover,
+.resource-choice-chip[data-resource-kind="bus"]:hover {
   border-color: transparent;
 }
 
@@ -672,7 +804,8 @@ dialog::backdrop {
 }
 
 .resource-choice-chip[data-resource-kind="pitch"][aria-pressed="true"],
-.resource-choice-chip[data-resource-kind="cabin"][aria-pressed="true"] {
+.resource-choice-chip[data-resource-kind="cabin"][aria-pressed="true"],
+.resource-choice-chip[data-resource-kind="bus"][aria-pressed="true"] {
   border-color: transparent;
 }
 
@@ -811,5 +944,27 @@ dialog::backdrop {
 
   .booking-create-menu > summary {
     text-align: center;
+  }
+}
+
+@media (max-width: 375px) {
+  .navbar-club .navbar-brand {
+    gap: .35rem;
+    margin-right: .5rem;
+    font-size: .8rem;
+  }
+
+  .navbar-brand-logo {
+    width: 1.75rem;
+    height: 2rem;
+  }
+
+  .resource-week-table .resource-week-resource-column {
+    width: 90px;
+  }
+
+  .resource-week-table tbody th {
+    min-width: 0;
+    white-space: normal;
   }
 }

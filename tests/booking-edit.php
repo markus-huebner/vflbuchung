@@ -74,6 +74,12 @@ function editData(int $id, array $changes = [], string $scope = 'one'): array
     ], $changes);
 }
 
+fails(fn() => $service->create([
+    'event_type' => 'bus', 'resource_mode' => 'bus', 'resource_ids' => [$resources['bus'][0]],
+    'title' => 'Overnight bus', 'starts_at' => '2031-11-01T22:00',
+    'ends_at' => '2031-11-02T01:00', 'frequency' => 'none',
+], $admin), 'Buchungen müssen am selben Tag enden');
+
 $id = createBooking('2031-04-01', ['cabin_ids' => [$resources['cabin'][0]]])[0];
 $service->editOccurrence($id, editData($id, [
     'event_type' => 'match', 'resource_ids' => [$resources['pitch'][1], $resources['pitch'][2]],
@@ -183,7 +189,7 @@ $details = $service->editableOccurrence($bus, $admin);
 check($details['resource_ids'] === [$resources['bus'][1]] && $details['destination'] === 'New destination', 'Persist changed vehicle and destination.');
 check($details['purpose'] === 'New purpose' && $details['driver_name'] === 'New driver' && $details['private_notes'] === 'Bus note', 'Persist all vehicle details.');
 fails(fn() => $service->editOccurrence($bus, editData($bus, ['frequency' => 'daily', 'limit_type' => 'count', 'count' => 2]), $manager), 'nicht als Serie');
-fails(fn() => $service->editOccurrence($bus, editData($bus, ['title' => '  ']), $manager), 'Titel oder eine Mannschaft');
+fails(fn() => $service->editOccurrence($bus, editData($bus, ['title' => '  ']), $manager), 'Mannschaft oder einen Hinweis');
 fails(fn() => $service->editOccurrence($bus, editData($bus, ['resource_ids' => [$resources['pitch'][0]]]), $manager), 'Buchungsart');
 $pdo->prepare('UPDATE resources SET is_active = 0 WHERE id = :id')->execute(['id' => $resources['bus'][1]]);
 fails(fn() => $service->editOccurrence($bus, editData($bus), $manager), 'deaktiviert');

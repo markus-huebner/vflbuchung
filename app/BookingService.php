@@ -429,8 +429,8 @@ final class BookingService
             if ($end <= $start) {
                 throw new RuntimeException('Das Ende muss nach dem Beginn liegen.');
             }
-            if ($details['event_type'] !== 'bus' && $start->format('Y-m-d') !== $end->format('Y-m-d')) {
-                throw new RuntimeException('Platz- und Kabinenbuchungen müssen am selben Tag enden.');
+            if ($start->format('Y-m-d') !== $end->format('Y-m-d')) {
+                throw new RuntimeException('Buchungen müssen am selben Tag enden.');
             }
 
             $title = $this->requiredTitle($data['title'] ?? null);
@@ -693,8 +693,8 @@ final class BookingService
                 $start = Recurrence::fromDatabase($row['starts_at'])
                     ->setTimezone(new DateTimeZone('Europe/Berlin'))->add($shift);
                 $end = $start->modify('+' . $duration . ' seconds');
-                if ($input['resource_mode'] !== 'bus' && $start->format('Y-m-d') !== $end->format('Y-m-d')) {
-                    throw new RuntimeException('Platz- und Kabinenbuchungen müssen am selben Tag enden.');
+                if ($start->format('Y-m-d') !== $end->format('Y-m-d')) {
+                    throw new RuntimeException('Buchungen müssen am selben Tag enden.');
                 }
                 $schedule[] = ['start' => $start, 'end' => $end];
             }
@@ -729,9 +729,8 @@ final class BookingService
             $nextNumber = (int) $maximum->fetchColumn() + 1;
             $updated = [];
             foreach ($schedule as $index => $dates) {
-                if ($input['resource_mode'] !== 'bus'
-                    && $dates['start']->format('Y-m-d') !== $dates['end']->format('Y-m-d')) {
-                    throw new RuntimeException('Platz- und Kabinenbuchungen müssen am selben Tag enden.');
+                if ($dates['start']->format('Y-m-d') !== $dates['end']->format('Y-m-d')) {
+                    throw new RuntimeException('Buchungen müssen am selben Tag enden.');
                 }
                 $values = $input['details'] + [
                     'starts_at' => Recurrence::toDatabase($dates['start']),
@@ -798,8 +797,8 @@ final class BookingService
         if ($end <= $start) {
             throw new RuntimeException('Das Ende muss nach dem Beginn liegen.');
         }
-        if (!$isBus && $start->format('Y-m-d') !== $end->format('Y-m-d')) {
-            throw new RuntimeException('Platz- und Kabinenbuchungen müssen am selben Tag enden.');
+        if ($start->format('Y-m-d') !== $end->format('Y-m-d')) {
+            throw new RuntimeException('Buchungen müssen am selben Tag enden.');
         }
 
         return [
@@ -1261,10 +1260,10 @@ final class BookingService
     {
         $title = trim((string) ($value ?? ''));
         if ($title === '' || preg_match('/[^\s\p{Z}]/u', $title) !== 1) {
-            throw new RuntimeException('Bitte gib einen Titel oder eine Mannschaft an.');
+            throw new RuntimeException('Bitte gib eine Mannschaft oder einen Hinweis an.');
         }
         if (mb_strlen($title) > 180) {
-            throw new RuntimeException('Titel / Mannschaft darf höchstens 180 Zeichen lang sein.');
+            throw new RuntimeException('Mannschaft / Hinweis darf höchstens 180 Zeichen lang sein.');
         }
 
         return $title;

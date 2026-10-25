@@ -19,7 +19,7 @@ services:
       MAIL_HOST: mailpit
       MAIL_PORT: 1025
       MAIL_FROM: ${MAIL_FROM:-buchungssystem@example.test}
-      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Vereinsbelegung}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Platz- und Busbelegung}
       MAIL_USERNAME: ""
       MAIL_PASSWORD: ""
       MAIL_ENCRYPTION: ""

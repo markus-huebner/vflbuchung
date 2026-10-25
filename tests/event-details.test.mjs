@@ -4,8 +4,12 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
+const styles = readFileSync(new URL('../www/assets/css/app.css', import.meta.url), 'utf8');
+const views = readFileSync(new URL('../app/Views.php', import.meta.url), 'utf8');
 const showEventSource = source.slice(source.indexOf('function showEvent('), source.indexOf('function createResourceChip('));
 const bookingCardSource = source.slice(source.indexOf('function isRecurring('), source.indexOf('function showEvent('));
+const bookingFeedbackSource = source.slice(source.indexOf('function bookingError('), source.indexOf('async function submitBooking('));
+const submitBookingSource = source.slice(source.indexOf('async function submitBooking('), source.indexOf('async function saveResourceOrder('));
 
 function setup() {
   const fields = new Map();
@@ -67,6 +71,22 @@ function setupBookingCard() {
   };
 }
 
+function setupBookingFeedback() {
+  const box = {
+    textContent: '',
+    hidden: true,
+    className: '',
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    scrollIntoView() {},
+  };
+  const context = vm.createContext({
+    bookingForm: { querySelector: () => box },
+  });
+  vm.runInContext(`${bookingFeedbackSource}; bookingError`, context);
+  return { show: (message, kind) => context.bookingError(message, kind), box };
+}
+
 const pitch = {
   assignment_id: 12, occurrence_id: 3,
   status: 'confirmed', occurrence_status: 'confirmed',
@@ -76,6 +96,27 @@ const pitch = {
   start: '2026-10-24T13:00:00Z', end: '2026-10-24T14:30:00Z',
   private_notes: 'Zeile 1\n<script>Kein HTML</script>', recurrence_rule: null,
 };
+
+test('booking feedback uses the alert inside the open dialog', () => {
+  const feedback = setupBookingFeedback();
+  feedback.show('Buchung wurde angelegt.', 'success');
+  assert.equal(feedback.box.textContent, 'Buchung wurde angelegt.');
+  assert.equal(feedback.box.hidden, false);
+  assert.equal(feedback.box.className, 'alert alert-success mb-0');
+  assert.equal(feedback.box.attributes.role, 'status');
+  assert.equal(feedback.box.attributes['aria-live'], 'polite');
+
+  assert.match(submitBookingSource, /bookingError\(resourceType/);
+  assert.match(submitBookingSource, /if \(bookingForm\.dataset\.saved === 'true'\) return/);
+  assert.match(submitBookingSource, /bookingForm\.dataset\.saved = 'true'/);
+  assert.match(submitBookingSource, /if \(!editing\) \{[\s\S]*?announce\([\s\S]*?dialog\.close\(\);/);
+});
+
+test('application branding shows the VfL crest and new name', () => {
+  assert.match(views, /class="navbar-brand fw-semibold" href="\/"><img class="navbar-brand-logo" src="\/assets\/images\/vfl-kaufering-wappen\.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung<\/a>/);
+  assert.match(views, /<title>' \. Security::escape\(\$title\) \. ' · Platz- und Busbelegung<\/title>/);
+  assert.match(styles, /\.navbar-brand-logo\s*\{[^}]*object-fit:\s*contain;/s);
+});
 
 test('recurring bookings have a visible repeat marker in their calendar card', () => {
   const recurringCard = setupBookingCard();
@@ -95,6 +136,66 @@ test('calendar cards show occupied cabins without a prefix', () => {
   const card = setupBookingCard();
   card.fill(pitch);
   assert.equal(card.text('.booking-cabin'), 'Kabine 1, Kabine 2');
+});
+
+test('calendar cards preserve line breaks in multiline titles', () => {
+  const card = setupBookingCard();
+  card.fill({ ...pitch, title: 'Training\nHinweis' });
+  assert.equal(card.text('strong'), 'U19 – Training\nHinweis');
+  assert.match(bookingCardSource, /<strong class="booking-title"><\/strong>/);
+  assert.match(styles, /\.booking-title,\s*\.request-details,\s*\.event-notes\s*\{[^}]*white-space:\s*pre-wrap;[^}]*overflow-wrap:\s*anywhere;/s);
+});
+
+test('event detail and request titles preserve line breaks', () => {
+  const ui = setup();
+  ui.show({ ...pitch, team_name: 'U19', title: 'Training\nHinweis' });
+  assert.equal(ui.text('title'), 'U19 – Training\nHinweis');
+  assert.match(views, /<h2 class="h5 mb-0 booking-title"[^>]*data-event-title/);
+  assert.match(views, /<strong class="booking-title">'\s*\. Security::escape\(\$request\['title'\]\)/);
+  assert.match(views, /class="request-details">'\s*\. Security::escape\(\$date/);
+});
+
+test('pending bookings use lighter category colors and standard borders', () => {
+  const pendingStyle = styles.match(/\.booking-pending\s*\{([^}]+)\}/);
+  assert.ok(pendingStyle);
+  assert.match(pendingStyle[1], /color-mix\(in srgb, var\(--event-color\) 40%, white\)/);
+  assert.doesNotMatch(pendingStyle[1], /border-style/);
+  assert.match(styles, /\.legend-pending::before\s*\{[^}]*display:\s*none/);
+  assert.match(styles, /\.legend-pending-colors > span\s*\{[^}]*border:\s*1px solid var\(--legend-color\);[^}]*color-mix\(in srgb, var\(--legend-color\) 40%, white\)/s);
+
+  const legend = views.match(/<div class="calendar-legend">([\s\S]*?)<\/div>/);
+  assert.ok(legend);
+  const pendingItems = [...legend[1].matchAll(/class="legend-item legend-pending"/g)];
+  assert.equal(pendingItems.length, 1);
+  const pendingLegend = legend[1].match(/<span class="legend-item legend-pending">([\s\S]*?)Anfrage<\/span>/);
+  assert.ok(pendingLegend);
+  const swatches = [...pendingLegend[1].matchAll(/<span style="--legend-color:var\(--booking-(training|match|external|bus)\)"><\/span>/g)];
+  assert.deepEqual(swatches.map(([, category]) => category), ['training', 'match', 'external', 'bus']);
+});
+
+test('pitch and cabin resource choices have three columns and concise wording', () => {
+  const choicesSource = source.slice(
+    source.indexOf('function renderResourceChoices('),
+    source.indexOf('function updateBookingFields('),
+  );
+  assert.match(choicesSource, /group\.classList\.add\('pitch-choice-group'\)/);
+  assert.match(choicesSource, /cabinGroup\.className = 'resource-choice-group cabin-choice-group'/);
+  assert.match(choicesSource, /'Plätze \(mindestens einer\)'/);
+  assert.doesNotMatch(choicesSource, /Plätze \(mindestens einen auswählen\)/);
+  assert.doesNotMatch(choicesSource, /Eine Platzbuchung braucht mindestens einen Platz/);
+  assert.match(styles, /\.pitch-choice-group,\s*\.cabin-choice-group,\s*\.bus-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
+});
+
+test('vehicle resource choices use the same three-column chip layout with single selection', () => {
+  const choicesSource = source.slice(
+    source.indexOf('function renderResourceChoices('),
+    source.indexOf('function updateBookingFields('),
+  );
+  assert.match(choicesSource, /group\.classList\.add\('bus-choice-group'\)/);
+  assert.match(choicesSource, /createResourceChip\([\s\S]*?isBus,\s*\)/);
+  assert.match(choicesSource, /const initiallySelected = editingBooking\s*\?\s*selectedIds\.has\(Number\(resource\.id\)\)\s*:\s*resources\.length === 1;/);
+  assert.match(styles, /\.pitch-choice-group,\s*\.cabin-choice-group,\s*\.bus-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(source, /function createResourceChip\(resource, fieldName, initiallySelected = false, singleSelect = false\)/);
 });
 
 test('clicking a pitch shows all booking details as text in Berlin time', () => {

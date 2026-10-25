@@ -16,15 +16,13 @@ class Field extends EventTarget {
 
 function fixture(start = '', end = '') {
   const fields = {
-    startDate: new Field(start.slice(0, 10)),
+    date: new Field(start.slice(0, 10)),
     startTime: new Field(start.slice(11, 16)),
-    endDate: new Field(end.slice(0, 10)),
     endTime: new Field(end.slice(11, 16)),
   };
   const selectors = {
-    '[data-booking-date="start"]': fields.startDate,
+    '[data-booking-date]': fields.date,
     '[data-booking-time="start"]': fields.startTime,
-    '[data-booking-date="end"]': fields.endDate,
     '[data-booking-time="end"]': fields.endTime,
   };
   const form = {
@@ -44,27 +42,27 @@ test('new bookings default to 90 minutes and populate separate date/time fields'
   assert.equal(form.elements.starts_at.value, '');
   assert.equal(form.elements.ends_at.value, '');
   dates.setRange('2026-10-24T15:00');
-  assert.equal(fields.startDate.value, '2026-10-24');
+  assert.equal(fields.date.value, '2026-10-24');
   assert.equal(fields.startTime.value, '15:00');
-  assert.equal(fields.endDate.value, '2026-10-24');
   assert.equal(fields.endTime.value, '16:30');
   assert.equal(form.elements.starts_at.value, '2026-10-24T15:00');
   assert.equal(form.elements.ends_at.value, '2026-10-24T16:30');
 });
 
-test('changing the start time updates the end and the submitted values', () => {
+test('keyboard-entered minute-accurate start times update the end and submitted values', () => {
   const { form, dates, change } = fixture();
   dates.setRange('2026-10-24T15:00');
-  change('startTime', '17:15');
-  assert.equal(form.elements.starts_at.value, '2026-10-24T17:15');
-  assert.equal(form.elements.ends_at.value, '2026-10-24T18:45');
+  change('startTime', '17:07');
+  assert.equal(form.elements.starts_at.value, '2026-10-24T17:07');
+  assert.equal(form.elements.ends_at.value, '2026-10-24T18:37');
 });
 
-test('changing the start date moves the end date with it', () => {
+test('changing the shared date updates both submitted timestamps', () => {
   const { fields, form, change } = fixture('2026-10-24T15:00', '2026-10-24T16:30');
-  change('startDate', '2026-11-03', 'change');
-  assert.equal(fields.endDate.value, '2026-11-03');
+  change('date', '2026-11-03', 'change');
+  assert.equal(fields.date.value, '2026-11-03');
   assert.equal(fields.endTime.value, '16:30');
+  assert.equal(form.elements.starts_at.value, '2026-11-03T15:00');
   assert.equal(form.elements.ends_at.value, '2026-11-03T16:30');
 });
 
@@ -82,30 +80,27 @@ test('existing bookings retain their duration when they are moved', () => {
   assert.equal(form.elements.ends_at.value, '2026-10-24T14:15');
 });
 
-test('multi-day vehicle bookings retain a manually chosen end date', () => {
-  const { form, change } = fixture('2026-10-24T10:00', '2026-10-24T11:30');
-  change('endDate', '2026-10-26');
-  change('startDate', '2026-11-01');
-  assert.equal(form.elements.ends_at.value, '2026-11-03T11:30');
+test('the end timestamp always uses the shared date', () => {
+  const { form, fields, dates } = fixture('2026-10-24T10:00', '2026-10-26T11:30');
+  dates.setRange('2026-10-24T10:00', '2026-10-26T11:30');
+  assert.equal(fields.date.value, '2026-10-24');
+  assert.equal(form.elements.starts_at.value, '2026-10-24T10:00');
+  assert.equal(form.elements.ends_at.value, '2026-10-24T11:30');
 });
 
-for (const [start, end] of [
-  ['2026-10-24T23:30', '2026-10-25T01:00'],
-  ['2026-12-31T23:45', '2027-01-01T01:15'],
-  ['2028-02-28T23:00', '2028-02-29T00:30'],
-]) {
-  test(`90-minute defaults handle calendar rollover from ${start}`, () => {
-    const { form, dates } = fixture();
-    dates.setRange(start);
-    assert.equal(form.elements.ends_at.value, end);
-  });
-}
+test('a duration that crosses midnight keeps the end on the shared date and is invalid', () => {
+  const { fields, form, dates } = fixture();
+  dates.setRange('2026-10-24T23:30');
+  assert.equal(form.elements.starts_at.value, '2026-10-24T23:30');
+  assert.equal(form.elements.ends_at.value, '2026-10-24T01:00');
+  assert.equal(fields.endTime.validationMessage, 'Das Ende muss nach dem Beginn liegen.');
+});
 
 test('clearing and restoring the start date does not submit stale values or lose the duration', () => {
   const { form, change } = fixture('2026-10-24T15:00', '2026-10-24T17:00');
-  change('startDate', '');
+  change('date', '');
   assert.equal(form.elements.starts_at.value, '');
-  change('startDate', '2026-11-03');
+  change('date', '2026-11-03');
   assert.equal(form.elements.starts_at.value, '2026-11-03T15:00');
   assert.equal(form.elements.ends_at.value, '2026-11-03T17:00');
 });
@@ -177,7 +172,7 @@ test('date arithmetic is independent of the browser timezone and daylight saving
     for (const timezone of ['Europe/Berlin', 'America/New_York', 'Pacific/Auckland']) {
       process.env.TZ = timezone;
       const { form, change } = fixture('2027-03-27T10:00', '2027-03-27T11:30');
-      change('startDate', '2027-03-28');
+      change('date', '2027-03-28');
       assert.equal(form.elements.ends_at.value, '2027-03-28T11:30', timezone);
     }
   } finally {

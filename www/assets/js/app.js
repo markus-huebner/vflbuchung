@@ -1,14 +1,10 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import '../css/app.css';
 
-import { Calendar } from '@fullcalendar/core';
-import dayGridPlugin from '@fullcalendar/daygrid';
-import interactionPlugin from '@fullcalendar/interaction';
-import timeGridPlugin from '@fullcalendar/timegrid';
-import deLocale from '@fullcalendar/core/locales/de';
 import { initBookingDates } from './booking-dates.mjs';
 import { initDatePicker } from './date-picker.mjs';
-import { layoutDayEvents } from './calendar-layout.mjs';
+import { eventDaySegment, layoutDayEvents } from './calendar-layout.mjs';
+import { initTimePicker } from './time-picker.mjs';
 
 const state = {
   date: new Date(),
@@ -17,7 +13,6 @@ const state = {
   resourceType: 'pitch',
   resources: [],
   events: [],
-  busCalendar: null,
 };
 
 const app = window.VereinApp || {};
@@ -103,12 +98,10 @@ function renderCalendar() {
   document.querySelectorAll('[data-calendar-view]').forEach((element) => {
     element.hidden = element.dataset.calendarView !== state.resourceType;
   });
-  if (state.resourceType !== 'bus') {
-    const dayView = document.querySelector(`#${state.resourceType}-day`);
-    const weekView = document.querySelector(`#${state.resourceType}-week`);
-    if (dayView) dayView.hidden = state.view !== 'day';
-    if (weekView) weekView.hidden = state.view !== 'week';
-  }
+  const dayView = document.querySelector(`#${state.resourceType}-day`);
+  const weekView = document.querySelector(`#${state.resourceType}-week`);
+  if (dayView) dayView.hidden = state.view !== 'day';
+  if (weekView) weekView.hidden = state.view !== 'week';
   const resourceSelect = document.querySelector('#calendar-resource-select');
   if (resourceSelect) resourceSelect.value = state.resourceType;
   document.querySelectorAll('[data-view]').forEach((button) => {
@@ -136,22 +129,20 @@ function renderCalendar() {
     picker.setAttribute('aria-label', `Datum auswählen: ${fullLabel}`);
   }
 
-  if (state.resourceType === 'bus') {
-    renderBusCalendar();
-  } else if (state.view === 'day') {
-    renderPitchDay();
+  if (state.view === 'day') {
+    renderResourceDay();
   } else {
-    renderPitchWeek();
+    renderResourceWeek();
   }
 }
 
-function eventCard(event, compact = false) {
+function eventCard(event, compact = false, visibleRange = null) {
   const wrapper = document.createElement('button');
   wrapper.type = 'button';
   wrapper.className = `booking-card booking-${event.event_type || 'training'}${compact ? ' booking-card-compact' : ''}`;
   wrapper.classList.toggle('booking-card-recurring', isRecurring(event));
   wrapper.classList.toggle('booking-pending', event.status === 'pending');
-  fillBookingCard(wrapper, event);
+  fillBookingCard(wrapper, event, visibleRange);
   wrapper.addEventListener('click', () => showEvent(event));
   return wrapper;
 }
@@ -160,7 +151,7 @@ function isRecurring(event) {
   return Boolean(event?.recurrence_rule && event.recurrence_rule.frequency !== 'none');
 }
 
-function fillBookingCard(wrapper, event) {
+function fillBookingCard(wrapper, event, visibleRange = null) {
   const kind = event.event_type || 'training';
   const typeLabels = { training: 'Training', match: 'Spiel', external: 'Externe Belegung', bus: 'Fahrzeug' };
   const formatTime = (value) => new Intl.DateTimeFormat('de-DE', {
@@ -169,7 +160,7 @@ function fillBookingCard(wrapper, event) {
     minute: '2-digit',
   }).format(new Date(value));
   const cabin = event.cabins || (event.resource_type === 'cabin' ? event.resource_name : '');
-  wrapper.innerHTML = `<span class="booking-category"></span><strong></strong><span class="booking-time"></span><span class="booking-cabin"></span>`;
+  wrapper.innerHTML = `<span class="booking-category"></span><strong class="booking-title"></strong><span class="booking-time"></span><span class="booking-cabin"></span>`;
   const recurrenceMarker = document.createElement('span');
   recurrenceMarker.className = 'booking-recurring-marker';
   recurrenceMarker.textContent = '↻';
@@ -181,7 +172,9 @@ function fillBookingCard(wrapper, event) {
   wrapper.querySelector('.booking-category').textContent =
     `${typeLabels[kind] || kind}${event.status === 'pending' ? ' · Anfrage' : ''}`;
   wrapper.querySelector('strong').textContent = [event.team_name, event.title || event.display_title].filter(Boolean).join(' – ');
-  wrapper.querySelector('.booking-time').textContent = `${formatTime(event.start)}–${formatTime(event.end)}`;
+  wrapper.querySelector('.booking-time').textContent = visibleRange?.allDay
+    ? 'Ganztägig'
+    : `${formatTime(visibleRange?.start || event.start)}–${formatTime(visibleRange?.end || event.end)}`;
   const cabinLabel = wrapper.querySelector('.booking-cabin');
   cabinLabel.textContent = cabin;
   cabinLabel.hidden = !cabin;
@@ -193,31 +186,38 @@ function fillBookingCard(wrapper, event) {
   ].filter(Boolean).join(' · ');
 }
 
-function renderPitchDay() {
+function renderResourceDay() {
   const target = document.querySelector(`#${state.resourceType}-day`);
   if (!target) return;
   target.replaceChildren();
 
   const resources = state.resources.filter((resource) => resource.type === state.resourceType);
   const grid = document.createElement('div');
-  grid.className = 'pitch-day-grid';
+  grid.className = 'resource-day-grid';
   grid.style.setProperty('--resource-count', Math.max(resources.length, 1));
+  grid.style.width = '100%';
   const axis = document.createElement('div');
-  axis.className = 'pitch-time-axis';
+  axis.className = 'resource-time-axis';
   axis.append(document.createElement('div'));
   const firstHour = state.showFullDay ? 0 : 8;
   const lastHour = state.showFullDay ? 24 : 20;
   const hourCount = lastHour - firstHour;
-  const layouts = resources.map(resource => layoutDayEvents(
-    state.events.filter(event => Number(event.resource_id) === Number(resource.id)),
-    firstHour, lastHour,
-  ));
-  const widths = layouts.map(entries => Math.max(1, ...entries.map(entry => entry.columns)) * 180);
-  grid.style.gridTemplateColumns = `var(--axis-width) ${widths.map(width => `minmax(${width}px, 1fr)`).join(' ')}`;
-  grid.style.minWidth = `calc(var(--axis-width) + ${widths.reduce((sum, width) => sum + width, 0)}px)`;
+  const layouts = resources.map(resource => {
+    const events = state.events
+      .filter(event => Number(event.resource_id) === Number(resource.id))
+      .flatMap(event => {
+        const visibleRange = eventDaySegment(event, state.date);
+        return visibleRange
+          ? [{ ...event, ...visibleRange, originalEvent: event, visibleRange }]
+          : [];
+      });
+    return layoutDayEvents(events, firstHour, lastHour);
+  });
+  grid.style.gridTemplateColumns =
+    `var(--axis-width) repeat(${Math.max(1, resources.length)}, minmax(0, 1fr))`;
   for (let hour = firstHour; hour < lastHour; hour += 1) {
     const label = document.createElement('div');
-    label.className = 'pitch-hour';
+    label.className = 'resource-hour';
     label.textContent = `${String(hour).padStart(2, '0')}:00`;
     axis.append(label);
   }
@@ -225,24 +225,25 @@ function renderPitchDay() {
 
   resources.forEach((resource, index) => {
     const column = document.createElement('section');
-    column.className = 'pitch-column';
+    column.className = 'resource-column';
     const heading = document.createElement('h3');
-    heading.className = 'pitch-column-heading';
+    heading.className = 'resource-column-heading';
     heading.textContent = resource.name;
+    heading.title = resource.name;
     column.append(heading);
     const lane = document.createElement('div');
-    lane.className = 'pitch-lane';
+    lane.className = 'resource-lane';
     lane.style.height = `${hourCount * 64}px`;
     for (let hour = firstHour; hour < lastHour; hour += 1) {
       const line = document.createElement('div');
-      line.className = 'pitch-hour-line';
+      line.className = 'resource-hour-line';
       lane.append(line);
     }
 
     layouts[index]
       .forEach(({ event, top, height, column, columns }) => {
-        const card = eventCard(event);
-        card.classList.add('pitch-event');
+        const card = eventCard(event.originalEvent || event, false, event.visibleRange);
+        card.classList.add('resource-event');
         card.style.top = `${top}px`;
         card.style.height = `${height}px`;
         card.style.left = `calc(${column * 100 / columns}% + 3px)`;
@@ -257,7 +258,7 @@ function renderPitchDay() {
   target.append(grid);
 }
 
-function renderPitchWeek() {
+function renderResourceWeek() {
   const target = document.querySelector(`#${state.resourceType}-week`);
   if (!target) return;
   target.replaceChildren();
@@ -269,11 +270,17 @@ function renderPitchWeek() {
   });
   const resources = state.resources.filter((resource) => resource.type === state.resourceType);
   const table = document.createElement('table');
-  table.className = 'table table-bordered table-sm pitch-week-table';
+  table.className = 'table table-bordered table-sm resource-week-table';
+  const columns = document.createElement('colgroup');
+  const resourceColumn = document.createElement('col');
+  resourceColumn.className = 'resource-week-resource-column';
+  columns.append(resourceColumn);
+  days.forEach(() => columns.append(document.createElement('col')));
+  table.append(columns);
   const head = document.createElement('thead');
   const headingRow = document.createElement('tr');
   const empty = document.createElement('th');
-  empty.textContent = state.resourceType === 'cabin' ? 'Kabine' : 'Platz';
+  empty.textContent = { bus: 'Fahrzeug', cabin: 'Kabine', pitch: 'Platz' }[state.resourceType] || 'Ressource';
   headingRow.append(empty);
   days.forEach((date) => {
     const th = document.createElement('th');
@@ -290,66 +297,18 @@ function renderPitchWeek() {
     row.append(name);
     days.forEach((date) => {
       const cell = document.createElement('td');
-      const dayKey = localDate(date);
       state.events
-        .filter((event) => Number(event.resource_id) === Number(resource.id) && localDate(new Date(event.start)) === dayKey)
-        .forEach((event) => cell.append(eventCard(event, true)));
+        .filter((event) => Number(event.resource_id) === Number(resource.id))
+        .forEach((event) => {
+          const visibleRange = eventDaySegment(event, date);
+          if (visibleRange) cell.append(eventCard(event, true, visibleRange));
+        });
       row.append(cell);
     });
     body.append(row);
   });
   table.append(body);
   target.append(table);
-}
-
-function renderBusCalendar() {
-  const target = document.querySelector('#bus-calendar');
-  if (!target) return;
-  if (!state.busCalendar) {
-    state.busCalendar = new Calendar(target, {
-      plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin],
-      locale: deLocale,
-      timeZone: 'Europe/Berlin',
-      initialView: 'timeGridDay',
-      headerToolbar: false,
-      allDaySlot: false,
-      slotEventOverlap: false,
-      eventMinHeight: 32,
-      slotDuration: '00:15:00',
-      slotMinTime: state.showFullDay ? '00:00:00' : '08:00:00',
-      slotMaxTime: state.showFullDay ? '24:00:00' : '20:00:00',
-      nowIndicator: true,
-      height: 'auto',
-      events: [],
-      eventContent(info) {
-        const entry = document.createElement('div');
-        entry.className = `booking-card booking-${info.event.extendedProps.event_type || 'bus'}`;
-        entry.classList.toggle('booking-card-recurring', isRecurring(info.event.extendedProps));
-        entry.classList.toggle('booking-pending', info.event.extendedProps.status === 'pending');
-        fillBookingCard(entry, info.event.extendedProps);
-        return { domNodes: [entry] };
-      },
-      eventClick(info) {
-        showEvent(info.event.extendedProps);
-      },
-    });
-    state.busCalendar.render();
-  }
-  state.busCalendar.setOption('slotMinTime', state.showFullDay ? '00:00:00' : '08:00:00');
-  state.busCalendar.setOption('slotMaxTime', state.showFullDay ? '24:00:00' : '20:00:00');
-  state.busCalendar.changeView(state.view === 'day' ? 'timeGridDay' : 'timeGridWeek');
-  state.busCalendar.gotoDate(state.date);
-  state.busCalendar.removeAllEvents();
-  state.events.forEach((event) => {
-    state.busCalendar.addEvent({
-      id: event.assignment_id,
-      title: event.title || event.display_title,
-      start: event.start,
-      end: event.end,
-      classNames: [`booking-${event.event_type}`, ...(event.status === 'pending' ? ['booking-pending'] : [])],
-      extendedProps: event,
-    });
-  });
 }
 
 function showEvent(event) {
@@ -433,7 +392,7 @@ function requestRecurrenceScope(action, form = null) {
   scopeDialog.showModal();
 }
 
-function createResourceChip(resource, fieldName, initiallySelected = false) {
+function createResourceChip(resource, fieldName, initiallySelected = false, singleSelect = false) {
   const wrapper = document.createElement('div');
   wrapper.className = 'resource-chip-item';
   const button = document.createElement('button');
@@ -453,6 +412,14 @@ function createResourceChip(resource, fieldName, initiallySelected = false) {
 
   button.addEventListener('click', () => {
     const selected = button.getAttribute('aria-pressed') === 'true';
+    if (singleSelect && selected) return;
+    if (singleSelect) {
+      button.closest('.resource-choice-group').querySelectorAll('[data-resource-choice]').forEach((choice) => {
+        choice.setAttribute('aria-pressed', 'false');
+        const choiceInput = choice.parentElement.querySelector('input[type="hidden"]');
+        if (choiceInput) choiceInput.disabled = true;
+      });
+    }
     button.setAttribute('aria-pressed', String(!selected));
     input.disabled = selected;
   });
@@ -485,6 +452,20 @@ function syncCombinedTitle(form, allowTeamName = true) {
   }
 }
 
+function validateRequiredNonWhitespace(field) {
+  const hasNonWhitespace = /[^\s\p{Z}]/u.test(field.value);
+  field.setCustomValidity(hasNonWhitespace ? '' : 'Bitte gib eine Mannschaft oder einen Hinweis an.');
+}
+
+function initRequiredNonWhitespace(form) {
+  const field = form.querySelector('[data-required-non-whitespace]');
+  if (!field) return;
+  const validate = () => validateRequiredNonWhitespace(field);
+  field.addEventListener('input', validate);
+  field.addEventListener('change', validate);
+  validate();
+}
+
 function renderResourceChoices() {
   const target = document.querySelector('#resource-choices');
   if (!target) return;
@@ -505,19 +486,14 @@ function renderResourceChoices() {
   const cabinIds = new Set(editingBooking?.cabin_ids || []);
   const group = document.createElement('fieldset');
   group.className = 'resource-choice-group';
+  if (mode === 'pitch') group.classList.add('pitch-choice-group');
+  if (isBus) group.classList.add('bus-choice-group');
   const legend = document.createElement('legend');
   legend.className = 'form-label';
   legend.textContent = mode === 'pitch'
-    ? 'Plätze (mindestens einen auswählen)'
+    ? 'Plätze (mindestens einer)'
     : 'Fahrzeug';
   group.append(legend);
-
-  const description = document.createElement('p');
-  description.className = 'small text-secondary mb-2';
-  description.textContent = mode === 'pitch'
-    ? 'Eine Platzbuchung braucht mindestens einen Platz. Kabinen werden optional der gesamten Buchung zugeordnet.'
-    : 'Wähle das zu buchende Fahrzeug aus.';
-  group.append(description);
 
   if (resources.length === 0) {
     const empty = document.createElement('p');
@@ -529,28 +505,15 @@ function renderResourceChoices() {
   resources.forEach((resource) => {
     const card = document.createElement('div');
     card.className = `resource-card resource-card-${resource.type}`;
-    if (isBus) {
-      const label = document.createElement('label');
-      label.className = 'resource-choice form-check';
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = 'resource_ids[]';
-      radio.value = resource.id;
-      radio.className = 'form-check-input';
-      radio.dataset.resourceKind = resource.type;
-      radio.checked = selectedIds.has(Number(resource.id));
-      const text = document.createElement('span');
-      text.className = 'form-check-label';
-      text.textContent = resource.name;
-      label.append(radio, text);
-      card.append(label);
-    } else {
-      card.append(createResourceChip(
-        resource,
-        'resource_ids[]',
-        editingBooking ? selectedIds.has(Number(resource.id)) : resources.length === 1,
-      ));
-    }
+    const initiallySelected = editingBooking
+      ? selectedIds.has(Number(resource.id))
+      : resources.length === 1;
+    card.append(createResourceChip(
+      resource,
+      'resource_ids[]',
+      initiallySelected,
+      isBus,
+    ));
 
     group.append(card);
   });
@@ -596,7 +559,11 @@ function updateBookingFields() {
     bookingForm.dataset.mode = editingBooking ? 'edit' : 'create';
     bookingForm.querySelector('#booking-dialog-title').textContent =
       `${labels[resourceMode]} ${editingBooking ? 'ändern' : 'anlegen'}`;
-    bookingForm.querySelector('[data-booking-submit]').textContent = editingBooking ? 'Änderungen speichern' : 'Speichern';
+    const submit = bookingForm.querySelector('[data-booking-submit]');
+    const saved = bookingForm.dataset.saved === 'true';
+    submit.textContent = saved ? 'Gespeichert' : editingBooking ? 'Änderungen speichern' : 'Speichern';
+    submit.disabled = saved;
+    bookingForm.querySelector('[data-booking-close]').textContent = saved ? 'Schließen' : 'Abbrechen';
     bookingForm.elements.combined_title.maxLength =
       editingBooking && ['training', 'match'].includes(eventType) ? 303 : 180;
   }
@@ -613,8 +580,11 @@ function updateRecurrenceFields() {
   });
 }
 
-function bookingError(message = '') {
+function bookingError(message = '', kind = 'danger') {
   const error = bookingForm.querySelector('[data-booking-error]');
+  error.className = `alert alert-${kind} mb-0`;
+  error.setAttribute('role', kind === 'danger' ? 'alert' : 'status');
+  error.setAttribute('aria-live', kind === 'danger' ? 'assertive' : 'polite');
   error.textContent = message;
   error.hidden = !message;
   if (message) error.scrollIntoView({ block: 'center' });
@@ -622,15 +592,17 @@ function bookingError(message = '') {
 
 async function submitBooking(event) {
   event.preventDefault();
+  if (bookingForm.dataset.saved === 'true') return;
+  validateRequiredNonWhitespace(bookingForm.elements.combined_title);
   if (!bookingForm.reportValidity()) return;
   const eventType = bookingForm.elements.event_type.value;
   const resourceType = eventType === 'bus' ? 'bus' : bookingForm.elements.resource_mode.value;
   syncCombinedTitle(bookingForm, Boolean(editingBooking) && ['training', 'match'].includes(eventType));
   const selectedResource = resourceType === 'bus'
-    ? bookingForm.querySelector('[name="resource_ids[]"][data-resource-kind="bus"]:checked')
+    ? bookingForm.querySelector('[data-resource-choice][data-resource-kind="bus"][aria-pressed="true"]')
     : bookingForm.querySelector(`[data-resource-choice][data-resource-kind="${resourceType}"][aria-pressed="true"]`);
   if (!selectedResource) {
-    announce(resourceType === 'pitch'
+    bookingError(resourceType === 'pitch'
       ? 'Wähle mindestens einen Platz aus.'
       : 'Wähle ein Fahrzeug aus.', 'danger');
     return;
@@ -638,6 +610,7 @@ async function submitBooking(event) {
   const editing = Boolean(editingBooking);
   const submit = bookingForm.querySelector('[data-booking-submit]');
   bookingError();
+  bookingForm.dataset.saved = '';
   submit.disabled = true;
   try {
     const formData = new FormData(bookingForm);
@@ -649,19 +622,36 @@ async function submitBooking(event) {
       bookingError(result.error || 'Die Buchung konnte nicht gespeichert werden.');
       return;
     }
-    dialog.close();
-    editingBooking = null;
-    bookingForm.reset();
-    updateBookingFields();
     const label = editing ? `Änderungen für ${result.updated} Termin(e) gespeichert.`
       : result.pending ? 'Anfrage wurde übermittelt.' : 'Buchung wurde angelegt.';
-    announce(result.mail_errors?.length ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label, result.mail_errors?.length ? 'warning' : 'success');
-    await loadCalendar();
-    if (document.querySelector('#request-list')) window.location.reload();
+    const mailFailed = Boolean(result.mail_errors?.length);
+    bookingError(
+      mailFailed ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label,
+      mailFailed ? 'warning' : 'success',
+    );
+    bookingForm.dataset.saved = 'true';
+    updateBookingFields();
+    if (document.querySelector('#request-list')) {
+      dialog.addEventListener('close', () => window.location.reload(), { once: true });
+    }
+    if (!editing) {
+      announce(
+        mailFailed ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label,
+        mailFailed ? 'warning' : 'success',
+      );
+      dialog.close();
+    }
+    try {
+      await loadCalendar();
+    } catch (error) {
+      const message = `${label} Der Kalender konnte nicht aktualisiert werden: ${error.message}`;
+      bookingError(message, 'warning');
+      if (!editing) announce(message, 'warning');
+    }
   } catch (error) {
     bookingError(error.message || 'Die Buchung konnte nicht gespeichert werden.');
   } finally {
-    submit.disabled = false;
+    if (bookingForm.dataset.saved !== 'true') submit.disabled = false;
   }
 }
 
@@ -768,7 +758,9 @@ function initResourceOrdering() {
 
 function initControls() {
   const bookingDates = bookingForm ? initBookingDates(bookingForm) : null;
+  if (bookingForm) initRequiredNonWhitespace(bookingForm);
   const datePicker = initDatePicker();
+  initTimePicker();
   document.querySelector('#calendar-date-picker')?.addEventListener('click', (event) => {
     datePicker.open({
       value: localDate(state.date),
@@ -865,6 +857,7 @@ function initControls() {
       editingBooking = null;
       bookingError();
       bookingForm.reset();
+      bookingForm.dataset.saved = '';
       bookingForm.elements.occurrence_id.value = '';
       bookingForm.elements.title.value = '';
       bookingForm.elements.team_name.value = '';
@@ -893,6 +886,15 @@ function initControls() {
   bookingForm?.elements.frequency?.addEventListener('change', updateRecurrenceFields);
   bookingForm?.elements.limit_type?.addEventListener('change', updateRecurrenceFields);
   bookingForm?.addEventListener('submit', submitBooking);
+  bookingForm?.addEventListener('input', () => {
+    if (bookingForm.dataset.saved !== 'true') bookingError();
+  });
+  bookingForm?.addEventListener('change', () => {
+    if (bookingForm.dataset.saved !== 'true') bookingError();
+  });
+  bookingForm?.addEventListener('click', (event) => {
+    if (event.target.closest('[data-resource-choice]') && bookingForm.dataset.saved !== 'true') bookingError();
+  });
   bookingForm?.elements.count?.addEventListener('input', (event) => {
     event.currentTarget.dataset.modified = 'true';
   });
@@ -915,6 +917,7 @@ function initControls() {
     });
   });
   document.querySelectorAll('.request-edit-form').forEach((form) => {
+    initRequiredNonWhitespace(form);
     initBookingDates(form);
     form.addEventListener('submit', () => syncCombinedTitle(form, form.dataset.allowTeamName === 'true'));
   });
@@ -933,6 +936,7 @@ function initControls() {
       editingBooking = data;
       bookingError();
       bookingForm.reset();
+      bookingForm.dataset.saved = '';
       for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
         'destination', 'purpose', 'driver_name', 'private_notes']) {
         bookingForm.elements[name].value = data[name] ?? '';

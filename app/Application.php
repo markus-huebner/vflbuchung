@@ -194,7 +194,6 @@ final class Application
                 if (!$this->auth->authenticate((string) ($_POST['identifier'] ?? ''), (string) ($_POST['password'] ?? ''))) {
                     throw new RuntimeException('Benutzername, E-Mail-Adresse oder Passwort ist nicht korrekt.');
                 }
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Du bist angemeldet.'];
                 $this->redirect('/');
 
             case 'logout':

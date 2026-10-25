@@ -29,7 +29,7 @@ final class Config
             'MAIL_PASSWORD' => '',
             'MAIL_ENCRYPTION' => 'tls',
             'MAIL_FROM' => '',
-            'MAIL_FROM_NAME' => 'Vereinsbelegung',
+            'MAIL_FROM_NAME' => 'Platz- und Busbelegung',
         ];
 
         $values = [];

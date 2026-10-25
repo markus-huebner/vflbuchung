@@ -10,14 +10,13 @@ function shiftDateTime(value, duration) {
 }
 
 export function initBookingDates(form) {
+  const date = form.querySelector('[data-booking-date]');
   const fields = {
     start: {
-      date: form.querySelector('[data-booking-date="start"]'),
       time: form.querySelector('[data-booking-time="start"]'),
       combined: form.elements.starts_at,
     },
     end: {
-      date: form.querySelector('[data-booking-date="end"]'),
       time: form.querySelector('[data-booking-time="end"]'),
       combined: form.elements.ends_at,
     },
@@ -25,14 +24,14 @@ export function initBookingDates(form) {
   let duration = DEFAULT_DURATION;
 
   function read(part) {
-    const { date, time } = fields[part];
+    const time = fields[part].time;
     return date.value && time.value ? `${date.value}T${time.value.slice(0, 5)}` : '';
   }
 
   function write(part, value) {
-    const [date, time] = value.split('T');
-    fields[part].date.value = date;
-    fields[part].time.value = time;
+    const [dateValue, timeValue] = value.split('T');
+    if (part === 'start') date.value = dateValue;
+    fields[part].time.value = timeValue;
     fields[part].combined.value = value;
   }
 
@@ -71,9 +70,8 @@ export function initBookingDates(form) {
   }
 
   for (const event of ['input', 'change']) {
-    fields.start.date.addEventListener(event, startChanged);
+    date.addEventListener(event, startChanged);
     fields.start.time.addEventListener(event, startChanged);
-    fields.end.date.addEventListener(event, rememberDuration);
     fields.end.time.addEventListener(event, rememberDuration);
   }
 

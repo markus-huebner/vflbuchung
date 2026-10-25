@@ -10,11 +10,34 @@ function minutesOfDay(value) {
   return Number(parts.hour) * 60 + Number(parts.minute);
 }
 
+export function eventDaySegment(event, date) {
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  const eventStart = new Date(event.start);
+  const eventEnd = new Date(event.end);
+
+  if (eventStart >= dayEnd || eventEnd <= dayStart) return null;
+
+  const start = eventStart > dayStart ? eventStart : dayStart;
+  const end = eventEnd < dayEnd ? eventEnd : dayEnd;
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    allDay: start.getTime() === dayStart.getTime() && end.getTime() === dayEnd.getTime(),
+  };
+}
+
 export function layoutDayEvents(events, firstHour, lastHour) {
   const laneHeight = (lastHour - firstHour) * 64;
   const entries = events.flatMap(event => {
-    const start = Math.max(0, minutesOfDay(event.start) - firstHour * 60);
-    const end = Math.min((lastHour - firstHour) * 60, minutesOfDay(event.end) - firstHour * 60);
+    const firstMinute = firstHour * 60;
+    const laneMinutes = (lastHour - firstHour) * 60;
+    const start = Math.max(0, minutesOfDay(event.start) - firstMinute);
+    let eventEnd = minutesOfDay(event.end);
+    if (eventEnd === 0 && new Date(event.end) > new Date(event.start)) eventEnd = 24 * 60;
+    const end = Math.min(laneMinutes, Math.max(0, eventEnd - firstMinute));
     if (end <= start) return [];
     const top = start * 64 / 60;
     const height = Math.min(Math.max((end - start) * 64 / 60 - 3, 32), laneHeight - top);
