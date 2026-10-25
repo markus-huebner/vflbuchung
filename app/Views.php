@@ -71,14 +71,12 @@ final class Views
             $eventTypes .= '<option value="external">Externe Belegung</option>';
         }
         $bookingOptions[] = ['event_type' => 'bus', 'resource_mode' => 'bus', 'label' => 'Fahrzeug'];
-        $bookingOptions[] = ['event_type' => 'training', 'resource_mode' => 'cabin', 'label' => 'Kabine'];
 
         $bookingChoices = '';
         foreach ($bookingOptions as $option) {
             $bookingChoices .= '<button type="button" class="booking-create-option" data-booking-option'
                 . ' data-event-type="' . Security::escape($option['event_type']) . '"'
-                . ' data-resource-mode="' . Security::escape($option['resource_mode']) . '"'
-                . ' data-booking-label="' . Security::escape($option['label']) . '">'
+                . ' data-resource-mode="' . Security::escape($option['resource_mode']) . '">'
                 . Security::escape($option['label']) . '</button>';
         }
         $createButton = $user === null ? '' : '<details id="booking-create-menu" class="booking-create-menu">'
@@ -91,21 +89,26 @@ final class Views
 
         return '<div id="app-message" class="alert" role="status" hidden></div>
 <section class="calendar-toolbar">
-  <div><h1>Belegungsplan</h1><p class="text-secondary mb-0">Plätze, Kabinen und Fahrzeuge auf einen Blick.</p></div>
+  <div><h1>Belegungsplan</h1><p class="text-secondary mb-0">Plätze mit ihren Kabinen und Fahrzeuge auf einen Blick.</p></div>
   <div class="calendar-actions">
     ' . $createButton . '
-    <button id="calendar-prev" class="btn btn-outline-secondary" type="button" aria-label="Zurück">‹</button>
-    <button id="calendar-today" class="btn btn-outline-secondary" type="button">Heute</button>
-    <button id="calendar-next" class="btn btn-outline-secondary" type="button" aria-label="Weiter">›</button>
+    <label class="visually-hidden" for="calendar-resource-select">Kalender auswählen</label>
+    <select id="calendar-resource-select" class="form-select calendar-resource-select">
+      <option value="pitch">Platzbelegung</option>
+      <option value="bus">Fahrzeugkalender</option>
+    </select>
   </div>
 </section>
-<div class="calendar-tabs" role="tablist" aria-label="Ressource">
-  <button type="button" class="btn btn-outline-primary active" data-resource-type="pitch">Plätze</button>
-  <button type="button" class="btn btn-outline-primary" data-resource-type="cabin">Kabinen</button>
-  <button type="button" class="btn btn-outline-primary" data-resource-type="bus">Fahrzeuge</button>
-</div>
 <section class="calendar-toolbar">
-  <div id="calendar-range" class="fw-semibold" aria-live="polite"></div>
+  <div class="calendar-navigation" role="group" aria-label="Kalenderdatum">
+  <button id="calendar-prev" class="btn btn-outline-secondary" type="button" aria-label="Zurück">‹</button>
+  <button id="calendar-date-picker" class="calendar-date-button" type="button" aria-haspopup="dialog" aria-label="Datum im Kalender auswählen">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3v4m10-4v4M4 10h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/></svg>
+    <span id="calendar-range" class="fw-semibold" aria-live="polite"></span><span aria-hidden="true">⌄</span>
+  </button>
+  <button id="calendar-next" class="btn btn-outline-secondary" type="button" aria-label="Weiter">›</button>
+  <button id="calendar-today" class="btn btn-outline-secondary" type="button">Heute</button>
+  </div>
   <label class="form-check form-switch mb-0" id="full-day-toggle-wrap" hidden>
     <input class="form-check-input" type="checkbox" id="full-day-toggle">
     <span class="form-check-label">Restlichen Tag einblenden</span>
@@ -120,43 +123,36 @@ final class Views
     <div id="pitch-day" class="pitch-day-scroll"></div>
     <div id="pitch-week" class="pitch-week-scroll" hidden></div>
   </div>
-<div data-calendar-view="cabin" hidden>
-  <div id="cabin-day" class="pitch-day-scroll"></div>
-  <div id="cabin-week" class="pitch-week-scroll" hidden></div>
-</div>
 <div id="bus-calendar" data-calendar-view="bus" hidden></div>
   <div class="calendar-legend">
     <span class="legend-item" style="--legend-color:var(--booking-training)">Training</span>
     <span class="legend-item" style="--legend-color:var(--booking-match)">Spiel</span>
     <span class="legend-item" style="--legend-color:var(--booking-external)">Externe Belegung</span>
     <span class="legend-item" style="--legend-color:var(--booking-bus)">Fahrzeug</span>
+    <span class="legend-item legend-recurring"><span aria-hidden="true">↻</span> Regeltermin</span>
+    <span class="legend-item legend-pending" style="--legend-color:var(--booking-training)">Anfrage: hellere Kategoriefarbe, gestrichelter Rand</span>
   </div>
 </section>
-' . $bookingDialog . $detailsDialog;
+' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
     }
 
     private static function bookingDialog(array $user, string $csrf, string $eventTypes): string
     {
-        $forceField = $user['role'] === 'admin'
-            ? '<div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="force_conflicts" value="1" id="force-conflicts"><label class="form-check-label" for="force-conflicts">Doppelbelegung nach Warnung erzwingen</label></div>'
-            : '';
-
         return '<dialog id="booking-dialog" aria-labelledby="booking-dialog-title">
 <form id="booking-form" method="post">
-  <div class="dialog-header"><h2 id="booking-dialog-title" class="h5 mb-0">Buchung anlegen</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
+  <div class="dialog-header"><h2 id="booking-dialog-title" class="h5 mb-0">Platzbelegung anlegen</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
   <div class="dialog-body">
+    <p class="alert alert-danger" data-booking-error role="alert" hidden></p>
     <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
+    <input type="hidden" name="occurrence_id">
     <div class="row g-3">
-      <div class="col-md-4"><span class="form-label d-block">Auswahl</span><p class="form-control-plaintext mb-0" id="booking-selection"></p><input type="hidden" id="event-type" name="event_type" value="training"><input type="hidden" id="resource-mode" name="resource_mode" value="pitch"></div>
-      <div class="col-md-4" id="booking-event-type-choice" hidden><label class="form-label" for="event-type-select">Buchungstyp</label><select class="form-select" id="event-type-select">' . $eventTypes . '</select></div>
-      <div class="col-md-4"><label class="form-label" id="booking-title-label" for="event-title">Mannschaft / Gegner (optional)</label><input class="form-control" id="event-title" name="combined_title" maxlength="303" data-initial-value=""><input type="hidden" name="title"><input type="hidden" name="team_name"></div>
-      <div class="col-md-6"><label class="form-label" for="starts-at">Beginn</label><input class="form-control" id="starts-at" type="datetime-local" name="starts_at" step="900" required></div>
-      <div class="col-md-6"><label class="form-label" for="ends-at">Ende</label><input class="form-control" id="ends-at" type="datetime-local" name="ends_at" step="900" required></div>
+      <input type="hidden" id="resource-mode" name="resource_mode" value="pitch">
+      <div class="col-md-4" id="booking-event-type-choice"><label class="form-label" for="event-type-select">Kategorie</label><select class="form-select" id="event-type-select" name="event_type">' . $eventTypes . '<option value="bus" hidden>Fahrzeug</option></select></div>
+      <div class="col-md-8"><label class="form-label" id="booking-title-label" for="event-title">Titel / Mannschaft</label><input class="form-control" id="event-title" name="combined_title" maxlength="180" pattern=".*\S.*" required data-initial-value=""><input type="hidden" name="title"><input type="hidden" name="team_name"></div>
+      <div class="col-12">' . self::bookingDateTimeFields('booking') . '</div>
       <div class="col-12">
         <div id="resource-choices" class="resource-choices mt-2"></div>
       </div>
-      <div class="col-md-6" data-event-type-field="match"><label class="form-label" for="opponent">Gegner (optional)</label><input class="form-control" id="opponent" name="opponent" maxlength="120"></div>
-      <div class="col-md-6" data-event-type-field="match"><label class="form-label" for="match-venue">Spielort</label><select class="form-select" id="match-venue" name="match_venue"><option value="">Nicht angegeben</option><option value="home">Heim</option><option value="away">Auswärts</option></select></div>
       <div class="col-md-6" data-event-type-field="bus"><label class="form-label" for="destination">Ziel</label><input class="form-control" id="destination" name="destination" maxlength="180"></div>
       <div class="col-md-6" data-event-type-field="bus"><label class="form-label" for="purpose">Zweck</label><input class="form-control" id="purpose" name="purpose" maxlength="180"></div>
       <div class="col-md-6" data-event-type-field="bus"><label class="form-label" for="driver-name">Fahrer (intern)</label><input class="form-control" id="driver-name" name="driver_name" maxlength="120"></div>
@@ -177,13 +173,39 @@ final class Views
           ' . self::weekdayCheckboxes() . '
         </fieldset>
         </div>
+        <p class="small text-secondary mt-2 mb-0" data-edit-only hidden>Eine geänderte Wiederholung baut die Termine im gewählten Änderungsumfang neu auf. Nicht mehr enthaltene Termine werden entfernt.</p>
       </div>
-      ' . $forceField . '
+      <input type="hidden" name="scope" value="one">
     </div>
   </div>
-  <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button><button type="submit" class="btn btn-primary">Speichern</button></div>
+  <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button><button type="submit" class="btn btn-primary" data-booking-submit>Speichern</button></div>
 </form>
 </dialog>';
+    }
+
+    private static function bookingDateTimeFields(string $prefix, string $startsAt = '', string $endsAt = ''): string
+    {
+        $html = '<div class="row g-3" data-booking-dates>';
+        foreach ([
+            ['part' => 'start', 'label' => 'Beginn', 'name' => 'starts_at', 'value' => $startsAt],
+            ['part' => 'end', 'label' => 'Ende', 'name' => 'ends_at', 'value' => $endsAt],
+        ] as $field) {
+            $id = Security::escape($prefix . '-' . $field['part']);
+            $html .= '<fieldset class="col-md-6"><legend class="form-label fs-6 mb-2">'
+                . $field['label'] . '</legend><div class="row g-2">'
+                . '<div class="col-7"><label class="form-label" for="' . $id . '-date">Datum</label>'
+                . '<input class="form-control" id="' . $id . '-date" type="date"'
+                . ' data-booking-date="' . $field['part'] . '" value="'
+                . Security::escape(substr($field['value'], 0, 10)) . '" required></div>'
+                . '<div class="col-5"><label class="form-label" for="' . $id . '-time">Uhrzeit</label>'
+                . '<input class="form-control" id="' . $id . '-time" type="time" step="900"'
+                . ' data-booking-time="' . $field['part'] . '" value="'
+                . Security::escape(substr($field['value'], 11, 5)) . '" required></div></div>'
+                . '<input type="hidden" name="' . $field['name'] . '" value="'
+                . Security::escape($field['value']) . '"></fieldset>';
+        }
+
+        return $html . '</div>';
     }
 
     private static function weekdayCheckboxes(): string
@@ -200,43 +222,48 @@ final class Views
     private static function eventDialog(?array $user, string $csrf): string
     {
         $cancel = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><button class="btn btn-outline-danger" type="submit">Stornieren</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><button class="btn btn-outline-danger" type="submit">Kabinenbelegung stornieren</button></form>'
+            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Stornieren</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Kabinenbelegung stornieren</button></form>'
             : '';
         $edit = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<button type="button" class="btn btn-outline-primary" data-edit-event>Ändern</button>'
+            ? '<button type="button" class="btn btn-outline-primary" data-edit-event>Ändern</button><a class="btn btn-outline-primary" href="/?page=dashboard" data-event-request hidden>Anfragen verwalten</a>'
+            : '';
+        $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
+            ? '<dt class="col-sm-4" data-event-bus-field>Fahrer (intern)</dt><dd class="col-sm-8" data-event-bus-field data-event-driver></dd>
+      <dt class="col-sm-4">Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes></dd>'
             : '';
 
         return '<dialog id="event-dialog" aria-labelledby="event-dialog-title">
   <div class="dialog-header"><h2 class="h5 mb-0" id="event-dialog-title" data-event-title></h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
   <div class="dialog-body">
+    <p class="alert alert-danger" data-event-error role="alert" hidden></p>
     <dl class="row mb-0">
       <dt class="col-sm-4">Ressource</dt><dd class="col-sm-8" data-event-resource></dd>
-      <dt class="col-sm-4">Zeit</dt><dd class="col-sm-8" data-event-time></dd>
-      <dt class="col-sm-4">Kabine</dt><dd class="col-sm-8" data-event-cabins></dd>
-      <dt class="col-sm-4">Terminart</dt><dd class="col-sm-8 text-capitalize" data-event-type></dd>
-      <dt class="col-sm-4">Weitere Angaben</dt><dd class="col-sm-8" data-event-details></dd>
+      <dt class="col-sm-4">Gebuchte Ressourcen</dt><dd class="col-sm-8" data-event-resources></dd>
+      <dt class="col-sm-4">Beginn</dt><dd class="col-sm-8" data-event-start></dd>
+      <dt class="col-sm-4">Ende</dt><dd class="col-sm-8" data-event-end></dd>
+      <dt class="col-sm-4" data-event-pitch-field>Kabinen</dt><dd class="col-sm-8" data-event-pitch-field data-event-cabins></dd>
+      <dt class="col-sm-4">Kategorie</dt><dd class="col-sm-8" data-event-type></dd>
+      <dt class="col-sm-4">Status</dt><dd class="col-sm-8" data-event-status></dd>
+      <dt class="col-sm-4" data-event-bus-field>Ziel</dt><dd class="col-sm-8" data-event-bus-field data-event-destination></dd>
+      <dt class="col-sm-4" data-event-bus-field>Zweck</dt><dd class="col-sm-8" data-event-bus-field data-event-purpose></dd>
+      <dt class="col-sm-4" data-event-pitch-field>Wiederholung</dt><dd class="col-sm-8" data-event-pitch-field data-event-recurrence></dd>
+      ' . $privateDetails . '
     </dl>
   </div>
   <div class="dialog-footer">' . $cancel . $edit . '<button type="button" class="btn btn-primary" data-dialog-close>Schließen</button></div>
-</dialog>
-<dialog id="edit-booking-dialog" aria-labelledby="edit-booking-title">
-  <form id="edit-booking-form">
-    <div class="dialog-header"><h2 id="edit-booking-title" class="h5 mb-0">Buchung ändern</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
-    <div class="dialog-body">
-      <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
-      <input type="hidden" name="occurrence_id">
-      <input type="hidden" name="update_cabins" value="0">
-      <div class="row g-3">
-        <div class="col-md-4"><label class="form-label" for="edit-event-type">Buchungstyp</label><input class="form-control" id="edit-event-type" readonly></div>
-        <div class="col-md-6"><label class="form-label" id="edit-title-label" for="edit-combined-title">Mannschaft / Gegner (optional)</label><input class="form-control" id="edit-combined-title" name="combined_title" maxlength="303"><input type="hidden" name="title"><input type="hidden" name="team_name"></div>
-      </div>
-      <div class="row g-3"><div class="col-md-6"><label class="form-label" for="edit-start">Beginn</label><input class="form-control" id="edit-start" type="datetime-local" name="starts_at" step="900" required></div><div class="col-md-6"><label class="form-label" for="edit-end">Ende</label><input class="form-control" id="edit-end" type="datetime-local" name="ends_at" step="900" required></div></div>
-      <fieldset class="mt-3" id="edit-cabin-field" hidden><legend class="form-label">Kabinen für die gesamte Buchung</legend><div id="edit-cabin-choices" class="edit-cabin-choices"></div></fieldset>
-      <div class="mt-3"><label class="form-label" for="edit-scope">Änderung anwenden auf</label><select class="form-select" id="edit-scope" name="scope"><option value="one">Nur diesen Termin</option><option value="future">Diesen und folgende Termine</option><option value="all">Alle Termine der Serie</option></select></div>
-      <p class="small text-secondary mt-2 mb-0">Eine Änderung wird abgelehnt, wenn dadurch eine bestätigte Buchung oder Kabinenbelegung kollidiert.</p>
-    </div>
-    <div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button><button type="submit" class="btn btn-primary">Änderungen speichern</button></div>
-  </form>
+</dialog>';
+    }
+
+    private static function recurrenceScopeDialog(): string
+    {
+        return '<dialog id="recurrence-scope-dialog" aria-labelledby="recurrence-scope-title">
+  <div class="dialog-header"><h2 class="h5 mb-0" id="recurrence-scope-title">Regeltermin</h2><button type="button" class="btn-close" aria-label="Schließen" data-scope-cancel></button></div>
+  <div class="dialog-body"><p data-scope-message>Dieser Termin gehört zu einer Regelterminserie. Auf welche Termine soll die Aktion angewendet werden?</p></div>
+  <div class="dialog-footer">
+    <button type="button" class="btn btn-outline-secondary" data-scope-cancel>Abbrechen</button>
+    <button type="button" class="btn btn-outline-primary" data-scope-choice="one">Nur diesen Termin</button>
+    <button type="button" class="btn btn-danger" data-scope-choice="future">Diesen und alle zukünftigen Termine</button>
+  </div>
 </dialog>';
     }
 
@@ -267,7 +294,6 @@ final class Views
             $details = [
                 $request['resource_name'],
                 $request['team_name'],
-                $request['opponent'],
                 $request['destination'],
                 $request['purpose'],
                 $request['cabins'] ? 'Kabine: ' . $request['cabins'] : '',
@@ -292,9 +318,7 @@ final class Views
             ));
             $titleInputId = 'request-title-' . (int) $request['assignment_id'];
             $allowTeamName = in_array($request['event_type'], ['training', 'match'], true);
-            $titleLabel = $allowTeamName
-                ? 'Mannschaft / Gegner (optional)'
-                : 'Titel (optional)';
+            $titleLabel = 'Titel / Mannschaft';
             $rows .= '<article class="request-row"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>' . Security::escape($request['title']) . '</strong> <span class="request-status">' . Security::escape($status) . '</span><div>' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</div>';
             if ($staff) {
                 $rows .= '<div class="small text-secondary">Anfrage von ' . Security::escape($request['requester_name'] ?? 'Verwalter') . '</div>';
@@ -312,15 +336,10 @@ final class Views
                     . '<input type="hidden" name="team_name" value="' . Security::escape($requestTeamName) . '">'
                     . '<div class="mb-2"><label class="form-label" for="' . $titleInputId . '">'
                     . Security::escape($titleLabel) . '</label><input class="form-control form-control-sm"'
-                    . ' id="' . $titleInputId . '" name="combined_title" maxlength="303"'
+                    . ' id="' . $titleInputId . '" name="combined_title" maxlength="303" pattern=".*\S.*" required'
                     . ' value="' . Security::escape($combinedTitle) . '" data-initial-value="'
                     . Security::escape($combinedTitle) . '"></div>'
-                    . '<div class="row g-2"><div class="col-md-6"><label class="form-label">Beginn</label>'
-                    . '<input class="form-control form-control-sm" type="datetime-local" name="starts_at"'
-                    . ' step="900" value="' . Security::escape($startInput) . '" required></div>'
-                    . '<div class="col-md-6"><label class="form-label">Ende</label>'
-                    . '<input class="form-control form-control-sm" type="datetime-local" name="ends_at"'
-                    . ' step="900" value="' . Security::escape($endInput) . '" required></div></div>'
+                    . self::bookingDateTimeFields('request-' . (int) $request['assignment_id'], $startInput, $endInput)
                     . '<button class="btn btn-sm btn-outline-primary mt-2"'
                     . ' type="submit">Änderung speichern</button></form></details>';
             }
@@ -328,9 +347,6 @@ final class Views
 
             if ($staff && $request['assignment_status'] === 'pending') {
                 $rows .= '<form method="post" action="/?action=booking-approve" class="d-flex gap-2 align-items-center"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value="' . (int) $request['assignment_id'] . '">';
-                if ($user['role'] === 'admin') {
-                    $rows .= '<label class="small"><input type="checkbox" name="force_conflicts" value="1"> Konflikt erzwingen</label>';
-                }
                 $rows .= '<button class="btn btn-sm btn-success" type="submit">Freigeben</button></form>
 <form method="post" action="/?action=booking-reject" class="d-flex gap-2"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value="' . (int) $request['assignment_id'] . '"><input class="form-control form-control-sm" name="reason" maxlength="500" placeholder="Begründung (optional)"><button class="btn btn-sm btn-outline-danger" type="submit">Ablehnen</button></form>';
             } elseif (!$staff && $request['assignment_status'] === 'pending') {

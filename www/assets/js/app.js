@@ -6,6 +6,9 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import deLocale from '@fullcalendar/core/locales/de';
+import { initBookingDates } from './booking-dates.mjs';
+import { initDatePicker } from './date-picker.mjs';
+import { layoutDayEvents } from './calendar-layout.mjs';
 
 const state = {
   date: new Date(),
@@ -22,9 +25,10 @@ const messageBox = document.querySelector('#app-message');
 const dialog = document.querySelector('#booking-dialog');
 const bookingForm = document.querySelector('#booking-form');
 const detailsDialog = document.querySelector('#event-dialog');
-const editDialog = document.querySelector('#edit-booking-dialog');
-const editForm = document.querySelector('#edit-booking-form');
+const scopeDialog = document.querySelector('#recurrence-scope-dialog');
 let selectedEvent = null;
+let editingBooking = null;
+let pendingScopeAction = null;
 
 function announce(message, kind = 'info') {
   if (!messageBox) return;
@@ -37,7 +41,7 @@ function announce(message, kind = 'info') {
 }
 
 function localDate(date) {
-  const year = date.getFullYear();
+  const year = String(date.getFullYear()).padStart(4, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
@@ -54,7 +58,7 @@ function berlinDateTimeInput(value) {
     hourCycle: 'h23',
   }).formatToParts(new Date(value));
   const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
+  return `${fields.year.padStart(4, '0')}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`;
 }
 
 function weekStart(date) {
@@ -105,9 +109,8 @@ function renderCalendar() {
     if (dayView) dayView.hidden = state.view !== 'day';
     if (weekView) weekView.hidden = state.view !== 'week';
   }
-  document.querySelectorAll('[data-resource-type]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.resourceType === state.resourceType);
-  });
+  const resourceSelect = document.querySelector('#calendar-resource-select');
+  if (resourceSelect) resourceSelect.value = state.resourceType;
   document.querySelectorAll('[data-view]').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === state.view);
   });
@@ -120,9 +123,17 @@ function renderCalendar() {
     const { start, end } = rangeForView();
     const endLabel = new Date(end);
     endLabel.setDate(endLabel.getDate() - 1);
-    label.textContent = state.view === 'day'
+    const fullLabel = state.view === 'day'
       ? start.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
       : `${start.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })} – ${endLabel.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    const shortDate = (date, year = false) => date.toLocaleDateString('de-DE', {
+      day: '2-digit', month: '2-digit', ...(year ? { year: 'numeric' } : {}),
+    });
+    label.textContent = state.view === 'day'
+      ? shortDate(start, true) : `${shortDate(start)}–${shortDate(endLabel)}`;
+    const picker = document.querySelector('#calendar-date-picker');
+    picker.title = fullLabel;
+    picker.setAttribute('aria-label', `Datum auswählen: ${fullLabel}`);
   }
 
   if (state.resourceType === 'bus') {
@@ -138,9 +149,15 @@ function eventCard(event, compact = false) {
   const wrapper = document.createElement('button');
   wrapper.type = 'button';
   wrapper.className = `booking-card booking-${event.event_type || 'training'}${compact ? ' booking-card-compact' : ''}`;
+  wrapper.classList.toggle('booking-card-recurring', isRecurring(event));
+  wrapper.classList.toggle('booking-pending', event.status === 'pending');
   fillBookingCard(wrapper, event);
   wrapper.addEventListener('click', () => showEvent(event));
   return wrapper;
+}
+
+function isRecurring(event) {
+  return Boolean(event?.recurrence_rule && event.recurrence_rule.frequency !== 'none');
 }
 
 function fillBookingCard(wrapper, event) {
@@ -153,12 +170,27 @@ function fillBookingCard(wrapper, event) {
   }).format(new Date(value));
   const cabin = event.cabins || (event.resource_type === 'cabin' ? event.resource_name : '');
   wrapper.innerHTML = `<span class="booking-category"></span><strong></strong><span class="booking-time"></span><span class="booking-cabin"></span>`;
-  wrapper.querySelector('.booking-category').textContent = typeLabels[kind] || kind;
+  const recurrenceMarker = document.createElement('span');
+  recurrenceMarker.className = 'booking-recurring-marker';
+  recurrenceMarker.textContent = '↻';
+  recurrenceMarker.title = 'Regeltermin';
+  recurrenceMarker.setAttribute('role', 'img');
+  recurrenceMarker.setAttribute('aria-label', 'Regeltermin');
+  recurrenceMarker.hidden = !isRecurring(event);
+  wrapper.append(recurrenceMarker);
+  wrapper.querySelector('.booking-category').textContent =
+    `${typeLabels[kind] || kind}${event.status === 'pending' ? ' · Anfrage' : ''}`;
   wrapper.querySelector('strong').textContent = [event.team_name, event.title || event.display_title].filter(Boolean).join(' – ');
   wrapper.querySelector('.booking-time').textContent = `${formatTime(event.start)}–${formatTime(event.end)}`;
   const cabinLabel = wrapper.querySelector('.booking-cabin');
-  cabinLabel.textContent = cabin ? `Kabine: ${cabin}` : '';
+  cabinLabel.textContent = cabin;
   cabinLabel.hidden = !cabin;
+  wrapper.title = [
+    wrapper.querySelector('.booking-category').textContent,
+    wrapper.querySelector('strong').textContent,
+    wrapper.querySelector('.booking-time').textContent,
+    cabinLabel.textContent,
+  ].filter(Boolean).join(' · ');
 }
 
 function renderPitchDay() {
@@ -176,6 +208,13 @@ function renderPitchDay() {
   const firstHour = state.showFullDay ? 0 : 8;
   const lastHour = state.showFullDay ? 24 : 20;
   const hourCount = lastHour - firstHour;
+  const layouts = resources.map(resource => layoutDayEvents(
+    state.events.filter(event => Number(event.resource_id) === Number(resource.id)),
+    firstHour, lastHour,
+  ));
+  const widths = layouts.map(entries => Math.max(1, ...entries.map(entry => entry.columns)) * 180);
+  grid.style.gridTemplateColumns = `var(--axis-width) ${widths.map(width => `minmax(${width}px, 1fr)`).join(' ')}`;
+  grid.style.minWidth = `calc(var(--axis-width) + ${widths.reduce((sum, width) => sum + width, 0)}px)`;
   for (let hour = firstHour; hour < lastHour; hour += 1) {
     const label = document.createElement('div');
     label.className = 'pitch-hour';
@@ -184,7 +223,7 @@ function renderPitchDay() {
   }
   grid.append(axis);
 
-  resources.forEach((resource) => {
+  resources.forEach((resource, index) => {
     const column = document.createElement('section');
     column.className = 'pitch-column';
     const heading = document.createElement('h3');
@@ -200,18 +239,14 @@ function renderPitchDay() {
       lane.append(line);
     }
 
-    state.events
-      .filter((event) => Number(event.resource_id) === Number(resource.id))
-      .forEach((event) => {
-        const start = new Date(event.start);
-        const end = new Date(event.end);
-        const startMinutes = Math.max(0, (start.getHours() - firstHour) * 60 + start.getMinutes());
-        const endMinutes = Math.min(hourCount * 60, (end.getHours() - firstHour) * 60 + end.getMinutes());
-        if (endMinutes <= startMinutes) return;
+    layouts[index]
+      .forEach(({ event, top, height, column, columns }) => {
         const card = eventCard(event);
         card.classList.add('pitch-event');
-        card.style.top = `${(startMinutes / 60) * 64}px`;
-        card.style.height = `${Math.max(((endMinutes - startMinutes) / 60) * 64 - 3, 32)}px`;
+        card.style.top = `${top}px`;
+        card.style.height = `${height}px`;
+        card.style.left = `calc(${column * 100 / columns}% + 3px)`;
+        card.style.width = `calc(${100 / columns}% - 6px)`;
         lane.append(card);
       });
 
@@ -278,6 +313,8 @@ function renderBusCalendar() {
       initialView: 'timeGridDay',
       headerToolbar: false,
       allDaySlot: false,
+      slotEventOverlap: false,
+      eventMinHeight: 32,
       slotDuration: '00:15:00',
       slotMinTime: state.showFullDay ? '00:00:00' : '08:00:00',
       slotMaxTime: state.showFullDay ? '24:00:00' : '20:00:00',
@@ -287,6 +324,8 @@ function renderBusCalendar() {
       eventContent(info) {
         const entry = document.createElement('div');
         entry.className = `booking-card booking-${info.event.extendedProps.event_type || 'bus'}`;
+        entry.classList.toggle('booking-card-recurring', isRecurring(info.event.extendedProps));
+        entry.classList.toggle('booking-pending', info.event.extendedProps.status === 'pending');
         fillBookingCard(entry, info.event.extendedProps);
         return { domNodes: [entry] };
       },
@@ -307,7 +346,7 @@ function renderBusCalendar() {
       title: event.title || event.display_title,
       start: event.start,
       end: event.end,
-      classNames: [`booking-${event.event_type}`],
+      classNames: [`booking-${event.event_type}`, ...(event.status === 'pending' ? ['booking-pending'] : [])],
       extendedProps: event,
     });
   });
@@ -315,55 +354,83 @@ function renderBusCalendar() {
 
 function showEvent(event) {
   if (!detailsDialog) return;
+  detailsDialog.querySelector('[data-event-error]').hidden = true;
   selectedEvent = event;
   const set = (selector, value) => {
     const element = detailsDialog.querySelector(selector);
     if (element) element.textContent = value || '—';
   };
-  set('[data-event-title]', event.display_title || event.title);
+  set('[data-event-title]', [event.team_name, event.title || event.display_title].filter(Boolean).join(' – '));
   set('[data-event-resource]', event.resource_name);
-  set('[data-event-time]', `${new Date(event.start).toLocaleString('de-DE')} – ${new Date(event.end).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`);
+  set('[data-event-resources]', event.resource_names || event.resource_name);
+  const formatDateTime = (value) => new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+  set('[data-event-start]', formatDateTime(event.start));
+  set('[data-event-end]', formatDateTime(event.end));
   set('[data-event-cabins]', event.cabins || 'Keine Kabine');
   const typeLabels = { training: 'Training', match: 'Spiel', external: 'Externe Belegung', bus: 'Fahrzeug' };
   set('[data-event-type]', typeLabels[event.event_type] || event.event_type);
-  set('[data-event-details]', [event.parent_resource_name ? `Zugeordnet zu ${event.parent_resource_name}` : '', event.team_name, event.opponent, event.destination, event.purpose].filter(Boolean).join(' · '));
+  const pending = event.status === 'pending';
+  set('[data-event-status]', pending ? 'Anfrage (offen)' : 'Bestätigt');
+  const editButton = detailsDialog.querySelector('[data-edit-event]');
+  if (editButton) editButton.hidden = pending || event.occurrence_status === 'pending';
+  const requestsLink = detailsDialog.querySelector('[data-event-request]');
+  if (requestsLink) requestsLink.hidden = !pending;
+  set('[data-event-destination]', event.destination);
+  set('[data-event-purpose]', event.purpose);
+  set('[data-event-driver]', event.driver_name);
+  set('[data-event-notes]', event.private_notes);
+  detailsDialog.querySelectorAll('[data-event-bus-field]').forEach((element) => {
+    element.hidden = event.event_type !== 'bus';
+  });
+  detailsDialog.querySelectorAll('[data-event-pitch-field]').forEach((element) => {
+    element.hidden = event.event_type === 'bus';
+  });
+  const rule = event.recurrence_rule;
+  let recurrence = 'Keine';
+  if (rule && rule.frequency !== 'none') {
+    const frequencies = { daily: 'Täglich', weekly: 'Wöchentlich', monthly: 'Monatlich', yearly: 'Jährlich' };
+    const units = { daily: 'Tage', weekly: 'Wochen', monthly: 'Monate', yearly: 'Jahre' };
+    const weekdays = { MO: 'Mo', TU: 'Di', WE: 'Mi', TH: 'Do', FR: 'Fr', SA: 'Sa', SU: 'So' };
+    recurrence = Number(rule.interval || 1) === 1
+      ? frequencies[rule.frequency] : `Alle ${rule.interval} ${units[rule.frequency]}`;
+    if (rule.frequency === 'weekly' && rule.weekdays?.length) {
+      recurrence += ` · ${rule.weekdays.map((day) => weekdays[day]).join(', ')}`;
+    }
+    if (rule.limit_type === 'count') {
+      recurrence += ` · ${rule.count} Termine`;
+    } else if (rule.limit_type === 'until') {
+      const [year, month, day] = rule.until.split('-');
+      recurrence += ` · bis ${day}.${month}.${year}`;
+    }
+  }
+  set('[data-event-recurrence]', recurrence);
   const cancel = detailsDialog.querySelector('[data-cancel-form] input[name="assignment_id"]');
   if (cancel) cancel.value = event.assignment_id;
+  const cancelScope = detailsDialog.querySelector('[data-cancel-form] input[name="scope"]');
+  if (cancelScope) cancelScope.value = 'one';
   const cancelForm = detailsDialog.querySelector('[data-cancel-form]');
-  if (cancelForm) cancelForm.hidden = Boolean(event.is_attached_cabin);
+  if (cancelForm) cancelForm.hidden = pending || Boolean(event.is_attached_cabin);
   const cancelCabinForm = detailsDialog.querySelector('[data-cancel-cabin-form]');
   if (cancelCabinForm) {
-    cancelCabinForm.hidden = !event.is_attached_cabin;
+    cancelCabinForm.hidden = pending || event.occurrence_status === 'pending' || !event.is_attached_cabin;
     cancelCabinForm.elements.occurrence_id.value = event.occurrence_id;
     cancelCabinForm.elements.cabin_id.value = event.cabin_id || '';
+    cancelCabinForm.elements.scope.value = 'one';
   }
   detailsDialog.showModal();
 }
 
-function renderEditCabinChoices(event) {
-  const field = document.querySelector('#edit-cabin-field');
-  const target = document.querySelector('#edit-cabin-choices');
-  if (!field || !target || !editForm) return;
-
-  const isPitchBooking = event.resource_type === 'pitch' || event.is_attached_cabin;
-  field.hidden = !isPitchBooking;
-  editForm.elements.update_cabins.value = isPitchBooking ? '1' : '0';
-  target.replaceChildren();
-  if (!isPitchBooking) return;
-
-  const cabins = state.resources.filter((resource) => resource.type === 'cabin');
-  if (cabins.length === 0) {
-    const note = document.createElement('p');
-    note.className = 'small text-secondary mb-0';
-    note.textContent = 'Es sind keine aktiven Kabinen vorhanden.';
-    target.append(note);
-    return;
-  }
-
-  const assignedCabins = new Set((event.cabin_ids || []).map(Number));
-  cabins.forEach((cabin) => {
-    target.append(createResourceChip(cabin, 'cabin_ids[]', assignedCabins.has(Number(cabin.id))));
-  });
+function requestRecurrenceScope(action, form = null) {
+  pendingScopeAction = { action, form };
+  const verb = action === 'edit' ? 'Änderung' : 'Stornierung';
+  scopeDialog.querySelector('[data-scope-message]').textContent =
+    `Dieser Termin gehört zu einer Regelterminserie. Soll die ${verb} nur diesen Termin oder diesen und alle zukünftigen Termine betreffen?`;
+  detailsDialog.close();
+  scopeDialog.showModal();
 }
 
 function createResourceChip(resource, fieldName, initiallySelected = false) {
@@ -396,7 +463,9 @@ function createResourceChip(resource, fieldName, initiallySelected = false) {
 
 function syncCombinedTitle(form, allowTeamName = true) {
   const combinedField = form.elements.combined_title;
-  if (combinedField.value === combinedField.dataset.initialValue) return;
+  if (combinedField.value === combinedField.dataset.initialValue
+    && combinedField.value.trim() !== '' && form.elements.title.value.trim() !== ''
+    && (allowTeamName || form.elements.team_name.value.trim() === '')) return;
 
   const combinedTitle = combinedField.value;
   if (!allowTeamName) {
@@ -407,38 +476,12 @@ function syncCombinedTitle(form, allowTeamName = true) {
 
   const separator = ' – ';
   const separatorIndex = combinedTitle.indexOf(separator);
-  if (separatorIndex === -1) {
+  if (separatorIndex === -1 || combinedTitle.slice(separatorIndex + separator.length).trim() === '') {
     form.elements.team_name.value = '';
     form.elements.title.value = combinedTitle.trim();
   } else {
     form.elements.team_name.value = combinedTitle.slice(0, separatorIndex).trim();
     form.elements.title.value = combinedTitle.slice(separatorIndex + separator.length).trim();
-  }
-}
-
-async function submitEdit(event) {
-  event.preventDefault();
-  try {
-    syncCombinedTitle(
-      editForm,
-      ['training', 'match'].includes(selectedEvent?.event_type)
-        && (selectedEvent.resource_type === 'pitch' || selectedEvent.is_attached_cabin),
-    );
-    const response = await fetch('/?api=booking-edit', {
-      method: 'POST',
-      body: new FormData(editForm),
-      headers: { Accept: 'application/json' },
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      announce(result.error || 'Die Änderung konnte nicht gespeichert werden.', 'danger');
-      return;
-    }
-    editDialog.close();
-    announce(`Änderungen für ${result.updated} Termin(e) gespeichert.`, 'success');
-    await loadCalendar();
-  } catch (error) {
-    announce(error.message || 'Die Änderung konnte nicht gespeichert werden.', 'danger');
   }
 }
 
@@ -451,31 +494,35 @@ function renderResourceChoices() {
   const isBus = type === 'bus';
   const mode = isBus ? 'bus' : (bookingForm?.elements.resource_mode?.value || 'pitch');
   const resourceType = isBus ? 'bus' : mode;
-  const resources = state.resources.filter((resource) => resource.type === resourceType);
+  const available = [...state.resources];
+  for (const resource of editingBooking?.resources || []) {
+    if (!available.some((item) => Number(item.id) === Number(resource.id))) {
+      available.push({ ...resource, name: `${resource.name} (inaktiv)` });
+    }
+  }
+  const resources = available.filter((resource) => resource.type === resourceType);
+  const selectedIds = new Set(editingBooking?.resource_ids || []);
+  const cabinIds = new Set(editingBooking?.cabin_ids || []);
   const group = document.createElement('fieldset');
   group.className = 'resource-choice-group';
   const legend = document.createElement('legend');
   legend.className = 'form-label';
   legend.textContent = mode === 'pitch'
     ? 'Plätze (mindestens einen auswählen)'
-    : mode === 'cabin'
-      ? 'Kabinen (mindestens eine auswählen)'
-      : 'Fahrzeug';
+    : 'Fahrzeug';
   group.append(legend);
 
   const description = document.createElement('p');
   description.className = 'small text-secondary mb-2';
   description.textContent = mode === 'pitch'
     ? 'Eine Platzbuchung braucht mindestens einen Platz. Kabinen werden optional der gesamten Buchung zugeordnet.'
-    : mode === 'cabin'
-      ? 'Für eine separate Kabinenbuchung ist kein Platz erforderlich.'
-      : 'Wähle das zu buchende Fahrzeug aus.';
+    : 'Wähle das zu buchende Fahrzeug aus.';
   group.append(description);
 
   if (resources.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'small text-secondary mb-0';
-    empty.textContent = mode === 'cabin' ? 'Es sind keine aktiven Kabinen vorhanden.' : 'Es sind keine aktiven Ressourcen vorhanden.';
+    empty.textContent = 'Es sind keine aktiven Ressourcen vorhanden.';
     group.append(empty);
   }
 
@@ -491,6 +538,7 @@ function renderResourceChoices() {
       radio.value = resource.id;
       radio.className = 'form-check-input';
       radio.dataset.resourceKind = resource.type;
+      radio.checked = selectedIds.has(Number(resource.id));
       const text = document.createElement('span');
       text.className = 'form-check-label';
       text.textContent = resource.name;
@@ -500,19 +548,19 @@ function renderResourceChoices() {
       card.append(createResourceChip(
         resource,
         'resource_ids[]',
-        resources.length === 1 && (mode === 'pitch' || mode === 'cabin'),
+        editingBooking ? selectedIds.has(Number(resource.id)) : resources.length === 1,
       ));
     }
 
     group.append(card);
   });
   if (mode === 'pitch') {
-    const cabins = state.resources.filter((resource) => resource.type === 'cabin');
+    const cabins = available.filter((resource) => resource.type === 'cabin');
     const cabinGroup = document.createElement('fieldset');
     cabinGroup.className = 'resource-choice-group cabin-choice-group';
     const cabinLegend = document.createElement('legend');
     cabinLegend.className = 'form-label';
-    cabinLegend.textContent = 'Kabinen (optional für die gesamte Buchung)';
+    cabinLegend.textContent = 'Kabinen (optional)';
     cabinGroup.append(cabinLegend);
     if (cabins.length === 0) {
       const empty = document.createElement('p');
@@ -521,7 +569,7 @@ function renderResourceChoices() {
       cabinGroup.append(empty);
     } else {
       cabins.forEach((cabin) => {
-        cabinGroup.append(createResourceChip(cabin, 'cabin_ids[]'));
+        cabinGroup.append(createResourceChip(cabin, 'cabin_ids[]', cabinIds.has(Number(cabin.id))));
       });
     }
     target.append(group, cabinGroup);
@@ -535,22 +583,24 @@ function updateBookingFields() {
   const resourceMode = bookingForm?.elements.resource_mode?.value || 'pitch';
   const eventTypeChoice = document.querySelector('#booking-event-type-choice');
   if (eventTypeChoice) eventTypeChoice.hidden = resourceMode !== 'pitch';
-  const titleLabel = document.querySelector('#booking-title-label');
-  if (titleLabel) {
-    titleLabel.textContent = resourceMode === 'pitch' && ['training', 'match'].includes(eventType)
-      ? 'Mannschaft / Gegner (optional)'
-      : 'Titel (optional)';
-  }
   document.querySelectorAll('[data-event-type-field]').forEach((element) => {
-    const types = element.dataset.eventTypeField.split(',');
-    const isVisibleForType = types.includes(eventType);
-    const isPitchOnlyField = types.some((type) => ['training', 'match'].includes(type));
-    element.hidden = !isVisibleForType || (resourceMode === 'cabin' && isPitchOnlyField);
+    element.hidden = !element.dataset.eventTypeField.split(',').includes(eventType);
   });
   const recurrence = document.querySelector('#recurrence-fields');
   if (recurrence) recurrence.hidden = eventType === 'bus';
+  bookingForm?.querySelectorAll('[data-edit-only]').forEach((element) => {
+    element.hidden = !editingBooking;
+  });
+  if (bookingForm) {
+    const labels = { pitch: 'Platzbelegung', bus: 'Fahrzeugbuchung' };
+    bookingForm.dataset.mode = editingBooking ? 'edit' : 'create';
+    bookingForm.querySelector('#booking-dialog-title').textContent =
+      `${labels[resourceMode]} ${editingBooking ? 'ändern' : 'anlegen'}`;
+    bookingForm.querySelector('[data-booking-submit]').textContent = editingBooking ? 'Änderungen speichern' : 'Speichern';
+    bookingForm.elements.combined_title.maxLength =
+      editingBooking && ['training', 'match'].includes(eventType) ? 303 : 180;
+  }
   updateRecurrenceFields();
-  renderResourceChoices();
 }
 
 function updateRecurrenceFields() {
@@ -563,37 +613,56 @@ function updateRecurrenceFields() {
   });
 }
 
+function bookingError(message = '') {
+  const error = bookingForm.querySelector('[data-booking-error]');
+  error.textContent = message;
+  error.hidden = !message;
+  if (message) error.scrollIntoView({ block: 'center' });
+}
+
 async function submitBooking(event) {
   event.preventDefault();
+  if (!bookingForm.reportValidity()) return;
   const eventType = bookingForm.elements.event_type.value;
   const resourceType = eventType === 'bus' ? 'bus' : bookingForm.elements.resource_mode.value;
-  syncCombinedTitle(bookingForm, resourceType === 'pitch' && ['training', 'match'].includes(eventType));
+  syncCombinedTitle(bookingForm, Boolean(editingBooking) && ['training', 'match'].includes(eventType));
   const selectedResource = resourceType === 'bus'
     ? bookingForm.querySelector('[name="resource_ids[]"][data-resource-kind="bus"]:checked')
     : bookingForm.querySelector(`[data-resource-choice][data-resource-kind="${resourceType}"][aria-pressed="true"]`);
   if (!selectedResource) {
     announce(resourceType === 'pitch'
       ? 'Wähle mindestens einen Platz aus.'
-      : resourceType === 'cabin'
-        ? 'Wähle mindestens eine Kabine aus.'
-        : 'Wähle ein Fahrzeug aus.', 'danger');
+      : 'Wähle ein Fahrzeug aus.', 'danger');
     return;
   }
-  const formData = new FormData(bookingForm);
-  formData.append('_csrf', app.csrfToken || '');
-  const response = await fetch('/?api=booking-create', { method: 'POST', body: formData });
-  const result = await response.json();
-  if (!response.ok) {
-    announce(result.error || 'Die Buchung konnte nicht gespeichert werden.', 'danger');
-    return;
+  const editing = Boolean(editingBooking);
+  const submit = bookingForm.querySelector('[data-booking-submit]');
+  bookingError();
+  submit.disabled = true;
+  try {
+    const formData = new FormData(bookingForm);
+    const response = await fetch(`/?api=${editing ? 'booking-edit' : 'booking-create'}`, {
+      method: 'POST', body: formData, headers: { Accept: 'application/json' },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      bookingError(result.error || 'Die Buchung konnte nicht gespeichert werden.');
+      return;
+    }
+    dialog.close();
+    editingBooking = null;
+    bookingForm.reset();
+    updateBookingFields();
+    const label = editing ? `Änderungen für ${result.updated} Termin(e) gespeichert.`
+      : result.pending ? 'Anfrage wurde übermittelt.' : 'Buchung wurde angelegt.';
+    announce(result.mail_errors?.length ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label, result.mail_errors?.length ? 'warning' : 'success');
+    await loadCalendar();
+    if (document.querySelector('#request-list')) window.location.reload();
+  } catch (error) {
+    bookingError(error.message || 'Die Buchung konnte nicht gespeichert werden.');
+  } finally {
+    submit.disabled = false;
   }
-  dialog.close();
-  bookingForm.reset();
-  updateBookingFields();
-  const label = result.pending ? 'Anfrage wurde übermittelt.' : 'Buchung wurde angelegt.';
-  announce(result.mail_errors?.length ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label, result.mail_errors?.length ? 'warning' : 'success');
-  await loadCalendar();
-  if (document.querySelector('#request-list')) window.location.reload();
 }
 
 async function saveResourceOrder(group, previousRows) {
@@ -698,6 +767,19 @@ function initResourceOrdering() {
 }
 
 function initControls() {
+  const bookingDates = bookingForm ? initBookingDates(bookingForm) : null;
+  const datePicker = initDatePicker();
+  document.querySelector('#calendar-date-picker')?.addEventListener('click', (event) => {
+    datePicker.open({
+      value: localDate(state.date),
+      trigger: event.currentTarget,
+      title: 'Kalenderdatum auswählen',
+      onSelect: (value) => {
+        state.date = new Date(`${value}T12:00:00`);
+        void loadCalendar().catch((error) => announce(error.message, 'danger'));
+      },
+    });
+  });
   initResourceOrdering();
   document.querySelector('#resource-category-filter')?.addEventListener('change', (event) => {
     const selectedCategory = event.currentTarget.value;
@@ -739,11 +821,20 @@ function initControls() {
       deleteUserDialog.showModal();
     });
   });
-  document.querySelectorAll('[data-resource-type]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      state.resourceType = button.dataset.resourceType;
+  document.querySelector('#calendar-resource-select')?.addEventListener('change', async (event) => {
+    const select = event.currentTarget;
+    const previous = state.resourceType;
+    select.disabled = true;
+    try {
+      state.resourceType = select.value;
       await loadCalendar();
-    });
+    } catch (error) {
+      state.resourceType = previous;
+      select.value = previous;
+      announce(error.message, 'danger');
+    } finally {
+      select.disabled = false;
+    }
   });
   document.querySelectorAll('[data-view]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -771,26 +862,25 @@ function initControls() {
   bookingMenu?.querySelectorAll('[data-booking-option]').forEach((button) => {
     button.addEventListener('click', () => {
       if (!bookingForm || !dialog) return;
+      editingBooking = null;
+      bookingError();
       bookingForm.reset();
+      bookingForm.elements.occurrence_id.value = '';
+      bookingForm.elements.title.value = '';
+      bookingForm.elements.team_name.value = '';
+      bookingForm.elements.combined_title.dataset.initialValue = '';
       bookingForm.elements.event_type.value = button.dataset.eventType;
       bookingForm.elements.resource_mode.value = button.dataset.resourceMode;
-      bookingForm.querySelector('#event-type-select').value = button.dataset.eventType;
-      bookingForm.querySelector('#booking-selection').textContent = button.dataset.bookingLabel;
       const start = new Date();
       start.setMinutes(Math.ceil(start.getMinutes() / 15) * 15, 0, 0);
-      const end = new Date(start);
-      end.setMinutes(end.getMinutes() + 90);
-      bookingForm.elements.starts_at.value = `${localDate(start)}T${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
-      bookingForm.elements.ends_at.value = `${localDate(end)}T${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+      bookingDates.setRange(`${localDate(state.date)}T${berlinDateTimeInput(start).split('T')[1]}`);
       updateBookingFields();
+      renderResourceChoices();
       bookingMenu.open = false;
       dialog.showModal();
     });
   });
-  bookingForm?.querySelector('#event-type-select')?.addEventListener('change', (event) => {
-    bookingForm.elements.event_type.value = event.currentTarget.value;
-    updateBookingFields();
-  });
+  bookingForm?.querySelector('#event-type-select')?.addEventListener('change', updateBookingFields);
   document.addEventListener('click', (event) => {
     if (bookingMenu?.open && !bookingMenu.contains(event.target)) bookingMenu.open = false;
   });
@@ -803,32 +893,113 @@ function initControls() {
   bookingForm?.elements.frequency?.addEventListener('change', updateRecurrenceFields);
   bookingForm?.elements.limit_type?.addEventListener('change', updateRecurrenceFields);
   bookingForm?.addEventListener('submit', submitBooking);
-  editForm?.addEventListener('submit', submitEdit);
+  bookingForm?.elements.count?.addEventListener('input', (event) => {
+    event.currentTarget.dataset.modified = 'true';
+  });
+  bookingForm?.elements.scope?.addEventListener('change', () => {
+    if (editingBooking?.recurrence_rule?.limit_type === 'count'
+      && bookingForm.elements.count.dataset.modified !== 'true') {
+      bookingForm.elements.count.value = editingBooking.scope_counts[bookingForm.elements.scope.value];
+    }
+  });
+  document.querySelectorAll('[data-cancel-form], [data-cancel-cabin-form]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      if (form.dataset.scopeConfirmed === 'true') {
+        delete form.dataset.scopeConfirmed;
+        return;
+      }
+      if (isRecurring(selectedEvent)) {
+        event.preventDefault();
+        requestRecurrenceScope('delete', form);
+      }
+    });
+  });
   document.querySelectorAll('.request-edit-form').forEach((form) => {
+    initBookingDates(form);
     form.addEventListener('submit', () => syncCombinedTitle(form, form.dataset.allowTeamName === 'true'));
   });
+  const openBookingEditor = async (scope) => {
+    if (!selectedEvent || !bookingForm) return;
+    const button = detailsDialog.querySelector('[data-edit-event]');
+    const occurrenceId = selectedEvent.occurrence_id;
+    button.disabled = true;
+    try {
+      const response = await fetch(`/?api=booking-details&occurrence_id=${occurrenceId}`, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Die Buchung konnte nicht geladen werden.');
+      if (selectedEvent.occurrence_id !== occurrenceId) return;
+      editingBooking = data;
+      bookingError();
+      bookingForm.reset();
+      for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
+        'destination', 'purpose', 'driver_name', 'private_notes']) {
+        bookingForm.elements[name].value = data[name] ?? '';
+      }
+      const combined = [data.team_name, data.title].filter(Boolean).join(' – ');
+      bookingForm.elements.combined_title.value = combined;
+      bookingForm.elements.combined_title.dataset.initialValue = combined;
+      bookingDates.setRange(berlinDateTimeInput(data.start), berlinDateTimeInput(data.end));
+      const rule = data.recurrence_rule;
+      bookingForm.elements.frequency.value = rule?.frequency || 'none';
+      bookingForm.elements.interval.value = rule?.interval || 1;
+      bookingForm.elements.limit_type.value = rule?.limit_type || 'until';
+      bookingForm.elements.until.value = rule?.until || '';
+      bookingForm.elements.count.value = rule?.limit_type === 'count' ? data.scope_counts[scope] : 10;
+      bookingForm.elements.count.dataset.modified = '';
+      bookingForm.elements.scope.value = scope;
+      bookingForm.querySelectorAll('[name="weekdays[]"]').forEach((input) => {
+        input.checked = (rule?.weekdays || []).includes(input.value);
+      });
+      updateBookingFields();
+      renderResourceChoices();
+      detailsDialog.close();
+      dialog.showModal();
+    } catch (error) {
+      if (!detailsDialog.open) detailsDialog.showModal();
+      const message = detailsDialog.querySelector('[data-event-error]');
+      message.textContent = error.message;
+      message.hidden = false;
+    } finally {
+      button.disabled = false;
+    }
+  };
   detailsDialog?.querySelector('[data-edit-event]')?.addEventListener('click', () => {
-    if (!selectedEvent || !editForm) return;
-    editForm.elements.occurrence_id.value = selectedEvent.occurrence_id;
-    const typeLabels = { training: 'Training', match: 'Spiel', external: 'Externe Belegung', bus: 'Fahrzeug' };
-    editForm.querySelector('#edit-event-type').value = typeLabels[selectedEvent.event_type] || selectedEvent.event_type;
-    const title = selectedEvent.title || '';
-    const teamName = selectedEvent.team_name || '';
-    const combinedTitle = [teamName, title].filter(Boolean).join(' – ');
-    editForm.elements.title.value = title;
-    editForm.elements.team_name.value = teamName;
-    editForm.elements.combined_title.value = combinedTitle;
-    editForm.elements.combined_title.dataset.initialValue = combinedTitle;
-    editForm.querySelector('#edit-title-label').textContent = ['training', 'match'].includes(selectedEvent.event_type)
-      && (selectedEvent.resource_type === 'pitch' || selectedEvent.is_attached_cabin)
-      ? 'Mannschaft / Gegner (optional)'
-      : 'Titel (optional)';
-    editForm.elements.starts_at.value = berlinDateTimeInput(selectedEvent.start);
-    editForm.elements.ends_at.value = berlinDateTimeInput(selectedEvent.end);
-    editForm.elements.scope.value = 'one';
-    renderEditCabinChoices(selectedEvent);
-    detailsDialog.close();
-    editDialog.showModal();
+    if (isRecurring(selectedEvent)) {
+      requestRecurrenceScope('edit');
+    } else {
+      void openBookingEditor('one');
+    }
+  });
+  scopeDialog?.querySelectorAll('[data-scope-choice]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!pendingScopeAction) return;
+      const { action, form } = pendingScopeAction;
+      const scope = button.dataset.scopeChoice;
+      pendingScopeAction = null;
+      scopeDialog.close();
+      if (action === 'edit') {
+        void openBookingEditor(scope);
+      } else if (form) {
+        form.elements.scope.value = scope;
+        form.dataset.scopeConfirmed = 'true';
+        form.requestSubmit();
+      }
+    });
+  });
+  scopeDialog?.querySelectorAll('[data-scope-cancel]').forEach((button) => {
+    button.addEventListener('click', () => {
+      pendingScopeAction = null;
+      scopeDialog.close();
+      detailsDialog.showModal();
+    });
+  });
+  scopeDialog?.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    pendingScopeAction = null;
+    scopeDialog.close();
+    detailsDialog.showModal();
   });
   document.querySelectorAll('[data-dialog-close]').forEach((button) => {
     button.addEventListener('click', () => button.closest('dialog')?.close());

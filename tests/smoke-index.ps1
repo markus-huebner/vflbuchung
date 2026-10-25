@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $page = Invoke-WebRequest -Uri "$BaseUrl/" -UseBasicParsing
-if ($page.StatusCode -ne 200 -or $page.Content -notmatch "Belegungsplan" -or $page.Content -notmatch 'data-resource-type="cabin"') {
+if ($page.StatusCode -ne 200 -or $page.Content -notmatch "Belegungsplan" -or $page.Content -match 'data-resource-type="cabin"' -or $page.Content -notmatch 'class="calendar-navigation"') {
     throw "The booking calendar page did not load successfully."
 }
 

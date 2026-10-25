@@ -161,6 +161,14 @@ final class Application
             return;
         }
 
+        if ($api === 'booking-details' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+            $actor = $this->requireRole(['admin', 'manager']);
+            echo json_encode($this->bookings->editableOccurrence(
+                $this->positiveId($_GET['occurrence_id'] ?? null), $actor
+            ), JSON_THROW_ON_ERROR);
+            return;
+        }
+
         if ($api === 'booking-edit' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             Security::verifyCsrf($_POST['_csrf'] ?? null);
             $actor = $this->requireRole(['admin', 'manager']);
@@ -312,14 +320,11 @@ final class Application
             case 'booking-approve':
                 $actor = $this->requireRole(['admin', 'manager']);
                 $id = $this->positiveId($_POST['assignment_id'] ?? null);
-                $overrides = $actor['role'] === 'admin' && !empty($_POST['force_conflicts']) ? [$id] : [];
-                $result = $this->bookings->approve([$id], $actor, $overrides);
+                $result = $this->bookings->approve([$id], $actor);
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
-                    'message' => $result['skipped'] > 0
-                        ? 'Die Anfrage wurde wegen eines Konflikts ausgelassen.'
-                        : 'Die Anfrage wurde freigegeben.'
-                            . ($result['mail_errors'] !== [] ? ' Die Benachrichtigungs-E-Mail konnte nicht versendet werden.' : ''),
+                    'message' => 'Die Anfrage wurde freigegeben.'
+                        . ($result['mail_errors'] !== [] ? ' Die Benachrichtigungs-E-Mail konnte nicht versendet werden.' : ''),
                 ];
                 $this->redirect('/?page=dashboard');
 
@@ -355,10 +360,18 @@ final class Application
 
             case 'booking-cancel':
                 $actor = $this->requireRole(['admin', 'manager']);
-                $result = $this->bookings->cancel($this->positiveId($_POST['assignment_id'] ?? null), $actor);
+                $scope = (string) ($_POST['scope'] ?? 'one');
+                $result = $this->bookings->cancel(
+                    $this->positiveId($_POST['assignment_id'] ?? null),
+                    $actor,
+                    $scope
+                );
+                $cancelledMessage = $result['cancelled'] === 1
+                    ? 'Die Buchung wurde storniert.'
+                    : $result['cancelled'] . ' Buchungen wurden storniert.';
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
-                    'message' => 'Die Buchung wurde storniert.'
+                    'message' => $cancelledMessage
                         . ($result['mail_errors'] !== [] ? ' Die Benachrichtigungs-E-Mail konnte nicht versendet werden.' : ''),
                 ];
                 $this->redirect('/');
@@ -368,7 +381,8 @@ final class Application
                 $result = $this->bookings->cancelCabin(
                     $this->positiveId($_POST['occurrence_id'] ?? null),
                     $this->positiveId($_POST['cabin_id'] ?? null),
-                    $actor
+                    $actor,
+                    (string) ($_POST['scope'] ?? 'one')
                 );
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',

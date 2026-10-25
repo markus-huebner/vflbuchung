@@ -91,8 +91,6 @@ CREATE TABLE IF NOT EXISTS booking_occurrences (
     event_type ENUM('training', 'match', 'external', 'bus') NOT NULL,
     title VARCHAR(180) NOT NULL,
     team_name VARCHAR(120) NULL,
-    opponent VARCHAR(120) NULL,
-    match_venue ENUM('home', 'away') NULL,
     destination VARCHAR(180) NULL,
     purpose VARCHAR(180) NULL,
     driver_name VARCHAR(120) NULL,
