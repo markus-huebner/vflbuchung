@@ -2,7 +2,6 @@
 .env.*
 !.env.example
 !.env.production.example
-/www/vendor/
 /node_modules/
 /.infinityfree-deploy/
 /www/config/hosting.php
