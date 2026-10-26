@@ -346,21 +346,21 @@ stage "InfinityFree: Admin einrichten und prüfen"
 open_url "$APP_URL/?page=setup"
 step "Create the first administrator account; the setup does not require a separate key."
 pause "Press Enter after the admin account has been created"
-open_url "$APP_URL/?page=mobile-calendar"
+open_url "$APP_URL/"
 if ! command -v curl >/dev/null 2>&1; then
-  warn "curl is unavailable; verify the mobile calendar manually at $APP_URL/?page=mobile-calendar"
+  warn "curl is unavailable; verify the calendar manually at $APP_URL/"
 else
-  CHECK_FILE="$OUTPUT_ROOT/mobile-calendar-check.html"
-  HTTP_STATUS="$(curl --location --silent --show-error --output "$CHECK_FILE" --write-out '%{http_code}' "$APP_URL/?page=mobile-calendar")" || {
+  CHECK_FILE="$OUTPUT_ROOT/calendar-check.html"
+  HTTP_STATUS="$(curl --location --silent --show-error --output "$CHECK_FILE" --write-out '%{http_code}' "$APP_URL/")" || {
     warn "Could not reach the deployed site. Check DNS, HTTPS and the uploaded files, then rerun the smoke check."
     return 1
   }
-  if [[ "$HTTP_STATUS" != "200" ]] || ! grep -q 'data-mobile-calendar' "$CHECK_FILE"; then
-    warn "The mobile calendar smoke check failed with HTTP $HTTP_STATUS."
+  if [[ "$HTTP_STATUS" != "200" ]] || ! grep -q 'class="calendar-navigation"' "$CHECK_FILE"; then
+    warn "The calendar smoke check failed with HTTP $HTTP_STATUS."
     return 1
   fi
   rm -f "$CHECK_FILE"
-  say "Mobile calendar smoke check passed (HTTP 200)."
+  say "Calendar smoke check passed (HTTP 200)."
 fi
 if [[ -z "$MAIL_HOST" ]]; then
   warn "Email delivery is not configured; add verified external SMTP settings before using invitations or password reset."

@@ -5,9 +5,9 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../www/assets/css/app.css', import.meta.url), 'utf8');
-const views = readFileSync(new URL('../app/Views.php', import.meta.url), 'utf8');
-const application = readFileSync(new URL('../app/Application.php', import.meta.url), 'utf8');
-const bookingService = readFileSync(new URL('../app/BookingService.php', import.meta.url), 'utf8');
+const views = readFileSync(new URL('../www/app/Views.php', import.meta.url), 'utf8');
+const application = readFileSync(new URL('../www/app/Application.php', import.meta.url), 'utf8');
+const bookingService = readFileSync(new URL('../www/app/BookingService.php', import.meta.url), 'utf8');
 const showEventSource = source.slice(source.indexOf('function showEvent('), source.indexOf('function createResourceChip('));
 const bookingCardSource = source.slice(source.indexOf('function isRecurring('), source.indexOf('function showEvent('));
 const bookingTitleSource = source.slice(source.indexOf('function syncCombinedTitle('), source.indexOf('function renderResourceChoices('));
@@ -377,14 +377,14 @@ test('booking requests cannot reserve cabins and retain creation fields while ed
   assert.match(source, /editingRequest\.approve/);
 });
 
-test('admin user and resource management are grouped under settings', () => {
+test('admin management links stay inside the role-gated account menu', () => {
   const layoutSource = views.slice(
     views.indexOf('public static function layout('),
     views.indexOf('private static function actionConfirmationDialog('),
   );
   assert.match(
     layoutSource,
-    /if \(\$user\['role'\] === 'admin'\) \{\s*\$nav \.= '<details class="user-actions-menu admin-settings-menu">[\s\S]*?<summary class="btn btn-sm btn-outline-light">Einstellungen<\/summary>[\s\S]*?href="\/\?page=users">Benutzerverwaltung<\/a>[\s\S]*?href="\/\?page=resources">Ressourcenverwaltung<\/a>/,
+    /if \(\$user\['role'\] === 'admin'\) \{\s*\$nav \.= '<a href="\/\?page=resources">Ressourcenverwaltung<\/a>'[\s\S]*?href="\/\?page=users">Benutzerverwaltung<\/a>/,
   );
   assert.doesNotMatch(application, /case 'settings':/);
   assert.match(application, /case 'users':\s*\$this->requireRole\(\['admin'\]\)/);

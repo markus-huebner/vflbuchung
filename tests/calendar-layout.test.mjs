@@ -10,7 +10,7 @@ import {
 
 const calendarCss = readFileSync(new URL('../www/assets/css/app.css', import.meta.url), 'utf8');
 const calendarJs = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
-const views = readFileSync(new URL('../app/Views.php', import.meta.url), 'utf8');
+const views = readFileSync(new URL('../www/app/Views.php', import.meta.url), 'utf8');
 
 function event(id, start, end, status = 'confirmed') {
   return {
@@ -147,7 +147,8 @@ test('calendar resource selection persists in the current window session', () =>
   assert.match(calendarJs, /sessionStorage\.getItem\(calendarResourceTypeStorageKey\)/);
   assert.match(calendarJs, /savedResourceType === 'pitch' \|\| savedResourceType === 'bus'/);
   assert.match(calendarJs, /sessionStorage\.setItem\(calendarResourceTypeStorageKey, state\.resourceType\)/);
-  assert.match(views, /id="calendar-resource-select"/);
+  assert.match(views, /id="calendar-resource-controls"/);
+  assert.match(views, /type="radio" name="calendar-resource"/);
   assert.match(calendarCss, /\.request-row-actions\s+\.btn\s*\{[^}]*width:\s*100%/s);
   assert.doesNotMatch(views, /name="reason"|placeholder="Begründung/);
   assert.doesNotMatch(views, /data-dashboard-toggle|Dashboard ausblenden|Dashboard einblenden/);

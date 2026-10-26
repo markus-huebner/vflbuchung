@@ -158,6 +158,173 @@ body {
   font-size: clamp(1.2rem, 2vw, 1.6rem);
 }
 
+.calendar-toolbar.calendar-heading-toolbar {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.calendar-actions {
+  position: relative;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+
+.calendar-actions-menu {
+  position: static;
+  display: block;
+}
+
+.calendar-actions-menu > summary,
+.booking-create-menu > summary {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: .55rem;
+  place-items: center;
+  list-style: none;
+  cursor: pointer;
+}
+
+.calendar-actions-menu > summary::-webkit-details-marker,
+.booking-create-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.calendar-actions-menu svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.calendar-actions-panel,
+.booking-create-options {
+  position: absolute;
+  top: calc(100% + .4rem);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: .75rem;
+  width: min(20rem, calc(100vw - 1.4rem));
+  max-height: calc(100dvh - 8rem);
+  overflow-y: auto;
+  padding: .75rem;
+  border: 1px solid #d9e1e8;
+  border-radius: .5rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(10 25 40 / 15%);
+}
+
+.calendar-actions-menu:not([open]) > .calendar-actions-panel,
+.booking-create-menu:not([open]) > .booking-create-options {
+  display: none;
+}
+
+.calendar-menu-group {
+  display: grid;
+  gap: .4rem;
+}
+
+.calendar-menu-heading {
+  margin: 0 0 .15rem;
+  color: var(--club-navy);
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+.calendar-actions-panel .calendar-menu-row,
+.booking-create-option,
+.calendar-actions-panel .calendar-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: .6rem .75rem;
+  border: 1px solid #dce3ea;
+  border-radius: .4rem;
+  background: #f8fafc;
+  color: #233244;
+  font-size: .95rem;
+  text-align: left;
+  text-decoration: none;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.calendar-actions-panel .calendar-menu-row:hover,
+.booking-create-option:hover,
+.calendar-actions-panel .calendar-option:hover {
+  background: #edf3f8;
+}
+
+.calendar-actions-panel input[type="checkbox"],
+.calendar-actions-panel input[type="radio"] {
+  appearance: auto;
+  flex: 0 0 auto;
+  order: 1;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  float: none;
+  background-image: none;
+  accent-color: var(--club-blue);
+}
+
+.calendar-actions-panel .calendar-menu-row:has(input:disabled) {
+  opacity: .6;
+  cursor: default;
+}
+
+.calendar-option-group {
+  display: grid;
+  gap: .4rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.calendar-option-heading {
+  display: block;
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.calendar-option {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 2.5rem;
+  padding: .35rem .6rem;
+  border: 1px solid #dce3ea;
+  border-radius: .4rem;
+  color: var(--club-navy);
+  cursor: pointer;
+}
+
+.calendar-option input {
+  flex: 0 0 auto;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  accent-color: var(--club-blue);
+}
+
+.calendar-option:has(input:checked) {
+  border-color: var(--club-blue);
+}
+
+.calendar-option:has(input:disabled) {
+  opacity: .6;
+  cursor: default;
+}
+
 .calendar-navigation {
   display: flex;
   align-items: center;
@@ -175,42 +342,13 @@ body {
   position: relative;
 }
 
+.calendar-actions > .booking-create-menu {
+  position: static;
+}
+
 .booking-create-menu > summary {
-  display: block;
-  list-style: none;
-  cursor: pointer;
-}
-
-.booking-create-menu > summary::-webkit-details-marker {
-  display: none;
-}
-
-.booking-create-options {
-  position: absolute;
-  top: calc(100% + .4rem);
-  right: 0;
-  z-index: 30;
-  display: grid;
-  min-width: 14rem;
-  padding: .35rem;
-  border: 1px solid #d9e1e8;
-  border-radius: .5rem;
-  background: #fff;
-  box-shadow: 0 8px 24px rgb(10 25 40 / 15%);
-}
-
-.booking-create-option {
-  padding: .5rem .65rem;
-  border: 0;
-  border-radius: .3rem;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-
-.booking-create-option:hover,
-.booking-create-option:focus-visible {
-  background: #edf3f8;
+  font-size: 1.75rem;
+  line-height: 1;
 }
 
 .calendar-frame,
@@ -220,96 +358,6 @@ body {
   border-radius: .75rem;
   background: #fff;
   box-shadow: 0 2px 8px rgb(20 42 64 / 5%);
-}
-
-.calendar-resource-select {
-  width: auto;
-  max-width: 100%;
-  color: var(--club-navy);
-}
-
-.mobile-agenda-page {
-  max-width: 720px;
-  margin: 0 auto;
-}
-
-.mobile-agenda-header {
-  margin-bottom: 1rem;
-}
-
-.mobile-agenda-header h1 {
-  color: var(--club-navy);
-  font-size: clamp(1.35rem, 5vw, 1.8rem);
-}
-
-.mobile-agenda-controls {
-  display: grid;
-  gap: .75rem;
-  margin-bottom: 1rem;
-}
-
-.mobile-agenda-controls .form-label {
-  margin-bottom: .35rem;
-}
-
-.mobile-agenda-date-navigation {
-  display: grid;
-  grid-template-columns: 3rem minmax(0, 1fr) 3rem;
-  gap: .5rem;
-}
-
-.mobile-agenda-date-navigation > * {
-  min-height: 2.75rem;
-}
-
-.mobile-agenda-resource {
-  margin-bottom: 1rem;
-  padding: .9rem;
-  border: 1px solid #dce3ea;
-  border-radius: .75rem;
-  background: #fff;
-  box-shadow: 0 2px 8px rgb(20 42 64 / 5%);
-}
-
-.mobile-agenda-resource h2 {
-  margin-bottom: .65rem;
-  color: var(--club-navy);
-  overflow-wrap: anywhere;
-}
-
-.mobile-agenda-empty {
-  margin-bottom: 0;
-}
-
-.mobile-agenda-event {
-  margin-bottom: .5rem;
-  padding: .65rem .75rem;
-  cursor: default;
-  text-align: left;
-  white-space: normal;
-}
-
-.mobile-agenda-event:last-child {
-  margin-bottom: 0;
-}
-
-.mobile-agenda-event .mobile-agenda-resource-name {
-  margin-bottom: .15rem;
-  font-size: .75rem;
-  font-weight: 700;
-}
-
-.mobile-agenda-event .booking-category {
-  font-size: .75rem;
-}
-
-.mobile-agenda-event .booking-title {
-  margin-bottom: .2rem;
-}
-
-.mobile-agenda-event .booking-time,
-.mobile-agenda-event .booking-cabin {
-  font-size: .85rem;
 }
 
 .resource-day-scroll,
@@ -1092,6 +1140,41 @@ dialog::backdrop {
   position: relative;
 }
 
+.user-account-menu {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.user-account-menu > .user-account-trigger {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 2.75rem;
+}
+
+.user-account-trigger svg {
+  flex: 0 0 auto;
+  width: 1.6rem;
+  height: 1.6rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+.user-account-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.user-account-menu > summary::after {
+  flex: 0 0 auto;
+}
+
+.user-account-menu:not([open]) > .user-actions-menu-items {
+  display: none;
+}
+
 .user-actions-menu > summary {
   list-style: none;
 }
@@ -1114,8 +1197,9 @@ dialog::backdrop {
   position: absolute;
   top: calc(100% + .25rem);
   right: 0;
-  z-index: 5;
+  z-index: 50;
   min-width: 13rem;
+  max-width: calc(100vw - 1.4rem);
   padding: .35rem 0;
   border: 1px solid #dce3ea;
   border-radius: .5rem;
@@ -1123,16 +1207,24 @@ dialog::backdrop {
   box-shadow: 0 6px 18px rgb(20 42 64 / 14%);
 }
 
-.user-actions-menu-items a {
+.user-actions-menu-items a,
+.user-actions-menu-items button {
   display: block;
+  width: 100%;
   padding: .5rem .75rem;
+  border: 0;
+  background: transparent;
   color: #233244;
+  font: inherit;
+  text-align: left;
   text-decoration: none;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .user-actions-menu-items a:hover,
-.user-actions-menu-items a:focus-visible {
+.user-actions-menu-items a:focus-visible,
+.user-actions-menu-items button:hover,
+.user-actions-menu-items button:focus-visible {
   background: #edf3f8;
 }
 
@@ -1161,6 +1253,17 @@ dialog::backdrop {
 }
 
 @media (max-width: 700px) {
+  .navbar-club .navbar-nav {
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .navbar-club .navbar-nav > * {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
   .calendar-navigation {
     width: 100%;
   }
@@ -1182,21 +1285,6 @@ dialog::backdrop {
     align-items: flex-start;
   }
 
-  .calendar-actions {
-    width: 100%;
-  }
-
-  .calendar-actions .btn {
-    flex: 1;
-  }
-
-  .calendar-actions > .booking-create-menu {
-    flex: 1;
-  }
-
-  .booking-create-menu > summary {
-    text-align: center;
-  }
 }
 
 @media (max-width: 375px) {

@@ -557,10 +557,6 @@ final class Application
                 }
                 break;
 
-            case 'mobile-calendar':
-                $content = Views::mobileCalendar();
-                break;
-
             case 'login':
                 $content = Views::login($this->csrf);
                 break;
@@ -716,7 +712,6 @@ final class Application
             'invite' => 'Konto einrichten',
             'forgot', 'reset' => 'Passwort',
             'profile' => 'Mein Profil',
-            'mobile-calendar' => 'Belegungsplan – Handy-Ansicht',
             'dashboard' => 'Belegungsplan',
             'users' => 'Benutzerverwaltung',
             'resources' => 'Ressourcen',

@@ -34,7 +34,7 @@ Die Datenbank-Verbindungseinstellungen werden nur nach erfolgreicher Prüfung un
 
 ## Rollen und Funktionen
 
-- **Admin:** Benutzer und Ressourcen über das Untermenü des Buttons **Einstellungen** verwalten sowie Anfragen bearbeiten und bestätigte Termine löschen.
+- **Admin:** Benutzer und Ressourcen über das Benutzermenü am Kopfsymbol neben dem Namen verwalten sowie Anfragen bearbeiten und bestätigte Termine löschen.
 - **Verwalter:** Buchungen direkt bestätigen, Anfragen freigeben oder ablehnen und bestätigte Termine löschen. In der Ansicht „Alle Anfragen“ werden genehmigte Serientermine je Serie als ein Eintrag angezeigt; direkt angelegte Buchungen von Verwaltern und Admins erscheinen dort nicht.
 - **Trainer:** Trainings-, Spiel- und Busanfragen über die Schaltfläche in der Anfrageübersicht stellen sowie eigene offene Anfragen im gemeinsamen Buchungsdialog ändern oder löschen. Gelöschte offene Anfragen werden dauerhaft entfernt. Die Anfrageübersicht zeigt standardmäßig offene Anfragen; bei Bedarf kann auf alle Anfragen umgeschaltet werden. Anfragen für Termine, die mehr als drei Monate zurückliegen, werden nicht angezeigt. Längere Listen werden mit jeweils zehn Einträgen pro Seite angezeigt. Ein ausgewählter Eintrag markiert alle zugehörigen Buchungen und Ressourcenspalten im Kalender und bleibt in der Anfrageübersicht hellgelb hervorgehoben. Anfragen können keine Kabinen belegen.
 - **Öffentliche Besucher:** bestätigte Belegungen und offene Anfragen für Plätze und Fahrzeuge einschließlich zugeordneter Kabinen ohne Anmeldung ansehen.
@@ -61,7 +61,9 @@ Admins können Ressourcen innerhalb ihrer Kategorie per Drag-and-drop in der Res
 
 Kalenderansichten:
 
-Das Dropdown in der Headerzeile wechselt zwischen Platzbelegung und Fahrzeugkalender. Ausgewähltes Datum und Tages-/Wochenansicht bleiben beim Wechsel erhalten.
+Das Burger-Menü rechts oben am Belegungsplan enthält die Ansichtseinstellungen: Radiobuttons wählen Platzbelegung oder Fahrzeugkalender sowie Tag oder Woche; „Restlichen Tag einblenden“ bleibt eine Checkbox. Ausgewähltes Datum und Tages-/Wochenansicht bleiben beim Kalenderwechsel erhalten.
+
+Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+** öffnet für angemeldete Benutzer die Auswahl zum Anlegen einer Platz- oder Fahrzeugbuchung beziehungsweise einer Traineranfrage; das **Burger-Menü** enthält ausschließlich die Ansichtseinstellungen. „Restlichen Tag einblenden“ ist nur in der Tagesansicht aktiv. Es ist immer nur eines der beiden Kalendermenüs geöffnet. Die Kopfzeile zeigt angemeldet das Kopfsymbol mit Namen; dessen Menü enthält „Mein Profil“, für Admins „Ressourcenverwaltung“ und „Benutzerverwaltung“ sowie „Abmelden“. Ohne Anmeldung erscheint nur „Anmelden“ und kein Anlegen-Menü.
 
 - **Plätze:** Tagesraster mit Platzspalten (standardmäßig 08:00–19:00 Uhr; außerhalb dieses Zeitraums kann der restliche Tag eingeblendet werden) und Wochenansicht mit Tagen als Spalten. Die Spalten teilen die verfügbare Breite gleichmäßig; feste Mindestbreiten werden vermieden, damit horizontaler Bildlauf möglichst entfällt.
 - **Kabinen:** Zugeordnete Kabinen erscheinen direkt an den Platzterminen und in deren Buchungsdialog.
@@ -142,7 +144,13 @@ php .\tests\booking-dialog.php
 Die automatische Anpassung der Buchungszeiten prüfen:
 
 ```powershell
-node --test .\tests\booking-dates.test.mjs .\tests\date-picker.test.mjs .\tests\event-details.test.mjs .\tests\calendar-layout.test.mjs
+node --test .\tests\booking-dates.test.mjs .\tests\date-picker.test.mjs .\tests\event-details.test.mjs .\tests\calendar-layout.test.mjs .\tests\calendar-actions.test.mjs
+```
+
+Mit laufender Umgebung auf `8100` und installiertem Google Chrome prüft der Browser-Test alle Rollen bei 320 und 390 Pixel Handybreite sowie den Wechsel zur Desktop-Ansicht. Er verwendet gerenderte Rollen-Fixtures, prüft das Burger-Menü mit Radiobuttons und Tages-Checkbox sowie das rollenabhängige Benutzermenü und verändert keine Buchungen:
+
+```powershell
+node .\tests\calendar-menu-browser.mjs
 ```
 
 Nach `docker compose build web` prüft der Integrationstest vollständige Buchungsänderungen einschließlich Serien, Ressourcen, Doppelbuchungen und öffentlich sichtbaren Anfragen. Er legt eine eigene temporäre Testdatenbank an und entfernt sie anschließend; die vorhandene Datenbank bleibt unverändert:

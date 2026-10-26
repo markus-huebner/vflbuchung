@@ -52,7 +52,9 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 ### Kalender auswählen und navigieren
 
 - Über das Kalender-Auswahlfeld wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**.
-- Über **Handy-Ansicht** öffnest du den Belegungsplan als kompakte Tagesliste. Dort kannst du Belegungsart und Datum wählen und tageweise vor- und zurückblättern.
+- Auf Handy und Desktop enthält das **Burger-Menü** rechts oben am Belegungsplan nur Ansichtseinstellungen. Radiobuttons wählen **Platzbelegung** oder **Fahrzeugkalender** sowie **Tag** oder **Woche**. **Restlichen Tag einblenden** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
+- Angemeldet öffnet der separate **+**-Button die Auswahl für neue Platz- oder Fahrzeugeinträge. Trainer stellen darüber Buchungsanfragen, Verwalter und Admins legen Buchungen an.
+- Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins finden dort zusätzlich **Ressourcenverwaltung** und **Benutzerverwaltung**. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
 - Mit den Pfeilen wechselst du zum vorherigen oder nächsten Zeitraum. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
 - Der Schalter **Restlichen Tag einblenden** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 08:00 bis 19:00 Uhr.
@@ -68,7 +70,7 @@ Die Anfrageübersicht befindet sich neben dem Kalender. Ziehe den Trenner zwisch
 
 Trainer erstellen eine **Anfrage**. Verwalter und Admins können eine Buchung direkt anlegen und bestätigen.
 
-1. Wähle **+ Buchungsanfrage stellen** (Trainer) oder **+ Buchung anlegen** (Verwalter/Admin).
+1. Öffne den **+**-Button rechts oben am Belegungsplan. Trainer stellen damit eine Buchungsanfrage, Verwalter und Admins legen eine Buchung an.
 2. Wähle **Platzbelegung** oder **Fahrzeug**.
 3. Fülle die Angaben aus und speichere.
 
@@ -140,9 +142,9 @@ Zum Löschen wählst du im Termindialog **Löschen**. Bei Serienterminen wird zu
 
 ## Kapitel 8: Einstellungen für Admins
 
-![Schematisches Admin-Menü Einstellungen mit den Unterpunkten Benutzer- und Ressourcenverwaltung](bilder/einstellungen-menue.svg)
+![Benutzermenü für Admins mit Profil, Ressourcenverwaltung, Benutzerverwaltung und Abmelden](bilder/einstellungen-menue.svg)
 
-Admins öffnen über den sichtbaren Button **Einstellungen** das Untermenü **Benutzerverwaltung** oder **Ressourcenverwaltung**.
+Admins öffnen über das **Kopfsymbol neben ihrem Namen** das Benutzermenü und wählen dort **Benutzerverwaltung** oder **Ressourcenverwaltung**. **Mein Profil** und **Abmelden** stehen allen angemeldeten Benutzern im selben Menü zur Verfügung.
 
 ### Benutzerverwaltung
 
@@ -153,7 +155,7 @@ Admins öffnen über den sichtbaren Button **Einstellungen** das Untermenü **Be
 
 Der letzte aktive Admin kann nicht gelöscht werden.
 
-Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachnamen sowie die E-Mail-Adresse bearbeiten. Der Nachname ist optional. Der Benutzername wird dort angezeigt, kann aber nicht selbst geändert werden.
+Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachnamen sowie die E-Mail-Adresse bearbeiten. Der Nachname ist optional. Der Benutzername wird dort angezeigt, kann aber nicht selbst geändert werden. **Abbrechen** führt ohne Speichern zurück zum Belegungsplan.
 
 ### Ressourcenverwaltung
 

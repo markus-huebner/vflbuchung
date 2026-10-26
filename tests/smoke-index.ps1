@@ -8,6 +8,23 @@ $page = Invoke-WebRequest -Uri "$BaseUrl/" -UseBasicParsing
 if ($page.StatusCode -ne 200 -or $page.Content -notmatch "Belegungsplan" -or $page.Content -match 'data-resource-type="cabin"' -or $page.Content -notmatch 'class="calendar-navigation"') {
     throw "The booking calendar page did not load successfully."
 }
+if ($page.Content -match 'mobile-calendar|Handy-Ansicht') {
+    throw "The removed mobile calendar is still linked."
+}
+$mobileStatus = $null
+try {
+    $mobilePage = Invoke-WebRequest -Uri "$BaseUrl/?page=mobile-calendar" -UseBasicParsing
+    $mobileStatus = [int]$mobilePage.StatusCode
+} catch {
+    if ($_.Exception.Response) {
+        $mobileStatus = [int]$_.Exception.Response.StatusCode
+    } else {
+        throw
+    }
+}
+if ($mobileStatus -ne 404) {
+    throw "The removed mobile calendar route must return HTTP 404."
+}
 
 $resourceResponse = Invoke-RestMethod -Uri "$BaseUrl/?api=resources"
 if ($resourceResponse.PSObject.Properties.Name -contains "cabins") {

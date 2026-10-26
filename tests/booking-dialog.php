@@ -151,7 +151,7 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     );
     check($xpath->query($form . '//input[@name="occurrence_id"]')->length === 1, 'The shared form needs the edited ID.');
     check($xpath->query('//*[@id="calendar-date-picker"]')->length === 1, 'The calendar needs direct date selection.');
-    check($xpath->query('//section[contains(@class, "calendar-toolbar")]//select[@id="calendar-resource-select"]')->length === 1, 'Choose the calendar in the header.');
+    check($xpath->query('//*[@id="calendar-actions-menu"]//fieldset[@id="calendar-resource-controls"]')->length === 1, 'Choose the calendar inside the view menu.');
     check($xpath->query('//*[@data-resource-type]')->length === 0, 'Replace the old calendar tabs.');
     check($xpath->query('//*[@id="booking-create-menu"]')->length === 1, "$role: Render exactly one booking menu.");
     $staff = in_array($role, ['admin', 'manager'], true);
@@ -167,11 +167,10 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
         );
     }
     check(
-        $staff
-            ? $xpath->query('//section[contains(@class, "calendar-toolbar")]//*[@id="booking-create-menu"]/following-sibling::select[@id="calendar-resource-select"]')->length === 1
-            : $xpath->query('//aside[@id="request-dashboard"]//*[@id="booking-create-menu"]')->length === 1
-                && $xpath->query('//section[contains(@class, "calendar-toolbar")]//*[@id="booking-create-menu"]')->length === 0,
-        "$role: Show booking creation in the toolbar only for staff and in the request list for trainers."
+        $xpath->query('//*[@id="calendar-actions"]/*[@id="booking-create-menu"]')->length === 1
+            && $xpath->query('//aside[@id="request-dashboard"]//*[@id="booking-create-menu"]')->length === 0
+            && $xpath->query('//*[@id="booking-create-menu"]/summary[@aria-label="' . ($staff ? 'Buchung anlegen' : 'Buchungsanfrage stellen') . '"]/span[normalize-space()="+"]')->length === 1,
+        "$role: Use one accessible plus menu in the calendar toolbar, including for trainers."
     );
     check(
         $xpath->query('//*[@id="booking-create-menu"]//*[@data-booking-option and @data-resource-mode="pitch"]')->length === 1
@@ -182,7 +181,7 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
         $xpath->query('//*[@id="booking-create-menu"]//*[@data-event-type="external"]')->length === 0,
         "$role: Do not offer external bookings in the creation menu."
     );
-    check($xpath->query('//select[@id="calendar-resource-select"]/option')->length === 2, 'Offer only pitch and vehicle calendars.');
+    check($xpath->query('//input[@type="radio"][@name="calendar-resource"]')->length === 2, 'Offer only pitch and vehicle calendars.');
     check($xpath->query('//*[@data-resource-type="cabin" or @data-calendar-view="cabin" or @data-resource-mode="cabin"]')->length === 0, 'Cabins must not have their own booking or calendar.');
     foreach (['calendar-prev', 'calendar-next', 'calendar-today', 'calendar-date-picker'] as $control) {
         check($xpath->query('//div[contains(@class, "calendar-navigation")]/*[@id="' . $control . '"]')->length === 1, 'Group date navigation controls together.');
@@ -275,31 +274,42 @@ check(
 
 $publicCalendar = Views::calendar(null, 'test-csrf', []);
 check(
-    !str_contains($publicCalendar, 'id="booking-form"')
-        && str_contains($publicCalendar, 'href="/?page=mobile-calendar">Handy-Ansicht</a>'),
-    'Anonymous visitors must not be offered a booking form and must be able to open the mobile calendar.'
-);
-
-$mobileCalendarDocument = new DOMDocument();
-$mobileCalendarDocument->loadHTML(
-    '<?xml encoding="UTF-8">' . Views::mobileCalendar(),
-    LIBXML_NOERROR | LIBXML_NOWARNING
-);
-$mobileCalendarXPath = new DOMXPath($mobileCalendarDocument);
-check(
-    $mobileCalendarXPath->query('//*[@data-mobile-calendar]')->length === 1
-        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-resource-select"]/option[@value="pitch"]')->length === 1
-        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-resource-select"]/option[@value="bus"]')->length === 1
-        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-date"][@type="date"]')->length === 1
-        && $mobileCalendarXPath->query('//*[@id="mobile-calendar-list"][@aria-live="polite"]')->length === 1
-        && $mobileCalendarXPath->query('//a[@href="/" and normalize-space(.)="Zur vollständigen Kalenderansicht"]')->length === 1,
-    'The mobile calendar must provide read-only daily navigation and a link back to the full calendar.'
+    !str_contains($publicCalendar, 'id="booking-form"'),
+    'Anonymous visitors must not be offered a booking form.'
 );
 
 foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin']] as $user) {
+    $calendar = Views::calendar($user, 'test-csrf', []);
+    check(
+        !str_contains($calendar, 'mobile-calendar') && !str_contains($calendar, 'Handy-Ansicht'),
+        'The separate mobile calendar must not be offered to any role.'
+    );
     $document = new DOMDocument();
-    $document->loadHTML('<?xml encoding="UTF-8">' . Views::calendar($user, 'test-csrf', []), LIBXML_NOERROR | LIBXML_NOWARNING);
+    $document->loadHTML('<?xml encoding="UTF-8">' . $calendar, LIBXML_NOERROR | LIBXML_NOWARNING);
     $xpath = new DOMXPath($document);
+    check(
+        !str_contains($calendar, 'Plätze mit ihren Kabinen und Fahrzeuge auf einen Blick.'),
+        'The calendar must not display the removed description.'
+    );
+    check(
+        $xpath->query('//*[@id="calendar-actions-menu"]/summary[@aria-label="Ansicht einstellen"]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-actions-panel]')->length === 1
+            && $xpath->query('//input[@name="calendar-resource"][@type="radio"]')->length === 2
+            && $xpath->query('//input[@name="calendar-resource"][@checked]')->length === 1
+            && $xpath->query('//input[@name="calendar-view"][@type="radio"]')->length === 2
+            && $xpath->query('//input[@name="calendar-view"][@checked]')->length === 1
+            && $xpath->query('//*[@id="full-day-toggle"]')->length === 1
+            && $xpath->query('//*[@id="calendar-resource-controls"]')->length === 1
+            && $xpath->query('//*[@id="calendar-view-controls"]//*[@data-view="day"]')->length === 1
+            && $xpath->query('//*[@id="calendar-view-controls"]//*[@data-view="week"]')->length === 1,
+        'Every role must have one accessible responsive calendar actions menu and one set of controls.'
+    );
+    check(
+        $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-booking-option]')->length === 0
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="full-day-toggle"]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="calendar-view-controls"]')->length === 1,
+        'The burger menu must contain only view settings on every screen size.'
+    );
     foreach (['resources', 'start', 'end', 'cabins', 'type', 'status', 'destination', 'purpose', 'recurrence'] as $field) {
         check(
             $xpath->query('//*[@id="event-dialog"]//*[@data-event-' . $field . ']')->length === 1,
@@ -326,43 +336,42 @@ check(
     $layoutXPath->query('//dialog[@id="action-confirm-dialog"]//*[@data-confirm-submit]')->length === 1,
     'Render the shared confirmation dialog on every page.'
 );
-$adminLayoutDocument = new DOMDocument();
-$adminLayoutDocument->loadHTML(
-    '<?xml encoding="UTF-8">' . Views::layout(
-        'Test',
-        '',
-        ['role' => 'admin', 'first_name' => 'Admin', 'last_name' => ''],
-        'test-csrf',
-        'https://example.test'
-    ),
-    LIBXML_NOERROR | LIBXML_NOWARNING
-);
-$adminLayoutXPath = new DOMXPath($adminLayoutDocument);
-$settingsMenu = '//nav//details[contains(concat(" ", normalize-space(@class), " "), " admin-settings-menu ")]';
-check(
-    $adminLayoutXPath->query($settingsMenu . '/summary[contains(@class, "btn") and normalize-space()="Einstellungen"]')->length === 1
-        && $adminLayoutXPath->query($settingsMenu . '//a[@href="/?page=users"]')->length === 1
-        && $adminLayoutXPath->query($settingsMenu . '//a[@href="/?page=resources"]')->length === 1
-        && $adminLayoutXPath->query('//nav//a[@href="/?page=profile" and normalize-space()="Mein Profil"]')->length === 1
-        && $adminLayoutXPath->query('//nav//a[@href="/?page=users" and not(ancestor::details)]')->length === 0
-        && $adminLayoutXPath->query('//nav//a[@href="/?page=resources" and not(ancestor::details)]')->length === 0,
-    'Admins must have a visible settings button with user and resource pages as submenu items.'
-);
-$managerLayoutDocument = new DOMDocument();
-$managerLayoutDocument->loadHTML(
-    '<?xml encoding="UTF-8">' . Views::layout(
-        'Test',
-        '',
-        ['role' => 'manager', 'first_name' => 'Manager', 'last_name' => ''],
-        'test-csrf',
-        'https://example.test'
-    ),
-    LIBXML_NOERROR | LIBXML_NOWARNING
-);
-check(
-    (new DOMXPath($managerLayoutDocument))->query('//nav//details[contains(@class, "admin-settings-menu")]')->length === 0,
-    'The settings menu must remain restricted to admins.'
-);
+foreach ([null, 'trainer', 'manager', 'admin'] as $role) {
+    $user = $role === null ? null : [
+        'role' => $role, 'first_name' => 'Test', 'last_name' => 'User',
+    ];
+    $accountDocument = new DOMDocument();
+    $accountDocument->loadHTML(
+        '<?xml encoding="UTF-8">' . Views::layout('Test', '', $user, 'test-csrf', 'https://example.test'),
+        LIBXML_NOERROR | LIBXML_NOWARNING
+    );
+    $accountXPath = new DOMXPath($accountDocument);
+    if ($role === null) {
+        check(
+            $accountXPath->query('//nav//*[@id="user-menu"]')->length === 0
+                && $accountXPath->query('//nav//a[@href="/?page=login"]')->length === 1
+                && $accountXPath->query('//nav//form')->length === 0,
+            'Guests must only see sign-in, not account actions.'
+        );
+        continue;
+    }
+    $accountMenu = '//nav//details[@id="user-menu"]';
+    check(
+        $accountXPath->query($accountMenu . '/summary[@aria-label="Benutzermenü"]//*[local-name()="svg"]')->length === 1
+            && $accountXPath->query($accountMenu . '/summary//span[normalize-space()="Test User"]')->length === 1
+            && $accountXPath->query($accountMenu . '//a[@href="/?page=profile"]')->length === 1
+            && $accountXPath->query($accountMenu . '//form[@action="/?action=logout"][@method="post"]//input[@name="_csrf"][@value="test-csrf"]')->length === 1
+            && $accountXPath->query('//nav//details[@id="user-menu"][@open]')->length === 0
+            && $accountXPath->query('//nav//a[@href="/?page=login"]')->length === 0,
+        "$role: Account actions must be inside a closed icon-and-name menu with protected logout."
+    );
+    foreach (['resources', 'users'] as $page) {
+        check(
+            $accountXPath->query($accountMenu . '//a[@href="/?page=' . $page . '"]')->length === ($role === 'admin' ? 1 : 0),
+            "$role: Only admins may see $page in the account menu."
+        );
+    }
+}
 $profileDocument = new DOMDocument();
 $profileDocument->loadHTML(
     '<?xml encoding="UTF-8">' . Views::profile([
@@ -374,6 +383,11 @@ $profileDocument->loadHTML(
     LIBXML_NOERROR | LIBXML_NOWARNING
 );
 $profileXPath = new DOMXPath($profileDocument);
+check(
+    $profileXPath->query('//form[@action="/?action=profile-update"]//a[@href="/" and normalize-space()="Abbrechen"]')->length === 1
+        && $profileXPath->query('//form[@action="/?action=profile-update"]//button[@type="submit" and normalize-space()="Daten speichern"]')->length === 1,
+    'The profile must offer cancellation without submitting changes and retain its save button.'
+);
 $profileFieldIds = [];
 foreach ($profileXPath->query('//form[@action="/?action=profile-update"]/div/input[@id]') as $input) {
     $profileFieldIds[] = $input->getAttribute('id');

@@ -18,18 +18,18 @@ final class Views
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
         $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
+            $name = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
+            $nav .= '<details class="user-actions-menu user-account-menu" id="user-menu">'
+                . '<summary class="btn btn-sm btn-outline-light user-account-trigger" aria-label="Benutzermenü">'
+                . '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>'
+                . '<span class="user-account-name">' . Security::escape($name) . '</span></summary>'
+                . '<div class="user-actions-menu-items"><a href="/?page=profile">Mein Profil</a>';
             if ($user['role'] === 'admin') {
-                $nav .= '<details class="user-actions-menu admin-settings-menu">'
-                    . '<summary class="btn btn-sm btn-outline-light">Einstellungen</summary>'
-                    . '<div class="user-actions-menu-items"><a href="/?page=users">Benutzerverwaltung</a>'
-                    . '<a href="/?page=resources">Ressourcenverwaltung</a></div></details>';
+                $nav .= '<a href="/?page=resources">Ressourcenverwaltung</a>'
+                    . '<a href="/?page=users">Benutzerverwaltung</a>';
             }
-            $nav .= '<span class="text-white-50 small">' . Security::escape(AuthService::fullName(
-                (string) $user['first_name'],
-                (string) $user['last_name']
-            )) . '</span>';
-            $nav .= '<a class="nav-link py-0 text-white" href="/?page=profile">Mein Profil</a>';
-            $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button class="btn btn-sm btn-outline-light" type="submit">Abmelden</button></form>';
+            $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
+                . '</div></details>';
         } else {
             $nav .= '<a class="nav-link" href="/?page=login">Anmelden</a>';
         }
@@ -101,8 +101,8 @@ final class Views
             $eventTypes .= '<option value="external">Externe Belegung</option>';
         }
         $staff = in_array($user['role'] ?? '', ['admin', 'manager'], true);
-        $createButton = $user !== null && $staff
-            ? self::bookingCreateMenu('+ Buchung anlegen')
+        $createButton = $user !== null
+            ? self::bookingCreateMenu($staff ? 'Buchung anlegen' : 'Buchungsanfrage stellen')
             : '';
 
         $bookingDialog = $user === null ? '' : self::bookingDialog($user, $csrf, $eventTypes);
@@ -133,16 +133,34 @@ final class Views
         return '<div class="' . $layoutClass . '" data-calendar-dashboard-layout>
 <div class="calendar-main-content">
 <div id="app-message" class="alert" role="status" hidden></div>
-<section class="calendar-toolbar">
-  <div><h1>Belegungsplan</h1><p class="text-secondary mb-0">Plätze mit ihren Kabinen und Fahrzeuge auf einen Blick.</p></div>
-  <div class="calendar-actions">
+<section class="calendar-toolbar calendar-heading-toolbar">
+  <h1>Belegungsplan</h1>
+  <div class="calendar-actions" id="calendar-actions">
     ' . $createButton . '
-    <a class="btn btn-outline-secondary" href="/?page=mobile-calendar">Handy-Ansicht</a>
-    <label class="visually-hidden" for="calendar-resource-select">Kalender auswählen</label>
-    <select id="calendar-resource-select" class="form-select calendar-resource-select">
-      <option value="pitch">Platzbelegung</option>
-      <option value="bus">Fahrzeugkalender</option>
-    </select>
+  <details class="calendar-actions-menu" id="calendar-actions-menu">
+    <summary class="btn btn-outline-secondary" aria-label="Ansicht einstellen" title="Ansicht einstellen">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </summary>
+    <div class="calendar-actions-panel" data-calendar-actions-panel>
+      <section class="calendar-menu-group" data-calendar-view-group>
+        <h2 class="calendar-menu-heading">Ansicht</h2>
+        <fieldset id="calendar-resource-controls" class="calendar-option-group">
+          <legend class="calendar-option-heading">Kalender</legend>
+          <label class="calendar-option"><input type="radio" name="calendar-resource" value="pitch" data-calendar-resource checked><span>Platzbelegung</span></label>
+          <label class="calendar-option"><input type="radio" name="calendar-resource" value="bus" data-calendar-resource><span>Fahrzeugkalender</span></label>
+        </fieldset>
+        <fieldset class="calendar-option-group" id="calendar-view-controls">
+          <legend class="calendar-option-heading">Zeitraum</legend>
+          <label class="calendar-option"><input type="radio" name="calendar-view" value="day" data-view="day" checked><span>Tag</span></label>
+          <label class="calendar-option"><input type="radio" name="calendar-view" value="week" data-view="week"><span>Woche</span></label>
+        </fieldset>
+        <label class="form-check form-switch calendar-menu-row mb-0" id="full-day-toggle-wrap">
+          <input class="form-check-input" type="checkbox" id="full-day-toggle">
+          <span class="form-check-label">Restlichen Tag einblenden</span>
+        </label>
+      </section>
+    </div>
+  </details>
   </div>
 </section>
 <section class="calendar-toolbar">
@@ -154,14 +172,6 @@ final class Views
   </button>
   <button id="calendar-next" class="btn btn-outline-secondary" type="button" aria-label="Weiter">›</button>
   <button id="calendar-today" class="btn btn-outline-secondary" type="button">Heute</button>
-  </div>
-  <label class="form-check form-switch mb-0" id="full-day-toggle-wrap" hidden>
-    <input class="form-check-input" type="checkbox" id="full-day-toggle">
-    <span class="form-check-label">Restlichen Tag einblenden</span>
-  </label>
-  <div class="btn-group" role="group" aria-label="Kalenderansicht">
-    <button type="button" class="btn btn-outline-secondary active" data-view="day">Tag</button>
-    <button type="button" class="btn btn-outline-secondary" data-view="week">Woche</button>
   </div>
 </section>
 <section class="calendar-frame">
@@ -188,37 +198,6 @@ final class Views
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
     }
 
-    public static function mobileCalendar(): string
-    {
-        return '<section class="mobile-agenda-page" data-mobile-calendar>
-  <header class="mobile-agenda-header">
-    <h1>Belegungsplan – Handy-Ansicht</h1>
-    <p class="text-secondary">Tagesübersicht der Platz- und Fahrzeugbelegungen.</p>
-    <a class="btn btn-outline-secondary" href="/">Zur vollständigen Kalenderansicht</a>
-  </header>
-  <section class="mobile-agenda-controls panel-card p-3" aria-label="Kalender einstellen">
-    <div>
-      <label class="form-label" for="mobile-calendar-resource-select">Belegungsart</label>
-      <select id="mobile-calendar-resource-select" class="form-select">
-        <option value="pitch">Platzbelegung</option>
-        <option value="bus">Fahrzeugkalender</option>
-      </select>
-    </div>
-    <div>
-      <label class="form-label" for="mobile-calendar-date">Datum</label>
-      <div class="mobile-agenda-date-navigation">
-        <button id="mobile-calendar-prev" class="btn btn-outline-secondary" type="button" aria-label="Vorheriger Tag">‹</button>
-        <input id="mobile-calendar-date" class="form-control" type="date">
-        <button id="mobile-calendar-next" class="btn btn-outline-secondary" type="button" aria-label="Nächster Tag">›</button>
-      </div>
-      <button id="mobile-calendar-today" class="btn btn-outline-secondary mt-2 w-100" type="button">Heute</button>
-    </div>
-  </section>
-  <div id="mobile-calendar-message" class="alert alert-danger" role="alert" hidden></div>
-  <div id="mobile-calendar-list" class="mobile-agenda-list" aria-live="polite"></div>
-</section>';
-    }
-
     private static function bookingCreateMenu(string $label): string
     {
 $bookingChoices = '';
@@ -233,7 +212,8 @@ foreach ([
 }
 
 return '<details id="booking-create-menu" class="booking-create-menu">'
-    . '<summary id="open-booking" class="btn btn-primary">' . Security::escape($label) . '</summary>'
+    . '<summary id="open-booking" class="btn btn-primary" aria-label="' . Security::escape($label)
+    . '" title="' . Security::escape($label) . '"><span aria-hidden="true">+</span></summary>'
     . '<div class="booking-create-options" aria-label="Buchungsart auswählen">' . $bookingChoices . '</div>'
     . '</details>';
     }
@@ -418,8 +398,8 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         }
 
         $staff = in_array($user['role'], ['admin', 'manager'], true);
-        $requestCreateButton = $user['role'] === 'trainer'
-            ? self::bookingCreateMenu('+ Buchungsanfrage stellen')
+        $requestCreateButton = $user['role'] === 'trainer' && !$embedded
+            ? self::bookingCreateMenu('Buchungsanfrage stellen')
             : '';
         $rows = '';
         foreach ($requests as $request) {
@@ -626,7 +606,10 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<div class="mb-3"><label class="form-label" for="profile-email">E-Mail</label>'
             . '<input class="form-control" id="profile-email" name="email" type="email" maxlength="254" value="'
             . Security::escape((string) ($user['email'] ?? '')) . '"></div>'
-            . '<button class="btn btn-primary" type="submit">Daten speichern</button></form></section>';
+            . '<div class="d-flex flex-wrap gap-2">'
+            . '<a class="btn btn-outline-secondary" href="/">Abbrechen</a>'
+            . '<button class="btn btn-primary" type="submit">Daten speichern</button>'
+            . '</div></form></section>';
     }
 
     private static function inviteUserForm(string $csrf): string
