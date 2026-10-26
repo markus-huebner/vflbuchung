@@ -8,10 +8,15 @@ class Element extends EventTarget {
     this.ownerDocument = doc;
     this.open = false;
     this.children = [];
+    this.menuOption = false;
   }
 
   contains(element) {
     return element === this || this.children.some(child => child.contains(element));
+  }
+
+  closest(selector) {
+    return selector === '[data-calendar-menu-option]' && this.menuOption ? this : null;
   }
 
   focus() {
@@ -28,8 +33,12 @@ function fixture(role = 'manager') {
   const fullDay = new Element(doc);
   const fullDayWrap = new Element(doc);
   const week = new Element(doc);
+  const resourceOption = new Element(doc);
+  resourceOption.menuOption = true;
+  fullDayWrap.menuOption = true;
+  week.menuOption = true;
   fullDayWrap.children.push(fullDay);
-  menu.children.push(trigger, fullDayWrap, week);
+  menu.children.push(trigger, resourceOption, fullDayWrap, week);
   menu.querySelector = () => trigger;
   if (booking) {
     booking.children.push(bookingTrigger);
@@ -43,7 +52,7 @@ function fixture(role = 'manager') {
     '[data-view="week"]': week,
   })[selector];
   initCalendarActionsMenu(doc);
-  return { doc, menu, trigger, booking, bookingTrigger, fullDay, fullDayWrap, week };
+  return { doc, menu, trigger, booking, bookingTrigger, resourceOption, fullDay, fullDayWrap, week };
 }
 
 function event(type, properties) {
@@ -75,6 +84,20 @@ test('opening one calendar menu closes only its counterpart', () => {
   f.menu.dispatchEvent(new Event('toggle'));
   assert.equal(f.menu.open, true);
   assert.equal(f.booking.open, false);
+});
+
+test('selecting a calendar menu option closes the menu', async () => {
+  const f = fixture();
+  for (const [type, target] of [
+    ['click', f.resourceOption],
+    ['change', f.week],
+    ['change', f.fullDayWrap],
+  ]) {
+    f.menu.open = true;
+    f.menu.dispatchEvent(event(type, { target }));
+    await Promise.resolve();
+    assert.equal(f.menu.open, false);
+  }
 });
 
 test('Escape closes either menu and restores focus to the correct trigger', () => {

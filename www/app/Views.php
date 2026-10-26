@@ -37,7 +37,7 @@ final class Views
         $nav .= '</div>';
 
         $flashHtml = '';
-        if ($flash !== null && ($flash['message'] ?? '') !== '') {
+        if ($flash !== null && ($flash['message'] ?? '') !== '' && ($flash['type'] ?? 'info') !== 'success') {
             $flashHtml = '<div class="alert alert-' . Security::escape($flash['type'] ?? 'info') . '" role="status">'
                 . Security::escape($flash['message']) . '</div>';
         }
@@ -138,29 +138,26 @@ final class Views
   <h1>Belegungsplan</h1>
   <div class="calendar-actions" id="calendar-actions">
     ' . $createButton . '
-  <div class="calendar-resource-switcher" id="calendar-resource-switcher" role="group" aria-label="Kalender auswählen">
-    <button class="btn btn-outline-secondary calendar-resource-button" type="button" data-calendar-resource="pitch" aria-label="Platzbelegung" aria-pressed="true" title="Platzbelegung">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16M3 8h4v8H3m18-8h-4v8h4"/><circle cx="12" cy="12" r="2.5"/></svg>
-      <span class="visually-hidden">Platzbelegung</span>
-    </button>
-    <button class="btn btn-outline-secondary calendar-resource-button" type="button" data-calendar-resource="bus" aria-label="Fahrzeugkalender" aria-pressed="false" title="Fahrzeugkalender">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 16V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10M5 11h14M7 7h4m2 0h4M5 16h14v2a2 2 0 0 1-2 2h-1m-8 0H7a2 2 0 0 1-2-2z"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg>
-      <span class="visually-hidden">Fahrzeugkalender</span>
-    </button>
-  </div>
   <details class="calendar-actions-menu" id="calendar-actions-menu">
-    <summary class="btn btn-outline-secondary" aria-label="Ansicht einstellen" title="Ansicht einstellen">
+    <summary class="btn btn-outline-secondary" aria-label="Kalender und Ansicht einstellen" title="Kalender und Ansicht einstellen">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </summary>
     <div class="calendar-actions-panel" data-calendar-actions-panel>
+      <section class="calendar-menu-group" data-calendar-resource-group>
+        <fieldset class="calendar-option-group" id="calendar-resource-controls">
+          <legend class="calendar-option-heading">Kalender</legend>
+          <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-resource" value="pitch" data-calendar-resource="pitch" checked><span>Platzbelegung</span></label>
+          <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-resource" value="bus" data-calendar-resource="bus"><span>Fahrzeugkalender</span></label>
+        </fieldset>
+      </section>
       <section class="calendar-menu-group" data-calendar-view-group>
         <h2 class="calendar-menu-heading">Ansicht</h2>
         <fieldset class="calendar-option-group" id="calendar-view-controls">
           <legend class="calendar-option-heading">Zeitraum</legend>
-          <label class="calendar-option"><input type="radio" name="calendar-view" value="day" data-view="day" checked><span>Tag</span></label>
-          <label class="calendar-option"><input type="radio" name="calendar-view" value="week" data-view="week"><span>Woche</span></label>
+          <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-view" value="day" data-view="day" checked><span>Tag</span></label>
+          <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-view" value="week" data-view="week"><span>Woche</span></label>
         </fieldset>
-        <label class="form-check form-switch calendar-menu-row mb-0" id="full-day-toggle-wrap">
+        <label class="form-check form-switch calendar-menu-row mb-0" id="full-day-toggle-wrap" data-calendar-menu-option>
           <input class="form-check-input" type="checkbox" id="full-day-toggle">
           <span class="form-check-label">Ganzen Tag anzeigen</span>
         </label>

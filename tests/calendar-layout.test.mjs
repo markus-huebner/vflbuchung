@@ -55,6 +55,25 @@ test('day calendar columns share available width without imposing horizontal scr
   assert.doesNotMatch(calendarJs, /grid\.style\.minWidth/);
 });
 
+test('day calendar keeps the time axis narrow and wraps resource headings without shifting the grid', () => {
+  assert.match(calendarCss, /\.resource-day-grid\s*\{[^}]*--axis-width:\s*40px/s);
+  const headingRule = calendarCss.match(/\.resource-column-heading\s*\{([^}]+)\}/);
+  assert.ok(headingRule);
+  assert.match(headingRule[1], /white-space:\s*normal/);
+  assert.match(headingRule[1], /overflow-wrap:\s*anywhere/);
+  assert.match(headingRule[1], /height:\s*var\(--resource-heading-height,\s*auto\)/);
+  assert.match(calendarCss, /\.resource-time-axis\s*\{[^}]*padding-top:\s*var\(--resource-heading-height,\s*42px\)/s);
+  assert.match(calendarJs, /const headingHeight = Math\.max\(/);
+  assert.match(calendarJs, /\[\.\.\.grid\.querySelectorAll\('\.resource-column-heading'\)\]\.map\(heading => heading\.offsetHeight\)/);
+  assert.match(calendarJs, /grid\.style\.setProperty\('--resource-heading-height', `\$\{headingHeight\}px`\)/);
+});
+
+test('positive success messages are not rendered', () => {
+  assert.match(views, /\(\$flash\['type'\] \?\? 'info'\) !== 'success'/);
+  assert.match(calendarJs, /if \(!messageBox \|\| kind === 'success'\) return/);
+  assert.match(calendarJs, /if \(kind === 'success'\) return/);
+});
+
 test('week calendar labels wrap inside narrow day columns', () => {
   const rule = calendarCss.match(/\.booking-category,\s*\.booking-cabin\s*\{([^}]+)\}/);
   assert.ok(rule, 'event labels need a shared wrapping rule');
@@ -167,11 +186,10 @@ test('calendar resource selection persists in the current window session', () =>
   assert.match(calendarJs, /sessionStorage\.getItem\(calendarResourceTypeStorageKey\)/);
   assert.match(calendarJs, /savedResourceType === 'pitch' \|\| savedResourceType === 'bus'/);
   assert.match(calendarJs, /sessionStorage\.setItem\(calendarResourceTypeStorageKey, state\.resourceType\)/);
-  assert.match(views, /id="calendar-resource-switcher"/);
-  assert.match(views, /data-calendar-resource="pitch" aria-label="Platzbelegung" aria-pressed="true"/);
-  assert.match(views, /data-calendar-resource="bus" aria-label="Fahrzeugkalender" aria-pressed="false"/);
-  assert.doesNotMatch(views, /id="calendar-actions-menu"[\s\S]*?data-calendar-resource/);
-  assert.match(calendarJs, /button\.setAttribute\('aria-pressed', String\(button\.dataset\.calendarResource === state\.resourceType\)\)/);
+  assert.match(views, /id="calendar-actions-menu"[\s\S]*?id="calendar-resource-controls"[\s\S]*?data-calendar-resource="pitch"[\s\S]*?data-calendar-resource="bus"/);
+  assert.match(views, /data-calendar-menu-option/);
+  assert.doesNotMatch(views, /id="calendar-resource-switcher"/);
+  assert.match(calendarJs, /option\.checked = option\.dataset\.calendarResource === state\.resourceType/);
   assert.match(calendarCss, /\.request-row-actions\s+\.btn\s*\{[^}]*width:\s*100%/s);
   assert.doesNotMatch(views, /name="reason"|placeholder="Begründung/);
   assert.doesNotMatch(views, /data-dashboard-toggle|Dashboard ausblenden|Dashboard einblenden/);

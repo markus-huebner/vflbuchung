@@ -51,11 +51,11 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 
 ### Kalender auswählen und navigieren
 
-- Über das Kalender-Auswahlfeld wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**.
-- Auf Handy und Desktop enthält das **Burger-Menü** rechts oben am Belegungsplan nur Ansichtseinstellungen. Radiobuttons wählen **Platzbelegung** oder **Fahrzeugkalender** sowie **Tag** oder **Woche**. **Ganzen Tag anzeigen** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
+- Im Burger-Menü wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**. Nach einer Auswahl schließt sich das Menü automatisch.
+- Im selben Menü wählst du auf Handy und Desktop per Radiobutton zwischen **Tag** und **Woche**. **Ganzen Tag anzeigen** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
 - Angemeldet öffnet der separate **+**-Button die Auswahl für neue Platz- oder Fahrzeugeinträge. Trainer stellen darüber Buchungsanfragen, Verwalter und Admins legen Buchungen an.
 - Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins finden dort zusätzlich **Ressourcenverwaltung** und **Benutzerverwaltung**. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
-- Mit den Pfeilen wechselst du zum vorherigen oder nächsten Zeitraum. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
+- Mit den Pfeilen oder einer horizontalen Wischgeste im Kalender wechselst du zum vorherigen oder nächsten Zeitraum. In der Tagesansicht wechselst du dabei um einen Tag, in der Wochenansicht um eine Woche. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - Das Datumsfeld ist kompakt, behält für Tages- und Wochenwerte dieselbe Breite und ist genauso hoch wie die benachbarten Pfeilbuttons.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
 - Der Schalter **Ganzen Tag anzeigen** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 09:00 bis 21:00 Uhr. Die Stundenzeilen sind für eine kompaktere Darstellung um 20 % verkleinert.

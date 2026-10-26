@@ -63,9 +63,9 @@ Admins können Ressourcen innerhalb ihrer Kategorie per Drag-and-drop in der Res
 
 Kalenderansichten:
 
-Das Burger-Menü rechts oben am Belegungsplan enthält die Ansichtseinstellungen: Radiobuttons wählen Platzbelegung oder Fahrzeugkalender sowie Tag oder Woche; „Ganzen Tag anzeigen“ bleibt eine Checkbox. Ausgewähltes Datum und Tages-/Wochenansicht bleiben beim Kalenderwechsel erhalten.
+Das Burger-Menü rechts oben am Belegungsplan enthält Kalender- und Ansichtseinstellungen: Radiobuttons wählen Platzbelegung oder Fahrzeugkalender sowie Tag oder Woche; „Ganzen Tag anzeigen“ bleibt eine Checkbox. Nach einer Auswahl schließt sich das Menü automatisch. Ausgewähltes Datum und Tages-/Wochenansicht bleiben beim Kalenderwechsel erhalten.
 
-Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+** öffnet für angemeldete Benutzer die Auswahl zum Anlegen einer Platz- oder Fahrzeugbuchung beziehungsweise einer Traineranfrage; das **Burger-Menü** enthält ausschließlich die Ansichtseinstellungen. „Ganzen Tag anzeigen“ ist nur in der Tagesansicht aktiv. Es ist immer nur eines der beiden Kalendermenüs geöffnet. Die Kopfzeile zeigt angemeldet das Kopfsymbol und daneben den Namen als normalen Text außerhalb des Buttons; das Symbol öffnet „Mein Profil“, für Admins „Ressourcenverwaltung“ und „Benutzerverwaltung“ sowie „Abmelden“. Ohne Anmeldung erscheint nur „Anmelden“ und kein Anlegen-Menü.
+Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+** öffnet für angemeldete Benutzer die Auswahl zum Anlegen einer Platz- oder Fahrzeugbuchung beziehungsweise einer Traineranfrage; das **Burger-Menü** enthält Kalender- und Ansichtseinstellungen und schließt sich nach einer Auswahl. „Ganzen Tag anzeigen“ ist nur in der Tagesansicht aktiv. Es ist immer nur eines der beiden Kalendermenüs geöffnet. Die Kopfzeile zeigt angemeldet das Kopfsymbol und daneben den Namen als normalen Text außerhalb des Buttons; das Symbol öffnet „Mein Profil“, für Admins „Ressourcenverwaltung“ und „Benutzerverwaltung“ sowie „Abmelden“. Ohne Anmeldung erscheint nur „Anmelden“ und kein Anlegen-Menü.
 
 - **Plätze:** Tagesraster mit Platzspalten (standardmäßig 09:00–21:00 Uhr; außerhalb dieses Zeitraums kann der restliche Tag eingeblendet werden) und Wochenansicht mit Tagen als Spalten. Die Spalten teilen die verfügbare Breite gleichmäßig; feste Mindestbreiten werden vermieden, damit horizontaler Bildlauf möglichst entfällt. Stundenzeilen sind 51,2 statt 64 Pixel hoch; Eintragspositionen und Mindesthöhen verwenden denselben Maßstab.
 - **Kabinen:** Zugeordnete Kabinen erscheinen direkt an den Platzterminen und in deren Buchungsdialog.
@@ -147,7 +147,7 @@ php .\tests\booking-dialog.php
 Die automatische Anpassung der Buchungszeiten prüfen:
 
 ```powershell
-node --test .\tests\booking-dates.test.mjs .\tests\date-picker.test.mjs .\tests\event-details.test.mjs .\tests\calendar-layout.test.mjs .\tests\calendar-actions.test.mjs
+node --test .\tests\booking-dates.test.mjs .\tests\date-picker.test.mjs .\tests\event-details.test.mjs .\tests\calendar-layout.test.mjs .\tests\calendar-actions.test.mjs .\tests\calendar-navigation.test.mjs
 ```
 
 Mit laufender Umgebung auf `8100` und installiertem Google Chrome prüft der Browser-Test alle Rollen bei 320 und 390 Pixel Handybreite sowie den Wechsel zur Desktop-Ansicht. Er verwendet gerenderte Rollen-Fixtures, prüft das Burger-Menü mit Radiobuttons und Tages-Checkbox sowie das rollenabhängige Benutzermenü und verändert keine Buchungen:

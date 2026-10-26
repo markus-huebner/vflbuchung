@@ -12,6 +12,16 @@ export function initCalendarActionsMenu(root = document) {
     root.querySelector('#calendar-actions-menu'),
     root.querySelector('#booking-create-menu'),
   ].filter(Boolean);
+  const calendarMenu = root.querySelector('#calendar-actions-menu');
+  if (calendarMenu) {
+    const isCalendarOption = event => event.target.closest?.('[data-calendar-menu-option]');
+    calendarMenu.addEventListener('change', event => {
+      if (isCalendarOption(event)) calendarMenu.open = false;
+    });
+    calendarMenu.addEventListener('click', event => {
+      if (isCalendarOption(event)) queueMicrotask(() => { calendarMenu.open = false; });
+    });
+  }
   menus.forEach(menu => {
     menu.addEventListener('toggle', () => {
       if (menu.open) menus.forEach(other => { if (other !== menu) other.open = false; });

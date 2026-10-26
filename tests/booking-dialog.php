@@ -152,12 +152,11 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     check($xpath->query($form . '//input[@name="occurrence_id"]')->length === 1, 'The shared form needs the edited ID.');
     check($xpath->query('//*[@id="calendar-date-picker"]')->length === 1, 'The calendar needs direct date selection.');
     check(
-        $xpath->query('//*[@id="calendar-resource-switcher"]')->length === 1
-            && $xpath->query('//*[@id="calendar-resource-switcher"]/button[@data-calendar-resource="pitch"]')->length === 1
-            && $xpath->query('//*[@id="calendar-resource-switcher"]/button[@data-calendar-resource="bus"]')->length === 1
-            && $xpath->query('//*[@id="calendar-resource-switcher"]/following-sibling::details[@id="calendar-actions-menu"]')->length === 1
-            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-resource]')->length === 0,
-        'Place accessible calendar switch buttons before the view menu.'
+        $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="calendar-resource-controls"]//input[@type="radio" and @data-calendar-resource="pitch"]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="calendar-resource-controls"]//input[@type="radio" and @data-calendar-resource="bus"]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="calendar-resource-controls"]//input[@checked]')->length === 1
+            && $xpath->query('//*[@id="calendar-resource-switcher"]')->length === 0,
+        'Offer pitch and vehicle calendar choices inside the calendar menu.'
     );
     check($xpath->query('//*[@data-resource-type]')->length === 0, 'Replace the old calendar tabs.');
     check($xpath->query('//*[@id="booking-create-menu"]')->length === 1, "$role: Render exactly one booking menu.");
@@ -189,9 +188,9 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
         "$role: Do not offer external bookings in the creation menu."
     );
     check(
-        $xpath->query('//*[@id="calendar-resource-switcher"]//button[@data-calendar-resource]')->length === 2
-            && $xpath->query('//*[@id="calendar-resource-switcher"]//button[@aria-pressed="true"]')->length === 1,
-        'Offer only pitch and vehicle calendar buttons with one selected calendar.'
+        $xpath->query('//*[@id="calendar-resource-controls"]//input[@type="radio" and @data-calendar-resource]')->length === 2
+            && $xpath->query('//*[@id="calendar-resource-controls"]//input[@checked]')->length === 1,
+        'Offer only pitch and vehicle calendar choices with one selected calendar.'
     );
     check($xpath->query('//*[@data-resource-type="cabin" or @data-calendar-view="cabin" or @data-resource-mode="cabin"]')->length === 0, 'Cabins must not have their own booking or calendar.');
     foreach (['calendar-prev', 'calendar-next', 'calendar-today', 'calendar-date-picker'] as $control) {
@@ -308,11 +307,11 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
         'The calendar must not display the removed description.'
     );
     check(
-        $xpath->query('//*[@id="calendar-actions-menu"]/summary[@aria-label="Ansicht einstellen"]')->length === 1
+        $xpath->query('//*[@id="calendar-actions-menu"]/summary[@aria-label="Kalender und Ansicht einstellen"]')->length === 1
             && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-actions-panel]')->length === 1
-            && $xpath->query('//*[@id="calendar-resource-switcher"]//button[@data-calendar-resource]')->length === 2
-            && $xpath->query('//*[@id="calendar-resource-switcher"]//button[@aria-pressed="true"]')->length === 1
-            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-resource]')->length === 0
+            && $xpath->query('//*[@id="calendar-resource-controls"]//input[@data-calendar-resource]')->length === 2
+            && $xpath->query('//*[@id="calendar-resource-controls"]//input[@checked]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-menu-option]')->length === 5
             && $xpath->query('//input[@name="calendar-view"][@type="radio"]')->length === 2
             && $xpath->query('//input[@name="calendar-view"][@checked]')->length === 1
             && $xpath->query('//*[@id="full-day-toggle"]')->length === 1

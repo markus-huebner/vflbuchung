@@ -3,6 +3,7 @@ import '../css/app.css';
 
 import { initBookingDates } from './booking-dates.mjs';
 import { initCalendarActionsMenu, syncCalendarActionsMenu } from './calendar-actions.mjs';
+import { initCalendarSwipeNavigation, shiftCalendarDate } from './calendar-navigation.mjs';
 import { initDatePicker } from './date-picker.mjs';
 import {
   DEFAULT_DAY_END_HOUR,
@@ -45,7 +46,7 @@ let pendingConfirmationForm = null;
 let pendingScopeAction = null;
 
 function announce(message, kind = 'info') {
-  if (!messageBox) return;
+  if (!messageBox || kind === 'success') return;
   messageBox.className = `alert alert-${kind}`;
   messageBox.textContent = message;
   messageBox.hidden = false;
@@ -95,6 +96,15 @@ async function loadCalendar() {
   const { start, end } = rangeForView();
   state.events = await fetchEvents(start, end, state.resourceType);
   renderCalendar();
+}
+
+async function navigateCalendar(direction) {
+  state.date = shiftCalendarDate(state.date, state.view, direction);
+  try {
+    await loadCalendar();
+  } catch (error) {
+    announce(error.message, 'danger');
+  }
 }
 
 async function fetchEvents(start, end, resourceType) {
@@ -184,8 +194,8 @@ function renderCalendar() {
   const weekView = document.querySelector(`#${state.resourceType}-week`);
   if (dayView) dayView.hidden = state.view !== 'day';
   if (weekView) weekView.hidden = state.view !== 'week';
-  document.querySelectorAll('[data-calendar-resource]').forEach((button) => {
-    button.setAttribute('aria-pressed', String(button.dataset.calendarResource === state.resourceType));
+  document.querySelectorAll('[data-calendar-resource]').forEach((option) => {
+    option.checked = option.dataset.calendarResource === state.resourceType;
   });
   document.querySelectorAll('[data-view]').forEach((button) => {
     button.checked = button.dataset.view === state.view;
@@ -345,6 +355,11 @@ function renderResourceDay() {
   });
 
   target.append(grid);
+  const headingHeight = Math.max(
+    42,
+    ...[...grid.querySelectorAll('.resource-column-heading')].map(heading => heading.offsetHeight),
+  );
+  grid.style.setProperty('--resource-heading-height', `${headingHeight}px`);
 }
 
 function renderResourceWeek() {
@@ -688,6 +703,7 @@ function updateRecurrenceFields() {
 }
 
 function bookingError(message = '', kind = 'danger') {
+  if (kind === 'success') return;
   const error = bookingForm.querySelector('[data-booking-error]');
   error.className = `alert alert-${kind} mb-0`;
   error.setAttribute('role', kind === 'danger' ? 'alert' : 'status');
@@ -978,6 +994,10 @@ function initControls() {
   initUserMenu();
   initCalendarActionsMenu();
   initDashboardResizer();
+  initCalendarSwipeNavigation(document.querySelector('.calendar-frame'), {
+    onPrevious: () => { void navigateCalendar(-1); },
+    onNext: () => { void navigateCalendar(1); },
+  });
   document.addEventListener('click', (event) => {
     const button = event.target.closest('#request-dashboard [data-dashboard-jump]');
     if (button) void showRequestInCalendar(button);
@@ -1038,26 +1058,26 @@ function initControls() {
       deleteUserDialog.showModal();
     });
   });
-  const resourceButtons = [...document.querySelectorAll('[data-calendar-resource]')];
+  const resourceOptions = [...document.querySelectorAll('[data-calendar-resource]')];
   const viewControls = document.querySelector('#calendar-view-controls');
-  resourceButtons.forEach((button) => {
-    button.addEventListener('click', async () => {
-      if (button.dataset.calendarResource === state.resourceType) return;
+  resourceOptions.forEach((option) => {
+    option.addEventListener('change', async () => {
+      if (!option.checked || option.dataset.calendarResource === state.resourceType) return;
       const previous = state.resourceType;
-      resourceButtons.forEach((choice) => { choice.disabled = true; });
+      resourceOptions.forEach((choice) => { choice.disabled = true; });
       if (viewControls) viewControls.disabled = true;
       try {
-        state.resourceType = button.dataset.calendarResource;
+        state.resourceType = option.dataset.calendarResource;
         await loadCalendar();
         sessionStorage.setItem(calendarResourceTypeStorageKey, state.resourceType);
       } catch (error) {
         state.resourceType = previous;
-        resourceButtons.forEach((choice) => {
-          choice.setAttribute('aria-pressed', String(choice.dataset.calendarResource === previous));
+        resourceOptions.forEach((choice) => {
+          choice.checked = choice.dataset.calendarResource === previous;
         });
         announce(error.message, 'danger');
       } finally {
-        resourceButtons.forEach((choice) => { choice.disabled = false; });
+        resourceOptions.forEach((choice) => { choice.disabled = false; });
         if (viewControls) viewControls.disabled = false;
       }
     });
@@ -1066,7 +1086,7 @@ function initControls() {
     button.addEventListener('change', async () => {
       if (!button.checked) return;
       const previous = state.view;
-      resourceButtons.forEach((choice) => { choice.disabled = true; });
+      resourceOptions.forEach((choice) => { choice.disabled = true; });
       if (viewControls) viewControls.disabled = true;
       try {
         state.view = button.dataset.view;
@@ -1078,19 +1098,17 @@ function initControls() {
         });
         announce(error.message, 'danger');
       } finally {
-        resourceButtons.forEach((choice) => { choice.disabled = false; });
+        resourceOptions.forEach((choice) => { choice.disabled = false; });
         if (viewControls) viewControls.disabled = false;
         syncCalendarActionsMenu();
       }
     });
   });
-  document.querySelector('#calendar-prev')?.addEventListener('click', async () => {
-    state.date.setDate(state.date.getDate() + (state.view === 'day' ? -1 : -7));
-    await loadCalendar();
+  document.querySelector('#calendar-prev')?.addEventListener('click', () => {
+    void navigateCalendar(-1);
   });
-  document.querySelector('#calendar-next')?.addEventListener('click', async () => {
-    state.date.setDate(state.date.getDate() + (state.view === 'day' ? 1 : 7));
-    await loadCalendar();
+  document.querySelector('#calendar-next')?.addEventListener('click', () => {
+    void navigateCalendar(1);
   });
   document.querySelector('#calendar-today')?.addEventListener('click', async () => {
     state.date = new Date();

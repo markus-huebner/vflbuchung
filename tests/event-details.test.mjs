@@ -267,12 +267,17 @@ const pitch = {
   private_notes: 'Zeile 1\n<script>Kein HTML</script>', recurrence_rule: null,
 };
 
-test('booking feedback uses the alert inside the open dialog', () => {
+test('booking feedback omits success alerts but still shows warnings inside the dialog', () => {
   const feedback = setupBookingFeedback();
   feedback.show('Buchung wurde angelegt.', 'success');
-  assert.equal(feedback.box.textContent, 'Buchung wurde angelegt.');
+  assert.equal(feedback.box.textContent, '');
+  assert.equal(feedback.box.hidden, true);
+  assert.equal(feedback.box.className, '');
+
+  feedback.show('E-Mail-Versand fehlgeschlagen.', 'warning');
+  assert.equal(feedback.box.textContent, 'E-Mail-Versand fehlgeschlagen.');
   assert.equal(feedback.box.hidden, false);
-  assert.equal(feedback.box.className, 'alert alert-success mb-0');
+  assert.equal(feedback.box.className, 'alert alert-warning mb-0');
   assert.equal(feedback.box.attributes.role, 'status');
   assert.equal(feedback.box.attributes['aria-live'], 'polite');
 
