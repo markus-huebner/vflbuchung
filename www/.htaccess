@@ -3,3 +3,12 @@ Options -Indexes
 <FilesMatch "^\.">
     Require all denied
 </FilesMatch>
+
+<FilesMatch "^composer\.(json|lock)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(app|config|database|vendor|storage)(/|$) - [F,L]
+</IfModule>

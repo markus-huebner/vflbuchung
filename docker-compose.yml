@@ -8,7 +8,8 @@ services:
     ports:
       - "8100:80"
     volumes:
-      - setup_storage:/var/www/app/storage
+      - setup_config:/var/www/app/www/config
+      - setup_storage:/var/www/app/www/storage
     environment:
       APP_ENV: ${APP_ENV:-local}
       APP_URL: ${APP_URL:-http://localhost:8100}
@@ -17,13 +18,13 @@ services:
       DB_NAME: ${DB_NAME:-belegungsplan}
       DB_USER: ${DB_USER:-webuser}
       DB_PASSWORD: ${DB_PASSWORD:-userpasswort}
-      MAIL_HOST: mailpit
-      MAIL_PORT: 1025
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
       MAIL_FROM: ${MAIL_FROM:-buchungssystem@example.test}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Platz- und Busbelegung}
-      MAIL_USERNAME: ""
-      MAIL_PASSWORD: ""
-      MAIL_ENCRYPTION: ""
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-}
     depends_on:
       mailpit:
         condition: service_started
@@ -41,8 +42,8 @@ services:
       - "8102:3306"
     volumes:
       - db_data:/var/lib/mysql
-      - ./database/install.sql:/docker-entrypoint-initdb.d/001_install.sql:ro
-      - ./database/seed_resources.sql:/docker-entrypoint-initdb.d/002_seed_resources.sql:ro
+      - ./www/database/install.sql:/docker-entrypoint-initdb.d/001_install.sql:ro
+      - ./www/database/seed_resources.sql:/docker-entrypoint-initdb.d/002_seed_resources.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 5s
@@ -72,4 +73,5 @@ services:
 
 volumes:
   db_data:
+  setup_config:
   setup_storage:

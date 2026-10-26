@@ -26,7 +26,7 @@ try {
     $setup | docker compose exec -T -e "TEST_DB=$testDatabase" db sh -c "tr -d '\015' | sh"
     if ($LASTEXITCODE -ne 0) { throw "Could not create the isolated booking test database." }
     $created = $true
-    Get-Content database\install.sql -Raw -Encoding UTF8 |
+    Get-Content www\database\install.sql -Raw -Encoding UTF8 |
         docker compose exec -T -e "TEST_DB=$testDatabase" db sh -c 'export MYSQL_PWD=$MYSQL_ROOT_PASSWORD; exec mysql -uroot $TEST_DB'
     if ($LASTEXITCODE -ne 0) { throw "Could not install the isolated test schema." }
     Get-Content tests\booking-edit.php -Raw -Encoding UTF8 |

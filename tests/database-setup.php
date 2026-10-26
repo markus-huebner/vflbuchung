@@ -5,7 +5,7 @@ use App\Config;
 use App\Database;
 use App\DatabaseSetup;
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/www/vendor/autoload.php';
 
 $config = Config::fromEnvironment();
 if ($config->get('DB_NAME') !== 'vflbuchung_setup_test') {

@@ -16,6 +16,11 @@ ini_set('log_errors', '1');
 Security::startSession();
 
 $databaseConnectionError = null;
+$pdo = null;
+if ($config->isSetupRequired()) {
+    return;
+}
+
 try {
     $pdo = Database::connect($config);
 } catch (PDOException $exception) {

@@ -6,7 +6,7 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
 
 ## Lokal mit Docker starten
 
-1. Lege eine lokale Konfiguration an:
+1. Optional: Lege eine lokale Konfiguration an, um die Docker-Standardwerte zu überschreiben:
 
    ```powershell
    Copy-Item .env.example .env
@@ -22,9 +22,15 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
 
 Die lokale Oberfläche läuft auf Port `8100`; phpMyAdmin ist unter `http://localhost:8101` und Mailpit unter `http://localhost:8103` erreichbar. MySQL ist auf Host-Port `8102` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
 
+Die Entwicklungsumgebung auf `8100` erhält lokale Vorgaben ausschließlich aus `docker-compose.yml`: `APP_ENV=local`, URL `http://localhost:8100`, Datenbank `db:3306` mit `belegungsplan`/`webuser` und Mailpit auf Port `1025`. Diese Werte sind nur für die lokale Entwicklung gedacht und werden nicht in das Docker-Image oder die Anwendung eingebaut.
+
+Die separate Umgebung unter `D:\projects\vflbuchung_www` läuft auf `http://localhost:8200` als Hoster-Nachbildung: Ihr Webcontainer bekommt keine `APP_*`-, `DB_*`- oder `MAIL_*`-Variablen aus Docker Compose. Das Host-Verzeichnis `D:\projects\vflbuchung_www\www\config` ist direkt eingebunden; die Anwendung liest und der Einrichtungsassistent schreibt dort die Datei `.env`. Änderungen an dieser Datei werden beim nächsten Request eingelesen. Die Anwendung wird ansonsten aus dem Image statt über Quellcode-Bind-Mounts bereitgestellt. Codeänderungen dort erfordern `docker compose up --build -d web`. MySQL (`8202`), phpMyAdmin (`8201`) und Mailpit (`8203`) bleiben getrennte Hilfsdienste; Schema und Ressourcen werden bei neuen Datenbank-Volumes nicht automatisch importiert. Bestehende Datenbanken bleiben unverändert.
+
+Die 8200-Kopie enthält nur Laufzeitdateien und die nötige Docker-Konfiguration. Entwicklung, Tests, Frontend-Builds und Composer-Installation bleiben in diesem Projekt. Für Aktualisierungen werden PHP-Anwendung, fertige Bundles, Bilder, SQL-Dateien und `vendor` übernommen; `www/config` und Laufzeitdaten bleiben erhalten. Das Dockerfile der 8200-Kopie baut keine npm- oder Composer-Abhängigkeiten mehr.
+
 MySQL führt Dateien in `/docker-entrypoint-initdb.d` nur aus, wenn das Datenverzeichnis erstmals initialisiert wird. Bei einem bestehenden Docker-Volume werden `install.sql` und `seed_resources.sql` nicht automatisch erneut ausgeführt. **Das Volume nicht mit `docker compose down -v` löschen**, wenn vorhandene Daten erhalten bleiben sollen.
 
-Die Datenbank-Verbindungseinstellungen werden nur nach erfolgreicher Prüfung und Bestätigung in `setup_storage` gespeichert. Sie haben Vorrang vor den Werten aus `.env`; das Root-Passwort wird nicht in dieser Datei gespeichert. Wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
+Die Datenbank-Verbindungseinstellungen werden nur nach erfolgreicher Prüfung und Bestätigung in `www/config/.env` gespeichert. Das Root-Passwort wird nicht gespeichert. In der lokalen Docker-Umgebung bleibt die Datei im separaten Volume `setup_config` erhalten; wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
 
 ## Rollen und Funktionen
 
@@ -72,16 +78,18 @@ Das Dropdown in der Headerzeile wechselt zwischen Platzbelegung und Fahrzeugkale
 
 ### Übliche Webserver
 
-Der Webserver muss auf `www/` als DocumentRoot zeigen. `app/`, `database/`, `.env` und `vendor/` gehören außerhalb des öffentlich erreichbaren DocumentRoot. Benötigt werden PHP 8.2 oder neuer mit `mbstring` und `pdo_mysql`, MySQL 8 sowie ausgehender SMTP-Zugriff.
+Der Webserver muss auf `www/` als DocumentRoot zeigen. Alle Laufzeitdateien einschließlich `app/`, `config/`, `database/` und `vendor/` liegen innerhalb von `www/`; `.htaccess` sperrt den direkten Zugriff auf diese Verzeichnisse. In der Produktion liegt die aktive `.env`-Datei unter `www/config/.env`. Die Beispiele `.env.example` und `.env.production.example` liegen im Projektstamm und gehören nicht nach `www/config/`.
 
-Setze die folgenden Werte in der geschützten Konfigurationsoberfläche deines Hosters. Die Anwendung liest Umgebungsvariablen oder alternativ eine geschützte PHP-Konfiguration unter `config/hosting.php`; eine öffentlich erreichbare `.env`-Datei wird nicht geladen:
+Die Anwendung liest die aktive `.env` aus `www/config/.env`. Es gibt keine automatischen Konfigurationsvorgaben: Fehlen Werte oder erforderliche Angaben, startet der Einrichtungsassistent. Er erfasst Anwendungsumgebung (`APP_ENV`), URL, sämtliche SMTP- und Absenderangaben sowie die Datenbankverbindung und speichert die geprüften Einstellungen dort. Das Verzeichnis `www/config/` muss dafür vom PHP-Prozess beschreibbar sein. Ohne SMTP können `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` und `MAIL_ENCRYPTION` ausdrücklich leer gespeichert werden. Mit SMTP muss der Port angegeben werden; es wird weder ein Port noch eine Verschlüsselung automatisch ergänzt.
+
+Nur die lokale Entwicklungsumgebung auf `8100` ergänzt fehlende Werte durch Docker-Compose-Vorgaben; die `.env` im Projektstamm kann diese überschreiben (Vorlage: `.env.example`). Die Anwendung selbst und das Dockerfile enthalten keine Konfigurationsvorgaben. Auf `8200` und beim Webhoster werden alle Anwendungseinstellungen ausdrücklich im Assistenten oder in `www/config/.env` gesetzt. Gespeicherte Assistenten-Einstellungen haben Vorrang vor Prozessvariablen, danach folgen `www/config/.env` und die optionale `www/config/hosting.php`. Eine Produktionsumgebung ohne `www/config/.env` startet ebenfalls den Assistenten.
 
 | Variable | Beschreibung |
 | --- | --- |
 | `APP_ENV` | `production` auf dem Hoster; `local` lokal |
 | `APP_URL` | Öffentliche Basis-URL, z. B. `https://verein.example` |
 | `DB_HOST`, `DB_PORT` | Datenbankserver und Port |
-| `DB_NAME` | Datenbankname, standardmäßig `belegungsplan` |
+| `DB_NAME` | Explizit festzulegender Datenbankname |
 | `DB_USER`, `DB_PASSWORD` | Zugangsdaten eines eingeschränkten Datenbankbenutzers |
 | `MAIL_HOST`, `MAIL_PORT` | SMTP-Server und Port |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | SMTP-Zugangsdaten, falls erforderlich |
@@ -95,11 +103,11 @@ npm ci
 npm run build
 ```
 
-Lade anschließend mindestens `app/`, `vendor/`, `www/` einschließlich `www/assets/build/`, `database/install.sql` und `database/seed_resources.sql` hoch. `vendor/` lässt sich mit `composer install --no-dev --optimize-autoloader` erstellen.
+Erzeuge die Abhängigkeiten mit `composer install --working-dir=www --no-dev --optimize-autoloader` und lade anschließend den Inhalt von `www/` einschließlich `www/assets/build/` und `www/vendor/` in das DocumentRoot hoch. Lege die aktive Produktionskonfiguration als `www/config/.env` ab. Die Beispiel-Dateien bleiben im Repository-Stamm und werden nicht nach `www/config/` kopiert.
 
 ### InfinityFree (kostenloses Hosting)
 
-Bei InfinityFree ist `htdocs/` das festgelegte Webverzeichnis; Dateien außerhalb davon sind für PHP nicht zuverlässig erreichbar. Der einmalige Assistent `scripts/deploy-infinityfree.sh` erstellt deshalb lokal ein Paket, das öffentliche Dateien sowie `app/`, `database/`, `vendor/` und eine geschützte Konfiguration innerhalb von `htdocs/` ablegt. Die privaten Verzeichnisse werden durch `.htaccess`-Dateien gesperrt. Starte den Assistenten bevorzugt in Git Bash aus dem Projektverzeichnis. In WSL müssen Node/npm, Composer und die Frontend-Abhängigkeiten ebenfalls in der WSL-Umgebung verfügbar sein:
+Bei InfinityFree ist `htdocs/` das festgelegte Webverzeichnis. Das Paket enthält alle Laufzeitdateien und die aktive `.env` unter `htdocs/config/.env`; der direkte HTTP-Zugriff auf `config/` ist gesperrt. Starte den Assistenten bevorzugt in Git Bash aus dem Projektverzeichnis. In WSL müssen Node/npm, Composer und die Frontend-Abhängigkeiten ebenfalls in der WSL-Umgebung verfügbar sein:
 
 ```bash
 bash scripts/deploy-infinityfree.sh
@@ -107,13 +115,13 @@ bash scripts/deploy-infinityfree.sh
 
 Er führt durch Datenbankeinrichtung, Upload und phpMyAdmin-Import. Zugangsdaten werden lokal erfasst; FTP-Zugangsdaten gehören ausschließlich in FileZilla. Teile sie nicht im Chat und lade die lokale Datei `.infinityfree-deploy/.deploy-state` niemals hoch.
 
-Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose Hosting-Datenbank lässt keine Verbindungen von deinem lokalen Rechner zu; importiere `database/install.sql` und danach `database/seed_resources.sql` über phpMyAdmin. E-Mails benötigen einen externen SMTP-Anbieter; ohne SMTP-Konfiguration funktionieren Einladungen und Passwort-Reset nicht.
+Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose Hosting-Datenbank lässt keine Verbindungen von deinem lokalen Rechner zu; importiere `www/database/install.sql` und danach `www/database/seed_resources.sql` über phpMyAdmin. E-Mails benötigen einen externen SMTP-Anbieter; ohne SMTP-Konfiguration funktionieren Einladungen und Passwort-Reset nicht.
 
 ## Datenbankinstallation
 
-`database/install.sql` enthält das vollständige Schema einschließlich der Ressourcenkategorien-Tabelle mit den Kategorien „Platz“, „Fahrzeug“ und „Kabine“. `database/seed_resources.sql` fügt anschließend die Startressourcen ein. Der Web-Assistent kann diese Skripte beim ersten Einrichten ausführen. Bei vorhandenen Tabellen ergänzt die Option „Daten behalten“ fehlende Tabellen und Standardressourcen, ohne Anwendungstabellen zu löschen. Die Option „Anwendungstabellen neu anlegen“ löscht alle Benutzer, Buchungen und Ressourcen in den Anwendungstabellen und ist nur mit einer zusätzlichen Bestätigung verfügbar; andere, nicht zur Anwendung gehörende Datenbanktabellen werden nicht gelöscht.
+`www/database/install.sql` enthält das vollständige Schema einschließlich der Ressourcenkategorien-Tabelle mit den Kategorien „Platz“, „Fahrzeug“ und „Kabine“. `www/database/seed_resources.sql` fügt anschließend die Startressourcen ein. Der Web-Assistent kann diese Skripte beim ersten Einrichten ausführen. Bei vorhandenen Tabellen ergänzt die Option „Daten behalten“ fehlende Tabellen und Standardressourcen, ohne Anwendungstabellen zu löschen. Die Option „Anwendungstabellen neu anlegen“ löscht alle Benutzer, Buchungen und Ressourcen in den Anwendungstabellen und ist nur mit einer zusätzlichen Bestätigung verfügbar; andere, nicht zur Anwendung gehörende Datenbanktabellen werden nicht gelöscht.
 
-Alternativ zum Web-Assistenten können für eine neue lokale oder gehostete Datenbank zuerst `database/install.sql` und danach `database/seed_resources.sql` manuell ausgeführt werden. Diese Installationsskripte sind für eine leere Datenbank vorgesehen. Ein vollständiges aktuelles Anwendungsschema wird beim Start erkannt und nicht automatisch verändert. Im Einrichtungsassistenten kannst du die vorhandenen Daten behalten oder nach ausdrücklicher Bestätigung alle Anwendungstabellen löschen und mit dem aktuellen Schema neu anlegen lassen. Es werden keine Datenbank-Migrationsskripte mehr ausgeliefert; eine bestehende Datenbank muss deshalb bereits das aktuelle Schema verwenden.
+Alternativ zum Web-Assistenten können für eine neue lokale oder gehostete Datenbank zuerst `www/database/install.sql` und danach `www/database/seed_resources.sql` manuell ausgeführt werden. Diese Installationsskripte sind für eine leere Datenbank vorgesehen. Ein vollständiges aktuelles Anwendungsschema wird beim Start erkannt und nicht automatisch verändert. Im Einrichtungsassistenten kannst du die vorhandenen Daten behalten oder nach ausdrücklicher Bestätigung alle Anwendungstabellen löschen und mit dem aktuellen Schema neu anlegen lassen. Es werden keine Datenbank-Migrationsskripte mehr ausgeliefert; eine bestehende Datenbank muss deshalb bereits das aktuelle Schema verwenden.
 
 ## Checks
 

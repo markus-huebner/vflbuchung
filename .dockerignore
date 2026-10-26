@@ -4,5 +4,9 @@
 !.env.example
 node_modules
 vendor
+/www/vendor/
+/www/config/hosting.php
+/www/.env
+/www/config/.env
 tests
-/storage/
+/www/storage/

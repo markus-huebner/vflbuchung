@@ -7,7 +7,7 @@ use App\Database;
 use App\Mailer;
 use App\Recurrence;
 
-require getcwd() . '/vendor/autoload.php';
+require getcwd() . '/www/vendor/autoload.php';
 
 $config = Config::fromEnvironment();
 if (!preg_match('/^vflbuchung_test_[a-z0-9]+$/', $config->get('DB_NAME'))) {

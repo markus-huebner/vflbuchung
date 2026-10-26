@@ -17,7 +17,8 @@ final class DatabaseConnectionWizard
 
     public function __construct(
         private readonly Config $config,
-        private readonly PDOException $connectionError
+        private readonly ?PDOException $connectionError = null,
+        private readonly bool $configurationMissing = false
     ) {
         $this->csrf = Security::csrfToken();
     }
@@ -28,7 +29,9 @@ final class DatabaseConnectionWizard
         header('X-Frame-Options: DENY');
         header('Referrer-Policy: no-referrer');
         header('Cache-Control: no-store');
-        error_log('Database connection unavailable: ' . $this->connectionError->getMessage());
+        if ($this->connectionError !== null) {
+            error_log('Database connection unavailable: ' . $this->connectionError->getMessage());
+        }
 
         try {
             $content = $this->dispatch();
@@ -45,11 +48,11 @@ final class DatabaseConnectionWizard
         }
 
         echo Views::layout(
-            'Datenbankverbindung einrichten',
+            $this->configurationMissing ? 'System einrichten' : 'Datenbankverbindung einrichten',
             $content,
             null,
             $this->csrf,
-            $this->config->get('APP_URL')
+            $this->config->has('APP_URL') ? $this->config->get('APP_URL') : ''
         );
     }
 
@@ -82,11 +85,21 @@ final class DatabaseConnectionWizard
     private function verifyApplicationDetails(): string
     {
         $submittedValues = [
+            'APP_ENV' => trim((string) ($_POST['APP_ENV'] ?? '')),
             'APP_URL' => trim((string) ($_POST['APP_URL'] ?? '')),
+            'MAIL_HOST' => trim((string) ($_POST['MAIL_HOST'] ?? '')),
+            'MAIL_PORT' => trim((string) ($_POST['MAIL_PORT'] ?? '')),
+            'MAIL_USERNAME' => trim((string) ($_POST['MAIL_USERNAME'] ?? '')),
+            'MAIL_PASSWORD' => (string) ($_POST['MAIL_PASSWORD'] ?? ''),
+            'MAIL_ENCRYPTION' => trim((string) ($_POST['MAIL_ENCRYPTION'] ?? '')),
             'MAIL_FROM' => trim((string) ($_POST['MAIL_FROM'] ?? '')),
             'MAIL_FROM_NAME' => trim((string) ($_POST['MAIL_FROM_NAME'] ?? '')),
         ];
         $previous = $_SESSION[self::DRAFT_KEY] ?? [];
+        if ($submittedValues['MAIL_PASSWORD'] === '') {
+            $submittedValues['MAIL_PASSWORD'] = (string) ($previous['MAIL_PASSWORD']
+                ?? ($this->config->has('MAIL_PASSWORD') ? $this->config->get('MAIL_PASSWORD') : ''));
+        }
         $_SESSION[self::DRAFT_KEY] = array_merge(
             is_array($previous) ? $previous : [],
             $submittedValues
@@ -143,7 +156,8 @@ final class DatabaseConnectionWizard
         $previous = $_SESSION[self::DRAFT_KEY] ?? [];
         $password = (string) ($_POST['DB_PASSWORD'] ?? '');
         if ($password === '') {
-            $password = (string) ($previous['DB_PASSWORD'] ?? $this->config->get('DB_PASSWORD'));
+            $password = (string) ($previous['DB_PASSWORD']
+                ?? ($this->config->has('DB_PASSWORD') ? $this->config->get('DB_PASSWORD') : ''));
         }
 
         return [
@@ -157,6 +171,27 @@ final class DatabaseConnectionWizard
 
     private function validateApplicationValues(array $values): array
     {
+        if (!in_array($values['APP_ENV'], ['local', 'production'], true)) {
+            throw new RuntimeException('Die Anwendungsumgebung muss local oder production sein.');
+        }
+        $mailHost = $values['MAIL_HOST'];
+        if ($mailHost !== '' && (strlen($mailHost) > 255 || !preg_match('/\A[a-zA-Z0-9._:\[\]-]+\z/', $mailHost))) {
+            throw new RuntimeException('Der SMTP-Host ist ungültig.');
+        }
+        $mailPort = $values['MAIL_PORT'];
+        if ($mailHost !== '' || $mailPort !== '') {
+            $port = filter_var($mailPort, FILTER_VALIDATE_INT);
+            if ($port === false || $port < 1 || $port > 65535) {
+                throw new RuntimeException('Der SMTP-Port muss zwischen 1 und 65535 liegen.');
+            }
+        }
+        if (!in_array($values['MAIL_ENCRYPTION'], ['', 'tls', 'ssl'], true)) {
+            throw new RuntimeException('Die SMTP-Verschlüsselung muss tls, ssl oder leer sein.');
+        }
+        if ($values['MAIL_USERNAME'] !== '' && $values['MAIL_PASSWORD'] === '') {
+            throw new RuntimeException('Für den SMTP-Benutzer muss ein Passwort eingegeben werden.');
+        }
+
         $url = $values['APP_URL'];
         $urlParts = parse_url($url);
         if (!is_array($urlParts)
@@ -181,7 +216,13 @@ final class DatabaseConnectionWizard
         }
 
         return [
+            'APP_ENV' => $values['APP_ENV'],
             'APP_URL' => rtrim($url, '/'),
+            'MAIL_HOST' => $mailHost,
+            'MAIL_PORT' => $mailPort,
+            'MAIL_USERNAME' => $values['MAIL_USERNAME'],
+            'MAIL_PASSWORD' => $values['MAIL_PASSWORD'],
+            'MAIL_ENCRYPTION' => $values['MAIL_ENCRYPTION'],
             'MAIL_FROM' => $email,
             'MAIL_FROM_NAME' => $fromName,
         ];
@@ -233,20 +274,31 @@ final class DatabaseConnectionWizard
     private function form(string $error = '', string $step = 'application'): string
     {
         $draft = $_SESSION[self::DRAFT_KEY] ?? [];
-        $value = fn(string $key): string => (string) ($draft[$key] ?? $this->config->get($key));
+        $value = fn(string $key): string => (string) ($draft[$key]
+            ?? ($this->config->has($key) ? $this->config->get($key) : ''));
         $errorHtml = $error === ''
             ? ''
             : '<div class="alert alert-danger" role="alert">' . Security::escape($error) . '</div>';
+        $heading = $this->configurationMissing ? 'System einrichten' : 'Datenbankverbindung einrichten';
         if ($step === 'application') {
-            return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">Datenbankverbindung einrichten</h1>
-<p>Die Anwendung erreicht die konfigurierte Datenbank nicht. Gib zuerst die Anwendungs- und Absenderdaten ein. Die MySQL-Datenbank muss bereits angelegt sein.</p>
+            $introduction = $this->configurationMissing
+                ? 'Die Konfiguration fehlt oder ist unvollständig. Gib alle Einstellungen ausdrücklich an; es werden keine Standardwerte verwendet.'
+                : 'Die Anwendung erreicht die konfigurierte Datenbank nicht. Prüfe zuerst die Anwendungs- und E-Mail-Einstellungen. Die MySQL-Datenbank muss bereits angelegt sein.';
+            return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">' . $heading . '</h1>
+<p>' . $introduction . '</p>
 <div class="progress mb-4" role="progressbar" aria-label="Einrichtungsschritt" aria-valuenow="1" aria-valuemin="1" aria-valuemax="2"><div class="progress-bar" style="width:50%">Schritt 1 von 2</div></div>'
                 . $errorHtml . '
 <form method="post" action="/?action=database-connection-app">
   <input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '">
+  <div class="mb-3"><label class="form-label" for="setup-app-env">Anwendungsumgebung</label><select class="form-select" id="setup-app-env" name="APP_ENV" required><option value="">Bitte wählen</option><option value="local"' . ($value('APP_ENV') === 'local' ? ' selected' : '') . '>local</option><option value="production"' . ($value('APP_ENV') === 'production' ? ' selected' : '') . '>production</option></select></div>
   <div class="mb-3"><label class="form-label" for="setup-app-url">Anwendungs-URL</label><input class="form-control" id="setup-app-url" type="url" name="APP_URL" value="' . Security::escape($value('APP_URL')) . '" maxlength="500" required></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-from">Absender-E-Mail</label><input class="form-control" id="setup-mail-from" type="email" name="MAIL_FROM" value="' . Security::escape($value('MAIL_FROM')) . '" maxlength="254" required></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-name">Absendername</label><input class="form-control" id="setup-mail-name" name="MAIL_FROM_NAME" value="' . Security::escape($value('MAIL_FROM_NAME')) . '" maxlength="120" required></div>
+  <div class="mb-3"><label class="form-label" for="setup-mail-host">SMTP-Host</label><input class="form-control" id="setup-mail-host" name="MAIL_HOST" value="' . Security::escape($value('MAIL_HOST')) . '" maxlength="255"><div class="form-text">Leer lassen, um den E-Mail-Versand nicht zu konfigurieren.</div></div>
+  <div class="mb-3"><label class="form-label" for="setup-mail-port">SMTP-Port</label><input class="form-control" id="setup-mail-port" type="number" name="MAIL_PORT" value="' . Security::escape($value('MAIL_PORT')) . '" min="1" max="65535"><div class="form-text">Bei konfiguriertem SMTP-Host erforderlich.</div></div>
+  <div class="mb-3"><label class="form-label" for="setup-mail-encryption">SMTP-Verschlüsselung</label><select class="form-select" id="setup-mail-encryption" name="MAIL_ENCRYPTION"><option value="">Keine</option><option value="tls"' . ($value('MAIL_ENCRYPTION') === 'tls' ? ' selected' : '') . '>TLS</option><option value="ssl"' . ($value('MAIL_ENCRYPTION') === 'ssl' ? ' selected' : '') . '>SSL</option></select></div>
+  <div class="mb-3"><label class="form-label" for="setup-mail-user">SMTP-Benutzer</label><input class="form-control" id="setup-mail-user" name="MAIL_USERNAME" value="' . Security::escape($value('MAIL_USERNAME')) . '"></div>
+  <div class="mb-3"><label class="form-label" for="setup-mail-password">SMTP-Passwort</label><input class="form-control" id="setup-mail-password" type="password" name="MAIL_PASSWORD" autocomplete="new-password"><div class="form-text">' . ($value('MAIL_PASSWORD') !== '' ? 'Leer lassen, um das bisher eingegebene Kennwort weiterzuverwenden.' : 'Nur bei SMTP-Authentifizierung erforderlich.') . '</div></div>
   <button class="btn btn-primary" type="submit">Weiter zu den Datenbankangaben</button>
 </form></section>';
         }
@@ -256,7 +308,7 @@ final class DatabaseConnectionWizard
             ? '<div class="form-text">Leer lassen, um das bisher eingegebene Kennwort weiterzuverwenden.</div>'
             : '<div class="form-text">Das Passwort des Datenbankbenutzers wird benötigt; ein MySQL-Root-Passwort ist nicht erforderlich.</div>';
 
-        return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">Datenbankverbindung einrichten</h1>
+        return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">' . $heading . '</h1>
 <p>Gib die Zugangsdaten für die bereits angelegte MySQL-Datenbank ein. Anschließend wird die Verbindung geprüft.</p>
 <div class="progress mb-4" role="progressbar" aria-label="Einrichtungsschritt" aria-valuenow="2" aria-valuemin="1" aria-valuemax="2"><div class="progress-bar" style="width:100%">Schritt 2 von 2</div></div>'
             . $errorHtml . '
@@ -280,6 +332,7 @@ final class DatabaseConnectionWizard
         }
 
         $rows = [
+            'Anwendungsumgebung' => $values['APP_ENV'],
             'Anwendungs-URL' => $values['APP_URL'],
             'Datenbank-Host' => $values['DB_HOST'],
             'Datenbank-Port' => $values['DB_PORT'],
@@ -288,6 +341,11 @@ final class DatabaseConnectionWizard
             'Datenbankpasswort' => 'Eingegeben (wird nicht angezeigt)',
             'Absender-E-Mail' => $values['MAIL_FROM'],
             'Absendername' => $values['MAIL_FROM_NAME'],
+            'SMTP-Host' => $values['MAIL_HOST'] === '' ? 'Nicht konfiguriert' : $values['MAIL_HOST'],
+            'SMTP-Port' => $values['MAIL_PORT'],
+            'SMTP-Verschlüsselung' => $values['MAIL_ENCRYPTION'] === '' ? 'Keine' : $values['MAIL_ENCRYPTION'],
+            'SMTP-Benutzer' => $values['MAIL_USERNAME'],
+            'SMTP-Passwort' => $values['MAIL_PASSWORD'] === '' ? 'Nicht gesetzt' : 'Eingegeben (wird nicht angezeigt)',
         ];
         $reviewRows = '';
         foreach ($rows as $label => $value) {
