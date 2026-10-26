@@ -14,12 +14,11 @@ final class Config
         $this->values = $values;
     }
 
-    public static function fromEnvironment(): self
+    public static function fromEnvironment(?string $runtimeConfigPath = null): self
     {
         $defaults = [
             'APP_ENV' => 'local',
             'APP_URL' => 'http://localhost:8100',
-            'APP_SETUP_TOKEN' => '',
             'DB_HOST' => '127.0.0.1',
             'DB_PORT' => '3306',
             'DB_NAME' => 'belegungsplan',
@@ -42,6 +41,9 @@ final class Config
                 throw new RuntimeException('Die Hosting-Konfiguration ist ungültig.');
             }
             foreach ($hostValues as $key => $value) {
+                if ($key === 'APP_SETUP_TOKEN') {
+                    continue;
+                }
                 if (!array_key_exists($key, $defaults) || !is_string($value)) {
                     throw new RuntimeException('Die Hosting-Konfiguration enthält ungültige Werte.');
                 }
@@ -49,9 +51,24 @@ final class Config
         }
 
         $values = [];
+        $runtimeValues = (new RuntimeConfiguration($runtimeConfigPath))->load();
         foreach ($defaults as $key => $default) {
             $value = getenv($key);
-            $values[$key] = $value === false ? ($hostValues[$key] ?? $default) : $value;
+            $values[$key] = $runtimeValues[$key]
+                ?? ($value === false ? ($hostValues[$key] ?? $default) : $value);
+        }
+
+        return new self($values);
+    }
+
+    public function withOverrides(array $overrides): self
+    {
+        $values = $this->values;
+        foreach ($overrides as $key => $value) {
+            if (!array_key_exists($key, $values) || !is_string($value)) {
+                throw new RuntimeException('Die Anwendungskonfiguration enthält ungültige Werte.');
+            }
+            $values[$key] = $value;
         }
 
         return new self($values);

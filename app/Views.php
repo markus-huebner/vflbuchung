@@ -799,18 +799,55 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '</div></form></dialog>';
     }
 
-    public static function setup(string $csrf, string $error = ''): string
+    public static function setup(
+        string $csrf,
+        string $error = '',
+        array $databaseStatus = [],
+        bool $allowAdminCreation = true
+    ): string
     {
-        return '<section class="panel-card mx-auto p-4" style="max-width:560px"><h1 class="h3">Ersten Admin einrichten</h1><p>Der Setup-Schlüssel ist erforderlich. Nach dem Anlegen des Kontos ist dieser Assistent gesperrt.</p>' . self::inlineError($error) . '
-<form method="post" action="/?action=setup">
-  <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
-  <div class="mb-3"><label class="form-label" for="setup-token">Setup-Schlüssel</label><input class="form-control" id="setup-token" type="password" name="setup_token" autocomplete="off" required></div>
+        $existingTableCount = max(0, (int) ($databaseStatus['existing_table_count'] ?? 0));
+        $tableCount = max(1, (int) ($databaseStatus['table_count'] ?? 11));
+        $schemaComplete = (bool) ($databaseStatus['schema_complete'] ?? false);
+        $databaseStatusHtml = !$allowAdminCreation
+            ? '<div class="alert alert-info">Ein Administratorkonto ist bereits vorhanden. Fehlende Anwendungstabellen werden ergänzt; vorhandene Daten bleiben erhalten.</div>'
+            : ($schemaComplete
+            ? '<div class="alert alert-info">Das aktuelle Datenbankschema wurde erkannt. Du kannst die vorhandenen Daten behalten oder alle Anwendungstabellen neu anlegen lassen.</div>'
+            : ($existingTableCount === 0
+            ? '<div class="alert alert-info">Es wurden noch keine Anwendungstabellen gefunden. Beim Fortfahren werden das Datenbankschema und die Standardressourcen angelegt.</div>'
+            : '<div class="alert alert-info">Erkannte Anwendungstabellen: ' . $existingTableCount . ' von ' . $tableCount . '. Du kannst die vorhandenen Daten behalten oder alle Anwendungstabellen neu anlegen.</div>'));
+        $databaseChoice = $existingTableCount === 0 || !$allowAdminCreation
+            ? '<input type="hidden" name="schema_action" value="keep">'
+            : '<fieldset class="mb-4"><legend class="h5">Datenbank</legend>
+  <div class="form-check mb-2"><input class="form-check-input" type="radio" id="setup-keep" name="schema_action" value="keep" checked><label class="form-check-label" for="setup-keep">Vorhandene Daten behalten und fehlende Tabellen ergänzen</label></div>
+  <div class="form-check mb-2"><input class="form-check-input" type="radio" id="setup-recreate" name="schema_action" value="recreate"><label class="form-check-label" for="setup-recreate">Anwendungstabellen neu anlegen</label></div>
+  <div class="alert alert-warning">Beim Neuaufbau werden alle Benutzer, Buchungen und Ressourcen in den Anwendungstabellen unwiderruflich gelöscht.</div>
+  <div class="form-check"><input class="form-check-input" type="checkbox" id="setup-confirm-recreate" name="confirm_recreate" value="1"><label class="form-check-label" for="setup-confirm-recreate">Ich bestätige, dass die vorhandenen Anwendungsdaten gelöscht werden dürfen.</label></div>
+</fieldset>';
+
+        $accountForm = $allowAdminCreation
+            ? '<h2 class="h5">2. Administratorkonto</h2>
   <div class="mb-3"><label class="form-label" for="setup-first-name">Vorname</label><input class="form-control" id="setup-first-name" name="first_name" maxlength="120" required></div>
   <div class="mb-3"><label class="form-label" for="setup-last-name">Nachname</label><input class="form-control" id="setup-last-name" name="last_name" maxlength="120"><div class="form-text">Optional.</div></div>
   <div class="mb-3"><label class="form-label" for="setup-email">E-Mail</label><input class="form-control" id="setup-email" type="email" name="email" maxlength="254" required></div>
   <div class="mb-3"><label class="form-label" for="setup-username">Benutzername</label><input class="form-control" id="setup-username" name="username" minlength="3" maxlength="80" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}" autocomplete="username" required><div class="form-text">3–80 Zeichen: Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich.</div></div>
-  <div class="mb-3"><label class="form-label" for="setup-password">Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="setup-password" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" required></div>
-  <button class="btn btn-primary" type="submit">Admin-Konto erstellen</button>
+  <div class="mb-3"><label class="form-label" for="setup-password">Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="setup-password" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" required></div>'
+            : '';
+        $heading = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
+        $submitLabel = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
+        $description = $allowAdminCreation
+            ? ($schemaComplete
+                ? 'Das Datenbankschema ist bereits aktuell. Du kannst es beibehalten oder ausdrücklich neu aufsetzen.'
+                : 'Der Assistent richtet bei Bedarf die Datenbank ein und erstellt das erste Administratorkonto.')
+            : 'Der Assistent ergänzt fehlende Anwendungstabellen. Das vorhandene Administratorkonto und alle bestehenden Daten bleiben erhalten.';
+
+        return '<section class="panel-card mx-auto p-4" style="max-width:680px"><h1 class="h3">' . $heading . '</h1><p>' . $description . ' Nach erfolgreicher Einrichtung wird dieser Assistent gesperrt.</p>' . $databaseStatusHtml . self::inlineError($error) . '
+<form method="post" action="/?action=setup">
+  <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
+  <h2 class="h5">1. Datenbank</h2>
+  ' . $databaseChoice . '
+  ' . $accountForm . '
+  <button class="btn btn-primary" type="submit">' . $submitLabel . '</button>
 </form></section>';
     }
 

@@ -9,8 +9,7 @@ use RuntimeException;
 final class AuthService
 {
     public function __construct(
-        private readonly PDO $pdo,
-        private readonly Config $config
+        private readonly PDO $pdo
     ) {
     }
 
@@ -87,18 +86,12 @@ final class AuthService
     }
 
     public function createInitialAdmin(
-        string $setupToken,
         string $email,
         string $username,
         string $firstName,
         string $lastName,
         string $password
     ): void {
-        $expectedToken = $this->config->get('APP_SETUP_TOKEN');
-        if ($expectedToken === '' || strlen($expectedToken) < 32 || !hash_equals($expectedToken, $setupToken)) {
-            throw new RuntimeException('Der Setup-Schlüssel ist ungültig.');
-        }
-
         $this->validatePassword($password);
         $username = self::normalizeUsername($username);
         $firstName = self::validateFirstName($firstName);
@@ -121,7 +114,7 @@ final class AuthService
                  VALUES (:email, :username, :first_name, :last_name, :password_hash, 'admin', 'active')"
             );
             $statement->execute([
-                'email' => $this->normalizeEmail($email),
+                'email' => self::normalizeEmail($email),
                 'username' => $username,
                 'first_name' => $firstName,
                 'last_name' => $lastName,

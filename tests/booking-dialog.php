@@ -393,6 +393,38 @@ check(
         && !str_contains($setupHtml, 'name="display_name"'),
     'The initial admin setup must collect first and last names separately.'
 );
+$emptyDatabaseSetupHtml = Views::setup('test-csrf', '', [
+    'existing_table_count' => 0,
+    'table_count' => 11,
+]);
+check(
+    str_contains($emptyDatabaseSetupHtml, 'name="schema_action" value="keep"')
+        && !str_contains($emptyDatabaseSetupHtml, 'id="setup-recreate"')
+        && str_contains($emptyDatabaseSetupHtml, 'Datenbankschema und die Standardressourcen angelegt'),
+    'An empty database must be prepared by the web setup without offering a destructive reset.'
+);
+$existingDatabaseSetupHtml = Views::setup('test-csrf', '', [
+    'existing_table_count' => 5,
+    'table_count' => 11,
+]);
+check(
+    str_contains($existingDatabaseSetupHtml, 'id="setup-keep"')
+        && str_contains($existingDatabaseSetupHtml, 'id="setup-recreate"')
+        && str_contains($existingDatabaseSetupHtml, 'name="confirm_recreate"')
+        && str_contains($existingDatabaseSetupHtml, 'unwiderruflich gelöscht'),
+    'Existing application tables must offer preservation or an explicitly confirmed recreation.'
+);
+$schemaRepairHtml = Views::setup('test-csrf', '', [
+    'existing_table_count' => 5,
+    'table_count' => 11,
+], false);
+check(
+    str_contains($schemaRepairHtml, 'Datenbankschema vervollständigen')
+        && str_contains($schemaRepairHtml, 'name="schema_action" value="keep"')
+        && !str_contains($schemaRepairHtml, 'id="setup-recreate"')
+        && !str_contains($schemaRepairHtml, 'name="email"'),
+    'An existing admin must only be offered a non-destructive schema repair.'
+);
 $inviteHtml = Views::users([], 'test-csrf', '', 'invite');
 $createHtml = Views::users([], 'test-csrf', '', 'create');
 check(

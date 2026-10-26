@@ -654,9 +654,4 @@ $legacy = createBooking('2032-04-01')[0];
 $pdo->prepare('UPDATE booking_resource_assignments SET resource_id = :cabin WHERE occurrence_id = :id')
     ->execute(['cabin' => $resources['cabin'][0], 'id' => $legacy]);
 fails(fn() => $service->editableOccurrence($legacy, $admin), 'nur zusammen mit einem Platz');
-$occurrencesBefore = (int) $pdo->query('SELECT COUNT(*) FROM booking_occurrences')->fetchColumn();
-$cabinsBefore = (int) $pdo->query('SELECT COUNT(*) FROM booking_cabin_assignments')->fetchColumn();
-$pdo->exec(file_get_contents('database/migrations/20261024_remove_standalone_cabin_bookings.sql'));
-check((int) $pdo->query('SELECT COUNT(*) FROM booking_occurrences')->fetchColumn() === $occurrencesBefore - 1, 'Remove only standalone cabin occurrences.');
-check((int) $pdo->query('SELECT COUNT(*) FROM booking_cabin_assignments')->fetchColumn() === $cabinsBefore, 'Preserve all cabins attached to pitch bookings.');
 echo "Full booking editing checks passed.\n";

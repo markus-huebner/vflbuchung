@@ -6,7 +6,7 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
 
 ## Lokal mit Docker starten
 
-1. Lege eine lokale Konfiguration an und ersetze den Setup-Schlüssel durch einen zufälligen Wert mit mindestens 32 Zeichen:
+1. Lege eine lokale Konfiguration an:
 
    ```powershell
    Copy-Item .env.example .env
@@ -18,11 +18,13 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
    docker compose up --build -d
    ```
 
-3. Öffne [http://localhost:8100](http://localhost:8100). Beim ersten Start richtet MySQL das Schema mit `database/install.sql` ein und spielt anschließend die Ressourcen aus `database/seed_resources.sql` ein. Wähle im Kalender **Ersten Administrator einrichten** und gib den Wert aus `APP_SETUP_TOKEN` ein.
+3. Öffne [http://localhost:8100](http://localhost:8100). Wenn die Datenbank nicht erreichbar ist, öffnet sich zuerst ein Verbindungsassistent. Er erfasst Anwendungs- und Mail-Absenderdaten sowie Host, Port, Datenbankname und Zugangsdaten eines bereits angelegten MySQL-Datenbankbenutzers. Ein Root-Passwort wird nicht abgefragt. Nach einem erfolgreichen Verbindungstest kannst du die Angaben prüfen oder korrigieren und anschließend geschützt speichern. Die Einstellungen bleiben in einem separaten Docker-Volume erhalten. Bei einer leeren Datenbank öffnet sich danach die Einrichtung von Schema und erstem Administratorkonto; dafür ist kein Setup-Schlüssel erforderlich. Ein erkanntes aktuelles Datenbankschema wird nicht automatisch verändert; bei vorhandenen Anwendungstabellen kannst du die Daten behalten oder nach ausdrücklicher Bestätigung alle Anwendungstabellen neu anlegen lassen.
 
 Die lokale Oberfläche läuft auf Port `8100`; phpMyAdmin ist unter `http://localhost:8101` und Mailpit unter `http://localhost:8103` erreichbar. MySQL ist auf Host-Port `8102` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
 
 MySQL führt Dateien in `/docker-entrypoint-initdb.d` nur aus, wenn das Datenverzeichnis erstmals initialisiert wird. Bei einem bestehenden Docker-Volume werden `install.sql` und `seed_resources.sql` nicht automatisch erneut ausgeführt. **Das Volume nicht mit `docker compose down -v` löschen**, wenn vorhandene Daten erhalten bleiben sollen.
+
+Die Datenbank-Verbindungseinstellungen werden nur nach erfolgreicher Prüfung und Bestätigung in `setup_storage` gespeichert. Sie haben Vorrang vor den Werten aus `.env`; das Root-Passwort wird nicht in dieser Datei gespeichert. Wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
 
 ## Rollen und Funktionen
 
@@ -78,7 +80,6 @@ Setze die folgenden Werte in der geschützten Konfigurationsoberfläche deines H
 | --- | --- |
 | `APP_ENV` | `production` auf dem Hoster; `local` lokal |
 | `APP_URL` | Öffentliche Basis-URL, z. B. `https://verein.example` |
-| `APP_SETUP_TOKEN` | Zufälliger Setup-Schlüssel mit mindestens 32 Zeichen |
 | `DB_HOST`, `DB_PORT` | Datenbankserver und Port |
 | `DB_NAME` | Datenbankname, standardmäßig `belegungsplan` |
 | `DB_USER`, `DB_PASSWORD` | Zugangsdaten eines eingeschränkten Datenbankbenutzers |
@@ -110,15 +111,19 @@ Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose H
 
 ## Datenbankinstallation
 
-`database/install.sql` enthält das vollständige Schema einschließlich der Ressourcenkategorien-Tabelle mit den Kategorien „Platz“, „Fahrzeug“ und „Kabine“. `database/seed_resources.sql` fügt anschließend die Startressourcen ein. Die Anwendung führt keine DDL-Änderungen aus.
+`database/install.sql` enthält das vollständige Schema einschließlich der Ressourcenkategorien-Tabelle mit den Kategorien „Platz“, „Fahrzeug“ und „Kabine“. `database/seed_resources.sql` fügt anschließend die Startressourcen ein. Der Web-Assistent kann diese Skripte beim ersten Einrichten ausführen. Bei vorhandenen Tabellen ergänzt die Option „Daten behalten“ fehlende Tabellen und Standardressourcen, ohne Anwendungstabellen zu löschen. Die Option „Anwendungstabellen neu anlegen“ löscht alle Benutzer, Buchungen und Ressourcen in den Anwendungstabellen und ist nur mit einer zusätzlichen Bestätigung verfügbar; andere, nicht zur Anwendung gehörende Datenbanktabellen werden nicht gelöscht.
 
-Für eine neue lokale oder gehostete Datenbank zuerst `database/install.sql` und danach `database/seed_resources.sql` ausführen. Diese Installationsskripte sind für eine leere Datenbank vorgesehen. Bei einer bestehenden Datenbank vor einem Schema-Update eine Sicherung erstellen und das passende Skript in `database/migrations/` einmalig ausführen. `20261023_allow_user_deletion.sql` macht Buchungsreferenzen auf Benutzer nullable, damit sie bei einer Löschung auf `NULL` gesetzt werden können. `20261023_require_usernames.sql` vergibt für bisherige Konten ohne Benutzernamen einen eindeutigen Platzhalternamen und macht das Datenbankfeld verpflichtend. `20261023_cabins_belong_to_occurrences.sql` verschiebt Kabinenzuordnungen von einzelnen Platzzuordnungen auf Buchungstermine; falls eine Kabine innerhalb desselben Termins mehreren Plätzen zugeordnet war, wird sie dabei einmalig übernommen. `20261024_remove_match_details.sql` entfernt Gegner und Spielort aus den Buchungsdaten.
+Alternativ zum Web-Assistenten können für eine neue lokale oder gehostete Datenbank zuerst `database/install.sql` und danach `database/seed_resources.sql` manuell ausgeführt werden. Diese Installationsskripte sind für eine leere Datenbank vorgesehen. Ein vollständiges aktuelles Anwendungsschema wird beim Start erkannt und nicht automatisch verändert. Im Einrichtungsassistenten kannst du die vorhandenen Daten behalten oder nach ausdrücklicher Bestätigung alle Anwendungstabellen löschen und mit dem aktuellen Schema neu anlegen lassen. Es werden keine Datenbank-Migrationsskripte mehr ausgeliefert; eine bestehende Datenbank muss deshalb bereits das aktuelle Schema verwenden.
 
 ## Checks
 
-`database/migrations/20261024_remove_standalone_cabin_bookings.sql` entfernt bei bestehenden Datenbanken die bisherigen separaten Kabinenbuchungen samt anschließend leeren Buchungsgruppen. Platzbuchungen und ihre Kabinenzuordnungen bleiben erhalten. Vor dem Ausführen eine Sicherung erstellen.
+Die Ersteinrichtung und beide Datenbankoptionen in einer eigens angelegten Testdatenbank prüfen:
 
-`database/migrations/20261025_split_user_names.sql` teilt bestehende vollständige Benutzernamen am ersten Leerzeichen: Das erste Wort wird zum Vornamen, der Rest zum Nachnamen. Ein einzelnes Wort bleibt als Vorname erhalten.
+```powershell
+.\tests\database-setup.ps1
+```
+
+Der Test löscht ausschließlich die Datenbank `vflbuchung_setup_test` und entfernt sie danach wieder. Die Anwendungsdatenbank bleibt unverändert.
 
 Den Buchungsdialog und die rollenabhängigen Kategorien prüfen:
 

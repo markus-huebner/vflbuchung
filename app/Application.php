@@ -12,14 +12,16 @@ final class Application
     private UserService $users;
     private ResourceService $resources;
     private BookingService $bookings;
+    private DatabaseSetup $databaseSetup;
     private string $csrf;
 
     public function __construct(
         private readonly Config $config,
         private readonly \PDO $pdo
     ) {
+        $this->databaseSetup = new DatabaseSetup($pdo);
         $mailer = new Mailer($config);
-        $this->auth = new AuthService($pdo, $config);
+        $this->auth = new AuthService($pdo);
         $this->users = new UserService($pdo, $mailer, $config);
         $this->resources = new ResourceService($pdo);
         $this->bookings = new BookingService($pdo, $mailer, $config);
@@ -35,6 +37,24 @@ final class Application
         header('Cache-Control: no-store');
 
         try {
+            $setupRequired = !$this->databaseSetup->status()['schema_complete']
+                || !$this->initialAdminExists();
+            if ($setupRequired) {
+                if (isset($_GET['api'])) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    http_response_code(503);
+                    echo json_encode(['error' => 'Die Ersteinrichtung muss zuerst abgeschlossen werden.'], JSON_THROW_ON_ERROR);
+                    return;
+                }
+                if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                    if ((string) ($_GET['action'] ?? '') !== 'setup') {
+                        $this->redirect('/?page=setup');
+                    }
+                } elseif ((string) ($_GET['page'] ?? '') !== 'setup') {
+                    $this->redirect('/?page=setup');
+                }
+            }
+
             if (isset($_GET['api'])) {
                 $this->handleApi((string) $_GET['api']);
                 return;
@@ -232,8 +252,44 @@ final class Application
                 $this->redirect('/');
 
             case 'setup':
+                $status = $this->databaseSetup->status();
+                $adminExists = $this->initialAdminExists();
+                if ($adminExists) {
+                    if ($status['schema_complete']) {
+                        throw new RuntimeException('Der erste Administrator wurde bereits eingerichtet.');
+                    }
+                    if ((string) ($_POST['schema_action'] ?? '') !== 'keep') {
+                        throw new RuntimeException('Bei einem vorhandenen Administratorkonto dürfen Tabellen nur ergänzt, nicht neu angelegt werden.');
+                    }
+
+                    $this->databaseSetup->initialize(false);
+                    $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Datenbankschema wurde ergänzt. Melde dich mit deinem Administratorkonto an.'];
+                    $this->redirect('/?page=login');
+                }
+
+                AuthService::normalizeEmail((string) ($_POST['email'] ?? ''));
+                AuthService::normalizeUsername((string) ($_POST['username'] ?? ''));
+                AuthService::validateFirstName((string) ($_POST['first_name'] ?? ''));
+                AuthService::validateLastName((string) ($_POST['last_name'] ?? ''));
+                AuthService::validatePassword((string) ($_POST['password'] ?? ''));
+
+                $schemaAction = (string) ($_POST['schema_action'] ?? '');
+                if (!in_array($schemaAction, ['keep', 'recreate'], true)) {
+                    throw new RuntimeException('Die gewählte Datenbankaktion ist ungültig.');
+                }
+                if ($schemaAction === 'recreate') {
+                    if ($status['existing_table_count'] === 0) {
+                        throw new RuntimeException('Es wurden keine vorhandenen Anwendungstabellen gefunden. Bitte lade die Seite neu.');
+                    }
+                    if ((string) ($_POST['confirm_recreate'] ?? '') !== '1') {
+                        throw new RuntimeException('Bitte bestätige den Neuaufbau der Anwendungstabellen.');
+                    }
+                }
+                if (!$status['schema_complete'] || $schemaAction === 'recreate') {
+                    $this->databaseSetup->initialize($schemaAction === 'recreate');
+                }
+
                 $this->auth->createInitialAdmin(
-                    (string) ($_POST['setup_token'] ?? ''),
                     (string) ($_POST['email'] ?? ''),
                     (string) ($_POST['username'] ?? ''),
                     (string) ($_POST['first_name'] ?? ''),
@@ -452,7 +508,8 @@ final class Application
 
     private function renderPage(string $page): void
     {
-        $user = $this->auth->currentUser();
+        $databaseStatus = $this->databaseSetup->status();
+        $user = $databaseStatus['schema_complete'] ? $this->auth->currentUser() : null;
         $flash = $_SESSION['_flash'] ?? null;
         unset($_SESSION['_flash']);
         $content = '';
@@ -509,11 +566,12 @@ final class Application
                 break;
 
             case 'setup':
-                if ($this->initialAdminExists()) {
+                $adminExists = $this->initialAdminExists();
+                if ($databaseStatus['schema_complete'] && $adminExists) {
                     http_response_code(404);
                     $content = '<section class="panel-card p-4"><h1 class="h3">Setup abgeschlossen</h1><p>Der Einrichtungsassistent ist bereits gesperrt.</p></section>';
                 } else {
-                    $content = Views::setup($this->csrf);
+                    $content = Views::setup($this->csrf, '', $databaseStatus, !$adminExists);
                 }
                 break;
 
@@ -573,15 +631,22 @@ final class Application
 
     private function initialAdminExists(): bool
     {
+        if ($this->databaseSetup->hasTable('users')) {
+            $adminCount = (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM users WHERE role = 'admin'"
+            )->fetchColumn();
+            if ($adminCount > 0) {
+                return true;
+            }
+        }
+
+        if (!$this->databaseSetup->hasTable('app_settings')) {
+            return false;
+        }
         $statement = $this->pdo->query(
             "SELECT setting_value FROM app_settings WHERE setting_key = 'initial_admin_created'"
         );
-        $setting = $statement->fetchColumn();
-        if ($setting === '1') {
-            return true;
-        }
-
-        return (int) $this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn() > 0;
+        return $statement->fetchColumn() === '1';
     }
 
     private function requireUser(): array
