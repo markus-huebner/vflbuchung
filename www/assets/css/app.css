@@ -163,10 +163,46 @@ body {
   flex-wrap: nowrap;
 }
 
+@media (max-width: 359.98px) {
+  .calendar-toolbar.calendar-heading-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
 .calendar-actions {
   position: relative;
   flex-wrap: nowrap;
   margin-left: auto;
+}
+
+.calendar-resource-switcher {
+  display: flex;
+  flex: 0 0 auto;
+  gap: .25rem;
+}
+
+.calendar-resource-button {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: .55rem;
+  place-items: center;
+}
+
+.calendar-resource-button[aria-pressed="true"] {
+  border-color: var(--club-blue);
+  background: var(--club-blue);
+  color: #fff;
+}
+
+.calendar-resource-button svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 .calendar-actions-menu {
@@ -335,6 +371,7 @@ body {
 
 .calendar-navigation > button {
   flex: 0 0 auto;
+  height: 2.375rem;
   white-space: nowrap;
 }
 
@@ -387,7 +424,7 @@ body {
 }
 
 .resource-hour {
-  height: 64px;
+  height: var(--calendar-hour-height);
   padding-right: .45rem;
   transform: translateY(-.5rem);
 }
@@ -413,9 +450,9 @@ body {
   background: repeating-linear-gradient(
     to bottom,
     #fff9e6 0,
-    #fff9e6 63px,
-    #e8edf2 63px,
-    #e8edf2 64px
+    #fff9e6 calc(var(--calendar-hour-height) - 1px),
+    #e8edf2 calc(var(--calendar-hour-height) - 1px),
+    #e8edf2 var(--calendar-hour-height)
   );
 }
 
@@ -425,19 +462,20 @@ body {
   background: repeating-linear-gradient(
     to bottom,
     #fff 0,
-    #fff 63px,
-    #e8edf2 63px,
-    #e8edf2 64px
+    #fff calc(var(--calendar-hour-height) - 1px),
+    #e8edf2 calc(var(--calendar-hour-height) - 1px),
+    #e8edf2 var(--calendar-hour-height)
   );
 }
 
 .resource-hour-line {
-  height: 64px;
+  height: var(--calendar-hour-height);
   border-bottom: 1px solid #e8edf2;
 }
 
 .resource-event.booking-card {
   position: absolute;
+  container-type: size;
   left: 3px;
   z-index: 1;
   overflow: hidden;
@@ -477,6 +515,7 @@ body {
 }
 
 .booking-card {
+  container: booking-card / inline-size;
   position: relative;
   display: block;
   width: 100%;
@@ -504,6 +543,20 @@ body {
 
 .booking-card .booking-recurring-marker[hidden] {
   display: none;
+}
+
+@container booking-card (width < 110px) {
+  .booking-card .booking-category,
+  .booking-card .booking-recurring-marker {
+    display: none;
+  }
+}
+
+@container booking-card (height < 52px) {
+  .booking-card .booking-category,
+  .booking-card .booking-recurring-marker {
+    display: none;
+  }
 }
 
 .booking-card.booking-pending {
@@ -663,16 +716,30 @@ dialog::backdrop {
 .calendar-date-button {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  width: 10.5rem;
+  justify-content: center;
+  width: max-content;
   gap: .3rem;
-  padding: .5rem;
+  padding: .375rem .5rem;
   font-size: .8rem;
   border: 1px solid #d9e1e8;
   border-radius: .7rem;
   background: #fff;
   color: var(--club-navy);
   text-align: left;
+}
+
+.calendar-date-label {
+  display: grid;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.calendar-date-label > span {
+  grid-area: 1 / 1;
+}
+
+.calendar-date-reserve {
+  visibility: hidden;
 }
 
 .calendar-date-button:hover,
@@ -1075,8 +1142,9 @@ dialog::backdrop {
 
 .request-row-actions {
   display: grid;
-  flex: 0 0 11rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 0 0 auto;
+  width: max-content;
+  grid-template-columns: max-content;
   align-items: stretch;
   gap: .5rem;
 }
@@ -1140,16 +1208,32 @@ dialog::backdrop {
   position: relative;
 }
 
-.user-account-menu {
+.user-account {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
   min-width: 0;
   max-width: 100%;
+}
+
+.user-account-menu {
+  flex: 0 0 auto;
 }
 
 .user-account-menu > .user-account-trigger {
   display: flex;
   align-items: center;
-  gap: .5rem;
+  justify-content: center;
+  width: 2.75rem;
   min-height: 2.75rem;
+  border: 0;
+  color: #fff;
+  background: transparent;
+}
+
+.user-account-trigger:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .user-account-trigger svg {
@@ -1163,12 +1247,14 @@ dialog::backdrop {
 
 .user-account-name {
   min-width: 0;
+  color: #fff;
+  font-size: .875rem;
   overflow-wrap: anywhere;
   white-space: normal;
 }
 
 .user-account-menu > summary::after {
-  flex: 0 0 auto;
+  display: none;
 }
 
 .user-account-menu:not([open]) > .user-actions-menu-items {

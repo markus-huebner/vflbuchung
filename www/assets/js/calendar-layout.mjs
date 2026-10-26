@@ -5,8 +5,9 @@ const berlinTime = new Intl.DateTimeFormat('en-GB', {
   hourCycle: 'h23',
 });
 
-export const DEFAULT_DAY_START_HOUR = 8;
-export const DEFAULT_DAY_END_HOUR = 19;
+export const DEFAULT_DAY_START_HOUR = 9;
+export const DEFAULT_DAY_END_HOUR = 21;
+export const DAY_HOUR_HEIGHT = 51.2;
 
 function minutesOfDay(value) {
   const parts = Object.fromEntries(berlinTime.formatToParts(new Date(value)).map(part => [part.type, part.value]));
@@ -33,7 +34,7 @@ export function eventDaySegment(event, date) {
 }
 
 export function layoutDayEvents(events, firstHour, lastHour) {
-  const laneHeight = (lastHour - firstHour) * 64;
+  const laneHeight = (lastHour - firstHour) * DAY_HOUR_HEIGHT;
   const entries = events.flatMap(event => {
     const firstMinute = firstHour * 60;
     const laneMinutes = (lastHour - firstHour) * 60;
@@ -42,8 +43,8 @@ export function layoutDayEvents(events, firstHour, lastHour) {
     if (eventEnd === 0 && new Date(event.end) > new Date(event.start)) eventEnd = 24 * 60;
     const end = Math.min(laneMinutes, Math.max(0, eventEnd - firstMinute));
     if (end <= start) return [];
-    const top = start * 64 / 60;
-    const height = Math.min(Math.max((end - start) * 64 / 60 - 3, 32), laneHeight - top);
+    const top = start / 60 * DAY_HOUR_HEIGHT;
+    const height = Math.min(Math.max((end - start) / 60 * DAY_HOUR_HEIGHT - 3, DAY_HOUR_HEIGHT / 2), laneHeight - top);
     return [{ event, top, height, column: 0, columns: 1 }];
   }).sort((a, b) => a.top - b.top || b.height - a.height
     || Number(a.event.assignment_id) - Number(b.event.assignment_id));

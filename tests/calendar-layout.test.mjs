@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   DEFAULT_DAY_END_HOUR,
   DEFAULT_DAY_START_HOUR,
+  DAY_HOUR_HEIGHT,
   eventDaySegment,
   layoutDayEvents,
 } from '../www/assets/js/calendar-layout.mjs';
@@ -81,18 +82,35 @@ test('vehicle calendar uses the shared resource day and week layouts', () => {
   assert.match(calendarJs, /eventDaySegment\(event,\s*date\)/);
 });
 
-test('resource calendars default to 08:00–19:00 and can show the full day', () => {
-  assert.equal(DEFAULT_DAY_START_HOUR, 8);
-  assert.equal(DEFAULT_DAY_END_HOUR, 19);
+test('resource calendars default to 09:00–21:00 and can show the full day', () => {
+  assert.equal(DEFAULT_DAY_START_HOUR, 9);
+  assert.equal(DEFAULT_DAY_END_HOUR, 21);
   assert.match(calendarJs, /state\.showFullDay \? 0 : DEFAULT_DAY_START_HOUR/);
   assert.match(calendarJs, /state\.showFullDay \? 24 : DEFAULT_DAY_END_HOUR/);
 
   const entries = layoutDayEvents([
     event(1, '08:30', '09:30'),
-    event(2, '18:30', '19:30'),
-    event(3, '19:00', '20:00'),
+    event(2, '20:30', '21:30'),
+    event(3, '21:00', '22:00'),
+    event(4, '07:30', '09:00'),
+    event(5, '19:00', '20:00'),
   ], DEFAULT_DAY_START_HOUR, DEFAULT_DAY_END_HOUR);
-  assert.deepEqual(entries.map(entry => entry.event.assignment_id), [1, 2]);
+  assert.deepEqual(entries.map(entry => entry.event.assignment_id), [1, 5, 2]);
+  assert.equal(entries[0].top, 0);
+  assert.ok(entries.every(entry => entry.top + entry.height <= 12 * DAY_HOUR_HEIGHT));
+});
+
+test('hour rows and event positions use exactly twenty percent less height', () => {
+  assert.equal(DAY_HOUR_HEIGHT, 64 * 0.8);
+  assert.match(calendarJs, /grid\.style\.setProperty\('--calendar-hour-height', `\$\{DAY_HOUR_HEIGHT\}px`\)/);
+  assert.match(calendarJs, /hourCount \* DAY_HOUR_HEIGHT/);
+  for (const selector of ['resource-hour', 'resource-hour-line']) {
+    const rule = calendarCss.match(new RegExp(`\\.${selector}\\s*\\{([^}]+)\\}`));
+    assert.match(rule[1], /height:\s*var\(--calendar-hour-height\)/);
+  }
+  const [entry] = layoutDayEvents([event(1, '10:00', '11:00')], 9, 21);
+  assert.equal(entry.top, DAY_HOUR_HEIGHT);
+  assert.equal(entry.height, DAY_HOUR_HEIGHT - 3);
 });
 
 test('request selection marks every related calendar entry without selecting its resource heading', () => {
@@ -140,15 +158,20 @@ test('calendar dashboard has an adjustable split that remains usable on narrow s
   assert.match(calendarJs, /resizer\.addEventListener\('keydown'/);
   assert.match(views, /<h2 class="h4">Buchungsanfragen<\/h2>/);
   assert.match(views, /request-row-actions/);
-  assert.match(calendarCss, /\.request-row-actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[^}]*align-items:\s*stretch/s);
+  assert.match(calendarCss, /\.request-row-actions\s*\{[^}]*display:\s*grid;[^}]*width:\s*max-content;[^}]*grid-template-columns:\s*max-content;[^}]*align-items:\s*stretch/s);
+  assert.match(calendarJs, /const shouldRefreshRequestDashboard = hasRequestList && \(isRequestEdit \|\| result\.pending\)/);
+  assert.match(calendarJs, /await Promise\.all\(updates\)/);
 });
 
 test('calendar resource selection persists in the current window session', () => {
   assert.match(calendarJs, /sessionStorage\.getItem\(calendarResourceTypeStorageKey\)/);
   assert.match(calendarJs, /savedResourceType === 'pitch' \|\| savedResourceType === 'bus'/);
   assert.match(calendarJs, /sessionStorage\.setItem\(calendarResourceTypeStorageKey, state\.resourceType\)/);
-  assert.match(views, /id="calendar-resource-controls"/);
-  assert.match(views, /type="radio" name="calendar-resource"/);
+  assert.match(views, /id="calendar-resource-switcher"/);
+  assert.match(views, /data-calendar-resource="pitch" aria-label="Platzbelegung" aria-pressed="true"/);
+  assert.match(views, /data-calendar-resource="bus" aria-label="Fahrzeugkalender" aria-pressed="false"/);
+  assert.doesNotMatch(views, /id="calendar-actions-menu"[\s\S]*?data-calendar-resource/);
+  assert.match(calendarJs, /button\.setAttribute\('aria-pressed', String\(button\.dataset\.calendarResource === state\.resourceType\)\)/);
   assert.match(calendarCss, /\.request-row-actions\s+\.btn\s*\{[^}]*width:\s*100%/s);
   assert.doesNotMatch(views, /name="reason"|placeholder="Begründung/);
   assert.doesNotMatch(views, /data-dashboard-toggle|Dashboard ausblenden|Dashboard einblenden/);
@@ -164,7 +187,7 @@ test('identical bookings and requests receive separate equally wide columns', ()
   ], 8, 20);
   assert.equal(entries.length, 3);
   assert.deepEqual(entries.map(entry => entry.column), [0, 1, 2]);
-  assert.ok(entries.every(entry => entry.columns === 3 && entry.top === 128 && entry.height === 93));
+  assert.ok(entries.every(entry => entry.columns === 3 && entry.top === 2 * DAY_HOUR_HEIGHT && entry.height === 1.5 * DAY_HOUR_HEIGHT - 3));
   noCoveredEntries(entries);
 });
 
@@ -190,7 +213,7 @@ test('minimum card height cannot cover the next short booking', () => {
   const entries = layoutDayEvents([
     event(1, '10:00', '10:15'), event(2, '10:15', '10:30'), event(3, '10:30', '10:45'),
   ], 8, 20);
-  assert.ok(entries.every(entry => entry.height === 32 && entry.columns === 2));
+  assert.ok(entries.every(entry => entry.height === DAY_HOUR_HEIGHT / 2 && entry.columns === 2));
   noCoveredEntries(entries);
 });
 
@@ -201,8 +224,8 @@ test('visible time limits clip spanning bookings and omit invisible ones', () =>
   ], 8, 20);
   assert.deepEqual(entries.map(entry => entry.event.assignment_id), [1, 3]);
   assert.equal(entries[0].top, 0);
-  assert.ok(entries.every(entry => entry.top + entry.height <= 12 * 64));
-  assert.equal(layoutDayEvents([event(1, '07:00', '08:30')], 0, 24)[0].top, 7 * 64);
+  assert.ok(entries.every(entry => entry.top + entry.height <= 12 * DAY_HOUR_HEIGHT));
+  assert.equal(layoutDayEvents([event(1, '07:00', '08:30')], 0, 24)[0].top, 7 * DAY_HOUR_HEIGHT);
 });
 
 test('multi-day events are clipped to each overlapping resource calendar day', () => {
@@ -221,7 +244,7 @@ test('multi-day events are clipped to each overlapping resource calendar day', (
   const allDayLayout = layoutDayEvents([{ ...event, ...middleSegment, assignment_id: 1 }], 8, 20);
   assert.equal(allDayLayout.length, 1);
   assert.equal(allDayLayout[0].top, 0);
-  assert.equal(allDayLayout[0].height, 12 * 64 - 3);
+  assert.equal(allDayLayout[0].height, 12 * DAY_HOUR_HEIGHT - 3);
   assert.deepEqual(eventDaySegment(event, new Date(2026, 9, 25, 12)), {
     start: event.start,
     end: new Date(2026, 9, 26, 0).toISOString(),
@@ -239,8 +262,8 @@ test('positions use Berlin wall time regardless of timestamp offset or browser t
   const entries = layoutDayEvents([{
     assignment_id: 1, start: '2026-10-24T08:00:00Z', end: '2026-10-24T09:00:00Z',
   }], 8, 20);
-  assert.equal(entries[0].top, 128);
-  assert.equal(entries[0].height, 61);
+  assert.equal(entries[0].top, 2 * DAY_HOUR_HEIGHT);
+  assert.equal(entries[0].height, DAY_HOUR_HEIGHT - 3);
 });
 
 test('layout is deterministic and does not mutate the incoming calendar data', () => {

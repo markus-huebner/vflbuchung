@@ -19,17 +19,18 @@ final class Views
         $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
             $name = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
-            $nav .= '<details class="user-actions-menu user-account-menu" id="user-menu">'
-                . '<summary class="btn btn-sm btn-outline-light user-account-trigger" aria-label="Benutzermenü">'
+            $nav .= '<div class="user-account"><span class="user-account-name">' . Security::escape($name) . '</span>'
+                . '<details class="user-actions-menu user-account-menu" id="user-menu">'
+                . '<summary class="btn btn-sm user-account-trigger" aria-label="Benutzermenü">'
                 . '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>'
-                . '<span class="user-account-name">' . Security::escape($name) . '</span></summary>'
+                . '</summary>'
                 . '<div class="user-actions-menu-items"><a href="/?page=profile">Mein Profil</a>';
             if ($user['role'] === 'admin') {
                 $nav .= '<a href="/?page=resources">Ressourcenverwaltung</a>'
                     . '<a href="/?page=users">Benutzerverwaltung</a>';
             }
             $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
-                . '</div></details>';
+                . '</div></details></div>';
         } else {
             $nav .= '<a class="nav-link" href="/?page=login">Anmelden</a>';
         }
@@ -137,6 +138,16 @@ final class Views
   <h1>Belegungsplan</h1>
   <div class="calendar-actions" id="calendar-actions">
     ' . $createButton . '
+  <div class="calendar-resource-switcher" id="calendar-resource-switcher" role="group" aria-label="Kalender auswählen">
+    <button class="btn btn-outline-secondary calendar-resource-button" type="button" data-calendar-resource="pitch" aria-label="Platzbelegung" aria-pressed="true" title="Platzbelegung">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16M3 8h4v8H3m18-8h-4v8h4"/><circle cx="12" cy="12" r="2.5"/></svg>
+      <span class="visually-hidden">Platzbelegung</span>
+    </button>
+    <button class="btn btn-outline-secondary calendar-resource-button" type="button" data-calendar-resource="bus" aria-label="Fahrzeugkalender" aria-pressed="false" title="Fahrzeugkalender">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 16V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10M5 11h14M7 7h4m2 0h4M5 16h14v2a2 2 0 0 1-2 2h-1m-8 0H7a2 2 0 0 1-2-2z"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg>
+      <span class="visually-hidden">Fahrzeugkalender</span>
+    </button>
+  </div>
   <details class="calendar-actions-menu" id="calendar-actions-menu">
     <summary class="btn btn-outline-secondary" aria-label="Ansicht einstellen" title="Ansicht einstellen">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -144,11 +155,6 @@ final class Views
     <div class="calendar-actions-panel" data-calendar-actions-panel>
       <section class="calendar-menu-group" data-calendar-view-group>
         <h2 class="calendar-menu-heading">Ansicht</h2>
-        <fieldset id="calendar-resource-controls" class="calendar-option-group">
-          <legend class="calendar-option-heading">Kalender</legend>
-          <label class="calendar-option"><input type="radio" name="calendar-resource" value="pitch" data-calendar-resource checked><span>Platzbelegung</span></label>
-          <label class="calendar-option"><input type="radio" name="calendar-resource" value="bus" data-calendar-resource><span>Fahrzeugkalender</span></label>
-        </fieldset>
         <fieldset class="calendar-option-group" id="calendar-view-controls">
           <legend class="calendar-option-heading">Zeitraum</legend>
           <label class="calendar-option"><input type="radio" name="calendar-view" value="day" data-view="day" checked><span>Tag</span></label>
@@ -156,7 +162,7 @@ final class Views
         </fieldset>
         <label class="form-check form-switch calendar-menu-row mb-0" id="full-day-toggle-wrap">
           <input class="form-check-input" type="checkbox" id="full-day-toggle">
-          <span class="form-check-label">Restlichen Tag einblenden</span>
+          <span class="form-check-label">Ganzen Tag anzeigen</span>
         </label>
       </section>
     </div>
@@ -168,7 +174,10 @@ final class Views
   <button id="calendar-prev" class="btn btn-outline-secondary" type="button" aria-label="Zurück">‹</button>
   <button id="calendar-date-picker" class="calendar-date-button" type="button" aria-haspopup="dialog" aria-label="Datum im Kalender auswählen">
     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3v4m10-4v4M4 10h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/></svg>
-    <span id="calendar-range" class="fw-semibold" aria-live="polite"></span><span aria-hidden="true">⌄</span>
+    <span class="calendar-date-label fw-semibold">
+      <span class="calendar-date-reserve" aria-hidden="true">00.00.–00.00.</span>
+      <span id="calendar-range" aria-live="polite"></span>
+    </span>
   </button>
   <button id="calendar-next" class="btn btn-outline-secondary" type="button" aria-label="Weiter">›</button>
   <button id="calendar-today" class="btn btn-outline-secondary" type="button">Heute</button>
@@ -335,8 +344,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
   <div class="dialog-body">
     <p class="alert alert-danger" data-event-error role="alert" hidden></p>
     <dl class="row mb-0">
-      <dt class="col-sm-4">Ressource</dt><dd class="col-sm-8" data-event-resource></dd>
-      <dt class="col-sm-4">Gebuchte Ressourcen</dt><dd class="col-sm-8" data-event-resources></dd>
+      <dt class="col-sm-4">Gebuchte Plätze</dt><dd class="col-sm-8" data-event-resources></dd>
       <dt class="col-sm-4">Beginn</dt><dd class="col-sm-8" data-event-start></dd>
       <dt class="col-sm-4">Ende</dt><dd class="col-sm-8" data-event-end></dd>
       <dt class="col-sm-4" data-event-pitch-field>Kabinen</dt><dd class="col-sm-8" data-event-pitch-field data-event-cabins></dd>

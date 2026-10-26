@@ -204,6 +204,31 @@ final class Application
             return;
         }
 
+        if ($api === 'request-dashboard' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+            $actor = $this->requireRole(['admin', 'manager', 'trainer']);
+            $includeClosedRequests = ($_GET['requests'] ?? '') === 'all';
+            $requestPage = filter_var($_GET['requests_page'] ?? 1, FILTER_VALIDATE_INT);
+            $requestPage = $requestPage === false || $requestPage < 1 ? 1 : $requestPage;
+            $requestListing = $this->bookings->requests($actor, $includeClosedRequests, $requestPage);
+            $requestBaseUrl = ($_GET['page'] ?? '') === 'dashboard' ? '/?page=dashboard' : '/';
+            echo json_encode([
+                'html' => Views::dashboard(
+                    $actor,
+                    $requestListing['items'],
+                    $this->csrf,
+                    '',
+                    true,
+                    $includeClosedRequests,
+                    $requestListing['page'],
+                    $requestListing['total'],
+                    $requestListing['page_count'],
+                    $requestListing['page_size'],
+                    $requestBaseUrl
+                ),
+            ], JSON_THROW_ON_ERROR);
+            return;
+        }
+
         if ($api === 'request-details' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $actor = $this->requireRole(['admin', 'manager', 'trainer']);
             echo json_encode($this->bookings->editablePendingRequest(

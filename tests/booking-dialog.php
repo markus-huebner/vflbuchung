@@ -151,7 +151,14 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     );
     check($xpath->query($form . '//input[@name="occurrence_id"]')->length === 1, 'The shared form needs the edited ID.');
     check($xpath->query('//*[@id="calendar-date-picker"]')->length === 1, 'The calendar needs direct date selection.');
-    check($xpath->query('//*[@id="calendar-actions-menu"]//fieldset[@id="calendar-resource-controls"]')->length === 1, 'Choose the calendar inside the view menu.');
+    check(
+        $xpath->query('//*[@id="calendar-resource-switcher"]')->length === 1
+            && $xpath->query('//*[@id="calendar-resource-switcher"]/button[@data-calendar-resource="pitch"]')->length === 1
+            && $xpath->query('//*[@id="calendar-resource-switcher"]/button[@data-calendar-resource="bus"]')->length === 1
+            && $xpath->query('//*[@id="calendar-resource-switcher"]/following-sibling::details[@id="calendar-actions-menu"]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-resource]')->length === 0,
+        'Place accessible calendar switch buttons before the view menu.'
+    );
     check($xpath->query('//*[@data-resource-type]')->length === 0, 'Replace the old calendar tabs.');
     check($xpath->query('//*[@id="booking-create-menu"]')->length === 1, "$role: Render exactly one booking menu.");
     $staff = in_array($role, ['admin', 'manager'], true);
@@ -181,11 +188,20 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
         $xpath->query('//*[@id="booking-create-menu"]//*[@data-event-type="external"]')->length === 0,
         "$role: Do not offer external bookings in the creation menu."
     );
-    check($xpath->query('//input[@type="radio"][@name="calendar-resource"]')->length === 2, 'Offer only pitch and vehicle calendars.');
+    check(
+        $xpath->query('//*[@id="calendar-resource-switcher"]//button[@data-calendar-resource]')->length === 2
+            && $xpath->query('//*[@id="calendar-resource-switcher"]//button[@aria-pressed="true"]')->length === 1,
+        'Offer only pitch and vehicle calendar buttons with one selected calendar.'
+    );
     check($xpath->query('//*[@data-resource-type="cabin" or @data-calendar-view="cabin" or @data-resource-mode="cabin"]')->length === 0, 'Cabins must not have their own booking or calendar.');
     foreach (['calendar-prev', 'calendar-next', 'calendar-today', 'calendar-date-picker'] as $control) {
         check($xpath->query('//div[contains(@class, "calendar-navigation")]/*[@id="' . $control . '"]')->length === 1, 'Group date navigation controls together.');
     }
+    check(
+        $xpath->query('//*[@id="calendar-date-picker"]//span[@class="calendar-date-reserve"][@aria-hidden="true"]')->length === 1
+            && $xpath->query('//*[@id="calendar-date-picker"]//*[contains(text(), "⌄")]')->length === 0,
+        'Reserve compact date-range width without a dropdown arrow or extra screen-reader text.'
+    );
 }
 
 $request = [
@@ -294,12 +310,12 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
     check(
         $xpath->query('//*[@id="calendar-actions-menu"]/summary[@aria-label="Ansicht einstellen"]')->length === 1
             && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-actions-panel]')->length === 1
-            && $xpath->query('//input[@name="calendar-resource"][@type="radio"]')->length === 2
-            && $xpath->query('//input[@name="calendar-resource"][@checked]')->length === 1
+            && $xpath->query('//*[@id="calendar-resource-switcher"]//button[@data-calendar-resource]')->length === 2
+            && $xpath->query('//*[@id="calendar-resource-switcher"]//button[@aria-pressed="true"]')->length === 1
+            && $xpath->query('//*[@id="calendar-actions-menu"]//*[@data-calendar-resource]')->length === 0
             && $xpath->query('//input[@name="calendar-view"][@type="radio"]')->length === 2
             && $xpath->query('//input[@name="calendar-view"][@checked]')->length === 1
             && $xpath->query('//*[@id="full-day-toggle"]')->length === 1
-            && $xpath->query('//*[@id="calendar-resource-controls"]')->length === 1
             && $xpath->query('//*[@id="calendar-view-controls"]//*[@data-view="day"]')->length === 1
             && $xpath->query('//*[@id="calendar-view-controls"]//*[@data-view="week"]')->length === 1,
         'Every role must have one accessible responsive calendar actions menu and one set of controls.'
@@ -316,6 +332,11 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
             "Event details must include $field."
         );
     }
+    check(
+        $xpath->query('//*[@id="event-dialog"]//*[@data-event-resource]')->length === 0
+            && $xpath->query('//*[@id="event-dialog"]//dt[normalize-space()="Gebuchte Plätze"]/following-sibling::dd[1][@data-event-resources]')->length === 1,
+        'Show booked places once under the renamed label, without a separate resource field.'
+    );
     $staff = in_array($user['role'] ?? '', ['admin', 'manager'], true);
     foreach (['driver', 'notes'] as $field) {
         check(
@@ -358,7 +379,8 @@ foreach ([null, 'trainer', 'manager', 'admin'] as $role) {
     $accountMenu = '//nav//details[@id="user-menu"]';
     check(
         $accountXPath->query($accountMenu . '/summary[@aria-label="Benutzermenü"]//*[local-name()="svg"]')->length === 1
-            && $accountXPath->query($accountMenu . '/summary//span[normalize-space()="Test User"]')->length === 1
+            && $accountXPath->query($accountMenu . '/preceding-sibling::span[@class="user-account-name" and normalize-space()="Test User"]')->length === 1
+            && $accountXPath->query($accountMenu . '/summary//*[contains(@class, "user-account-name")]')->length === 0
             && $accountXPath->query($accountMenu . '//a[@href="/?page=profile"]')->length === 1
             && $accountXPath->query($accountMenu . '//form[@action="/?action=logout"][@method="post"]//input[@name="_csrf"][@value="test-csrf"]')->length === 1
             && $accountXPath->query('//nav//details[@id="user-menu"][@open]')->length === 0

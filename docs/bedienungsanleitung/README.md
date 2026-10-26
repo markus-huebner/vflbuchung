@@ -39,7 +39,7 @@ Die öffentliche Ansicht zeigt keine internen Notizen oder Fahrernamen. Diese An
 
 Der Belegungsplan kann ohne Benutzerkonto geöffnet werden. Öffentliche Besucher können zwischen **Platzbelegung** und **Fahrzeugkalender** wechseln, den Zeitraum und die Tages- oder Wochenansicht auswählen und Kalendereinträge anklicken, um deren Details anzusehen.
 
-Im Kalender erscheinen bestätigte Buchungen und offene Anfragen. Offene Anfragen sind als **Anfrage** gekennzeichnet und heller dargestellt. In den Details werden öffentliche Angaben wie Ressource, Kategorie und Zeitraum angezeigt; bei Fahrzeugbuchungen können auch Ziel und Zweck sichtbar sein. Fahrernamen und interne Notizen bleiben verborgen.
+Im Kalender erscheinen bestätigte Buchungen und offene Anfragen. Offene Anfragen sind als **Anfrage** gekennzeichnet und heller dargestellt. In den Details werden öffentliche Angaben wie **Gebuchte Plätze**, Kategorie und Zeitraum angezeigt; bei Fahrzeugbuchungen können auch Ziel und Zweck sichtbar sein. Ein separates Feld „Ressource“ entfällt. Fahrernamen und interne Notizen bleiben verborgen.
 
 Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübersicht und keine Möglichkeit, Buchungen anzulegen, zu ändern, freizugeben oder zu löschen. Dafür ist eine Anmeldung mit den passenden Berechtigungen erforderlich.
 
@@ -52,15 +52,18 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 ### Kalender auswählen und navigieren
 
 - Über das Kalender-Auswahlfeld wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**.
-- Auf Handy und Desktop enthält das **Burger-Menü** rechts oben am Belegungsplan nur Ansichtseinstellungen. Radiobuttons wählen **Platzbelegung** oder **Fahrzeugkalender** sowie **Tag** oder **Woche**. **Restlichen Tag einblenden** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
+- Auf Handy und Desktop enthält das **Burger-Menü** rechts oben am Belegungsplan nur Ansichtseinstellungen. Radiobuttons wählen **Platzbelegung** oder **Fahrzeugkalender** sowie **Tag** oder **Woche**. **Ganzen Tag anzeigen** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
 - Angemeldet öffnet der separate **+**-Button die Auswahl für neue Platz- oder Fahrzeugeinträge. Trainer stellen darüber Buchungsanfragen, Verwalter und Admins legen Buchungen an.
 - Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins finden dort zusätzlich **Ressourcenverwaltung** und **Benutzerverwaltung**. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
 - Mit den Pfeilen wechselst du zum vorherigen oder nächsten Zeitraum. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
+- Das Datumsfeld ist kompakt, behält für Tages- und Wochenwerte dieselbe Breite und ist genauso hoch wie die benachbarten Pfeilbuttons.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
-- Der Schalter **Restlichen Tag einblenden** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 08:00 bis 19:00 Uhr.
+- Der Schalter **Ganzen Tag anzeigen** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 09:00 bis 21:00 Uhr. Die Stundenzeilen sind für eine kompaktere Darstellung um 20 % verkleinert.
 - Ein Klick auf einen Kalendereintrag öffnet die Details. Dort siehst du unter anderem Kategorie, Ressourcen, Beginn, Ende, Wiederholung und – falls vorhanden – zugeordnete Kabinen.
 
 Offene Anfragen sind im Kalender zusätzlich als **Anfrage** gekennzeichnet und heller dargestellt. Überlappende Buchungen können nebeneinander erscheinen.
+
+Bei schmalen oder flachen Kalendereinträgen werden Kategorie und Serienkennzeichnung ausgeblendet, damit mehr Platz für die übrigen Buchungsangaben bleibt. Bei mehr Platz erscheinen sie wieder. Im Tooltip und in den Buchungsdetails bleiben Kategorie und Serieninformation verfügbar.
 
 ### Anfrageübersicht anpassen
 
@@ -137,6 +140,8 @@ Mit **Alle Anfragen anzeigen** kannst du zusätzlich abgeschlossene Anfragen ans
 ## Kapitel 7: Bestätigte Buchungen verwalten
 
 Verwalter und Admins können einen bestätigten Kalendereintrag öffnen und bearbeiten. Bei Serienterminen fragt die Anwendung, ob die Aktion nur diesen Termin oder diesen und alle zukünftigen Termine betrifft. Prüfe den gewählten Umfang vor dem Speichern.
+
+Nach erfolgreichem **Speichern** schließt sich der Bearbeitungsdialog automatisch und die Übersicht wird aktualisiert. Bei einem Speicherfehler bleibt der Dialog mit einer Fehlermeldung geöffnet, damit du die Angaben korrigieren kannst.
 
 Zum Löschen wählst du im Termindialog **Löschen**. Bei Serienterminen wird zuerst der Umfang abgefragt, danach erscheint eine eigene Bestätigungsabfrage. Kabinen lassen sich ebenfalls aus der Buchung entfernen. Wird der letzte Platz eines Termins gelöscht, wird der Termin samt seinen Kabinenzuordnungen entfernt.
 

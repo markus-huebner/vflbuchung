@@ -15,15 +15,11 @@ const bookingFeedbackSource = source.slice(source.indexOf('function bookingError
 const submitBookingSource = source.slice(source.indexOf('async function submitBooking('), source.indexOf('async function saveResourceOrder('));
 const pendingRequestEditorSource = source.slice(
   source.indexOf('async function openPendingRequestEditor('),
-  source.indexOf("document.querySelectorAll('#request-dashboard [data-request-edit]')"),
+  source.indexOf("const canApprove = button.matches('[data-request-approve]')"),
 );
 const requestEditorBindingsSource = source.slice(
-  source.indexOf("document.querySelectorAll('#request-dashboard [data-request-edit]')"),
+  source.indexOf("const canApprove = button.matches('[data-request-approve]')"),
   source.indexOf("bookingForm?.querySelector('[data-request-approve]')"),
-);
-const requestSelectionRestoreSource = source.slice(
-  source.indexOf('function restoreRequestSelection('),
-  source.indexOf('function selectRequestRow('),
 );
 const bookingEditorSource = source.slice(
   source.indexOf('const openBookingEditor = async'),
@@ -62,6 +58,8 @@ function setupBookingCard() {
   const elements = new Map();
   const markers = [];
   const wrapper = {
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
     querySelector(selector) {
       if (!elements.has(selector)) elements.set(selector, { textContent: '', hidden: false });
       return elements.get(selector);
@@ -87,6 +85,8 @@ function setupBookingCard() {
     fill: (event) => context.fillBookingCard(wrapper, event),
     text: (selector) => wrapper.querySelector(selector).textContent,
     marker: () => markers[markers.length - 1],
+    description: () => wrapper.attributes['aria-label'],
+    title: () => wrapper.title,
   };
 }
 
@@ -105,6 +105,157 @@ function setupBookingFeedback() {
   vm.runInContext(`${bookingFeedbackSource}; bookingError`, context);
   return { show: (message, kind) => context.bookingError(message, kind), box };
 }
+
+function setupBookingSubmission({ kind = 'booking-edit', success = true, requestList = false, refreshFails = false, mailErrors = [], pending = false, approveRequest = false } = {}) {
+  const feedback = [];
+  const announcements = [];
+  const requests = [];
+  const navigation = [];
+  const storage = new Map();
+  const submit = { disabled: false };
+  let refreshes = 0;
+  let dashboardRefreshes = 0;
+  const location = { href: 'https://calendar.example/?page=dashboard', assign: url => navigation.push(url) };
+  const form = {
+    dataset: {},
+    elements: {
+      combined_title: { value: 'Team' },
+      event_type: { value: 'training' },
+      resource_mode: { value: 'pitch' },
+    },
+    reportValidity: () => true,
+    querySelector: selector => selector === '[data-booking-submit]' ? submit : {},
+  };
+  const dialog = new EventTarget();
+  dialog.open = true;
+  dialog.close = () => {
+    dialog.open = false;
+    dialog.dispatchEvent(new Event('close'));
+  };
+  const context = vm.createContext({
+    bookingForm: form,
+    dialog,
+    editingBooking: kind === 'booking-edit' ? { occurrence_id: 42 } : null,
+    editingRequest: kind === 'request-edit' ? { occurrence_id: 42, approve: approveRequest } : null,
+    state: { date: new Date(2026, 9, 24) },
+    localDate: date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    validateRequiredNonWhitespace() {},
+    syncCombinedTitle() {},
+    updateBookingFields() {},
+    app: {},
+    FormData: class { set() {} },
+    URL,
+    document: { querySelector: () => requestList ? {} : null },
+    sessionStorage: { setItem: (key, value) => storage.set(key, value) },
+    bookingError: (message, type) => feedback.push({ message, type }),
+    announce: (message, type) => announcements.push({ message, type }),
+    fetch: async url => {
+      requests.push(url);
+      return {
+        ok: success,
+        json: async () => success
+          ? { updated: 2, approved: approveRequest ? 1 : 0, mail_errors: mailErrors, pending, occurrence_id: 42, request_page: 2 }
+          : { error: 'Speichern fehlgeschlagen.' },
+      };
+    },
+    loadCalendar: async () => {
+      refreshes += 1;
+      if (refreshFails) throw new Error('offline');
+    },
+    refreshRequestDashboard: async () => {
+      dashboardRefreshes += 1;
+      return { querySelectorAll: () => [] };
+    },
+    showRequestInCalendar: async () => {},
+    window: {
+      location,
+      history: { state: null, replaceState: (_state, _title, url) => { location.href = new URL(url, location.href).toString(); } },
+    },
+  });
+  vm.runInContext(`${submitBookingSource}; submitBooking`, context);
+  return {
+    submit: () => context.submitBooking({ preventDefault() {} }),
+    dialog, form, button: submit, feedback, announcements, requests, navigation, storage,
+    refreshes: () => refreshes, dashboardRefreshes: () => dashboardRefreshes,
+  };
+}
+
+test('successful booking edits close the dialog', async () => {
+  const ui = setupBookingSubmission();
+  await ui.submit();
+  assert.deepEqual(ui.requests, ['/?api=booking-edit']);
+  assert.equal(ui.form.dataset.saved, 'true');
+  assert.equal(ui.dialog.open, false);
+});
+
+test('creation and request edits also close after saving', async () => {
+  for (const kind of ['booking-create', 'request-edit']) {
+    const ui = setupBookingSubmission({ kind });
+    await ui.submit();
+    assert.equal(ui.dialog.open, false);
+    assert.equal(ui.form.dataset.saved, 'true');
+    assert.equal(ui.refreshes(), 1);
+    assert.deepEqual(ui.requests, [`/?api=${kind}`]);
+  }
+});
+
+test('failed saves keep the editor open and allow correction', async () => {
+  const ui = setupBookingSubmission({ success: false });
+  await ui.submit();
+  assert.equal(ui.dialog.open, true);
+  assert.notEqual(ui.form.dataset.saved, 'true');
+  assert.equal(ui.button.disabled, false);
+  assert.equal(ui.refreshes(), 0);
+  assert.equal(ui.feedback.at(-1).message, 'Speichern fehlgeschlagen.');
+  assert.deepEqual(ui.announcements, []);
+});
+
+test('successful edits close even if refresh or notification delivery fails', async () => {
+  const ui = setupBookingSubmission({ refreshFails: true, mailErrors: ['mail failed'] });
+  await ui.submit();
+  assert.equal(ui.dialog.open, false);
+  assert.equal(ui.form.dataset.saved, 'true');
+  assert.equal(ui.announcements[0].type, 'warning');
+  assert.match(ui.announcements[0].message, /E-Mail-Versand fehlgeschlagen/);
+  assert.equal(ui.announcements.at(-1).type, 'warning');
+  assert.match(ui.announcements.at(-1).message, /Anzeige konnte nicht aktualisiert werden: offline/);
+  await ui.submit();
+  assert.equal(ui.requests.length, 1);
+});
+
+test('request changes refresh the calendar and list without navigating away', async () => {
+  for (const kind of ['booking-edit', 'request-edit', 'booking-create']) {
+    const ui = setupBookingSubmission({ kind, requestList: true, pending: kind === 'booking-create' });
+    await ui.submit();
+    assert.equal(ui.dialog.open, false);
+    assert.equal(ui.refreshes(), 1);
+    assert.equal(ui.dashboardRefreshes(), kind === 'booking-edit' ? 0 : 1);
+    assert.equal(ui.navigation.length, 0);
+  }
+});
+
+test('request edits and approvals refresh in place', async () => {
+  for (const approveRequest of [false, true]) {
+    const ui = setupBookingSubmission({ kind: 'request-edit', requestList: true, approveRequest });
+    await ui.submit();
+    assert.equal(ui.navigation.length, 0);
+    assert.equal(ui.dashboardRefreshes(), 1);
+    assert.equal(ui.refreshes(), 1);
+  }
+});
+
+test('approving a request suppresses the success message but still reports mail failures', async () => {
+  const approved = setupBookingSubmission({ kind: 'request-edit', requestList: true, approveRequest: true });
+  await approved.submit();
+  assert.equal(approved.announcements.length, 0);
+
+  const mailFailed = setupBookingSubmission({
+    kind: 'request-edit', requestList: true, approveRequest: true, mailErrors: ['mail failed'],
+  });
+  await mailFailed.submit();
+  assert.equal(mailFailed.announcements.at(-1).type, 'warning');
+  assert.equal(mailFailed.announcements.at(-1).message, 'Hinweis: E-Mail-Versand fehlgeschlagen.');
+});
 
 const pitch = {
   assignment_id: 12, occurrence_id: 3,
@@ -128,7 +279,7 @@ test('booking feedback uses the alert inside the open dialog', () => {
   assert.match(submitBookingSource, /bookingError\(resourceType/);
   assert.match(submitBookingSource, /if \(bookingForm\.dataset\.saved === 'true'\) return/);
   assert.match(submitBookingSource, /bookingForm\.dataset\.saved = 'true'/);
-  assert.match(submitBookingSource, /if \(!editing\) \{[\s\S]*?announce\([\s\S]*?dialog\.close\(\);/);
+  assert.match(submitBookingSource, /announce\([\s\S]*?dialog\.close\(\);/);
 });
 
 test('application branding shows the VfL crest and new name', () => {
@@ -137,7 +288,7 @@ test('application branding shows the VfL crest and new name', () => {
   assert.match(styles, /\.navbar-brand-logo\s*\{[^}]*object-fit:\s*contain;/s);
 });
 
-test('recurring bookings have a visible repeat marker in their calendar card', () => {
+test('recurring bookings include a repeat marker for space-aware display', () => {
   const recurringCard = setupBookingCard();
   recurringCard.fill({ ...pitch, recurrence_rule: { frequency: 'weekly' } });
   assert.equal(recurringCard.text('.booking-category'), 'Training');
@@ -149,6 +300,17 @@ test('recurring bookings have a visible repeat marker in their calendar card', (
   singleCard.fill(pitch);
   assert.equal(singleCard.text('.booking-category'), 'Training');
   assert.equal(singleCard.marker().hidden, true);
+});
+
+test('compact cards retain category and recurrence information in accessible descriptions', () => {
+  const card = setupBookingCard();
+  card.fill({ ...pitch, recurrence_rule: { frequency: 'weekly' } });
+  assert.match(card.description(), /Training/);
+  assert.match(card.description(), /Regeltermin/);
+  assert.match(card.description(), /U19/);
+  assert.equal(card.title(), card.description());
+  card.fill(pitch);
+  assert.doesNotMatch(card.description(), /Regeltermin/);
 });
 
 test('calendar cards show occupied cabins without a prefix', () => {
@@ -223,7 +385,6 @@ test('clicking a pitch shows all booking details as text in Berlin time', () => 
   assert.equal(ui.dialog.open, true);
   assert.equal(ui.text('title'), 'U19 – Training');
   assert.equal(ui.text('resources'), 'Platz 1, Platz 2');
-  assert.equal(ui.text('resource'), 'Platz 1');
   assert.equal(ui.text('cabins'), pitch.cabins);
   assert.equal(ui.text('type'), 'Training');
   assert.equal(ui.text('start'), '24.10.2026, 15:00');
@@ -260,51 +421,22 @@ test('pending requests open the shared booking dialog for editing', () => {
   assert.match(views, /<form id="booking-form"/);
   assert.match(views, /data-request-edit/);
   assert.doesNotMatch(views, /request-edit-form/);
-  assert.match(source, /document\.querySelectorAll\('#request-dashboard \[data-request-edit\]'\)/);
+  assert.match(source, /#request-dashboard \[data-request-edit\], #request-dashboard \[data-request-approve\]/);
   assert.match(source, /api=request-details/);
   assert.match(source, /editingRequest = \{ \.\.\.data, can_approve: canApprove, approve: false \}/);
   assert.match(submitBookingSource, /const api = isRequestEdit \? 'request-edit'/);
-  assert.match(submitBookingSource, /else if \(isRequestEdit\) \{\s*dialog\.close\(\);\s*\}/);
+  assert.match(submitBookingSource, /const shouldRefreshRequestDashboard = hasRequestList && \(isRequestEdit \|\| result\.pending\)/);
+  assert.match(submitBookingSource, /await Promise\.all\(updates\)/);
+  assert.match(application, /if \(\$api === 'request-dashboard'/);
+  assert.match(source, /url\.searchParams\.set\('api', 'request-dashboard'\)/);
+  assert.match(source, /submit\.textContent = saved \? 'Gespeichert'\s*:\s*editingRequest \? 'Speichern'\s*:\s*editing \? 'Änderungen speichern' : 'Speichern'/);
   assert.match(application, /if \(\$api === 'request-edit'/);
 });
 
-test('the edited request stays selected after the dialog reloads the list', () => {
+test('the selected request remains highlighted when the list refreshes in place', () => {
   assert.match(requestEditorBindingsSource, /selectRequestRow\(button\)/);
-  assert.match(submitBookingSource, /sessionStorage\.setItem\('selectedRequestOccurrenceId',\s*String\(editingRequest\.occurrence_id\)\)/);
-
-  const selectedRow = { selectedClass: '' };
-  const rowButton = {
-    dataset: { occurrenceId: '42' },
-    closest(selector) {
-      assert.equal(selector, '.request-row');
-      return selectedRow;
-    },
-  };
-  const storage = new Map([['selectedRequestOccurrenceId', '42']]);
-  const context = vm.createContext({
-    document: {
-      querySelectorAll(selector) {
-        assert.equal(selector, '#request-dashboard [data-occurrence-id]');
-        return [rowButton];
-      },
-    },
-    sessionStorage: {
-      getItem: (key) => storage.get(key) ?? null,
-      removeItem: (key) => storage.delete(key),
-    },
-  });
-  selectedRow.classList = {
-    add(name) { selectedRow.selectedClass = name; },
-  };
-  const restoreRequestSelection = vm.runInContext(
-    `${requestSelectionRestoreSource}; restoreRequestSelection`,
-    context,
-  );
-
-  restoreRequestSelection();
-
-  assert.equal(selectedRow.selectedClass, 'request-row-selected');
-  assert.equal(storage.has('selectedRequestOccurrenceId'), false);
+  assert.match(source, /currentDashboard\.querySelector\([\s\S]*?\.request-row-selected \[data-occurrence-id\]/);
+  assert.match(source, /selectedButton\?\.closest\('\.request-row'\)\?\.classList\.add\('request-row-selected'\)/);
 });
 
 test('new trainer requests select the list row and open the matching calendar entry', () => {
@@ -313,8 +445,8 @@ test('new trainer requests select the list row and open the matching calendar en
   assert.match(application, /'occurrence_id' => \$result\['occurrence_id'\]/);
   assert.match(application, /requestPageForOccurrence\(/);
   assert.match(application, /'showAllRequests' => \$includeClosedRequests/);
-  assert.match(submitBookingSource, /sessionStorage\.setItem\('newRequestOccurrenceId'/);
-  assert.match(source, /sessionStorage\.getItem\('newRequestOccurrenceId'\)/);
+  assert.match(submitBookingSource, /if \(result\.pending && result\.occurrence_id\)/);
+  assert.match(submitBookingSource, /refreshRequestDashboard\(\)/);
   assert.match(source, /await showRequestInCalendar\(button\)/);
 });
 
@@ -363,7 +495,7 @@ test('booking requests are grouped and review opens the editable dialog', () => 
   assert.match(views, /\$request\['is_series_summary'\]/);
   assert.match(views, /Serientermine/);
   assert.match(views, />Ändern<\/button>/);
-  assert.match(source, /document\.querySelectorAll\('#request-dashboard \[data-request-approve\]'\)/);
+  assert.match(source, /#request-dashboard \[data-request-edit\], #request-dashboard \[data-request-approve\]/);
   assert.match(source, /data-request-approve/);
 });
 
@@ -400,7 +532,7 @@ test('hidden rejection action is not forced visible by a display utility', () =>
 test('rejecting a booking request requires confirmation', () => {
   assert.match(views, /id="action-confirm-dialog"[\s\S]*data-confirm-title[\s\S]*data-confirm-message[\s\S]*data-confirm-submit/);
   assert.equal([...views.matchAll(/action="\/\?action=booking-reject"[^>]*data-confirm-action="reject"/g)].length, 2);
-  assert.match(source, /querySelectorAll\('form\[data-confirm-action\]'\)/);
+  assert.match(source, /document\.addEventListener\('submit', \(event\) => \{\s*const form = event\.target\.closest\('form\[data-confirm-action\]'\)/);
   assert.match(source, /actionConfirmDialog\.showModal\(\)/);
   assert.match(source, /actionConfirmDialog\.querySelector\('\[data-confirm-submit\]'\)[\s\S]*?form\.requestSubmit\(\)/);
   assert.doesNotMatch(source, /window\.confirm/);

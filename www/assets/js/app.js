@@ -7,6 +7,7 @@ import { initDatePicker } from './date-picker.mjs';
 import {
   DEFAULT_DAY_END_HOUR,
   DEFAULT_DAY_START_HOUR,
+  DAY_HOUR_HEIGHT,
   eventDaySegment,
   layoutDayEvents,
 } from './calendar-layout.mjs';
@@ -183,8 +184,8 @@ function renderCalendar() {
   const weekView = document.querySelector(`#${state.resourceType}-week`);
   if (dayView) dayView.hidden = state.view !== 'day';
   if (weekView) weekView.hidden = state.view !== 'week';
-  document.querySelectorAll('[data-calendar-resource]').forEach((input) => {
-    input.checked = input.value === state.resourceType;
+  document.querySelectorAll('[data-calendar-resource]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.calendarResource === state.resourceType));
   });
   document.querySelectorAll('[data-view]').forEach((button) => {
     button.checked = button.dataset.view === state.view;
@@ -265,10 +266,12 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
   cabinLabel.hidden = !cabin;
   wrapper.title = [
     wrapper.querySelector('.booking-category').textContent,
+    isRecurring(event) ? 'Regeltermin' : '',
     wrapper.querySelector('strong').textContent,
     wrapper.querySelector('.booking-time').textContent,
     cabinLabel.textContent,
   ].filter(Boolean).join(' · ');
+  wrapper.setAttribute('aria-label', wrapper.title);
 }
 
 function renderResourceDay() {
@@ -280,6 +283,7 @@ function renderResourceDay() {
   const grid = document.createElement('div');
   grid.className = 'resource-day-grid';
   grid.style.setProperty('--resource-count', Math.max(resources.length, 1));
+  grid.style.setProperty('--calendar-hour-height', `${DAY_HOUR_HEIGHT}px`);
   grid.style.width = '100%';
   const axis = document.createElement('div');
   axis.className = 'resource-time-axis';
@@ -318,7 +322,7 @@ function renderResourceDay() {
     column.append(heading);
     const lane = document.createElement('div');
     lane.className = 'resource-lane';
-    lane.style.height = `${hourCount * 64}px`;
+    lane.style.height = `${hourCount * DAY_HOUR_HEIGHT}px`;
     for (let hour = firstHour; hour < lastHour; hour += 1) {
       const line = document.createElement('div');
       line.className = 'resource-hour-line';
@@ -405,7 +409,6 @@ function showEvent(event) {
     if (element) element.textContent = value || '—';
   };
   set('[data-event-title]', [event.team_name, event.title || event.display_title].filter(Boolean).join(' – '));
-  set('[data-event-resource]', event.resource_name);
   set('[data-event-resources]', event.resource_names || event.resource_name);
   const formatDateTime = (value) => new Intl.DateTimeFormat('de-DE', {
     timeZone: 'Europe/Berlin',
@@ -663,7 +666,9 @@ function updateBookingFields() {
     const saved = bookingForm.dataset.saved === 'true';
     const approve = bookingForm.querySelector('[data-request-approve]');
     if (approve) approve.hidden = !editingRequest?.can_approve;
-    submit.textContent = saved ? 'Gespeichert' : editing ? 'Änderungen speichern' : 'Speichern';
+    submit.textContent = saved ? 'Gespeichert'
+      : editingRequest ? 'Speichern'
+      : editing ? 'Änderungen speichern' : 'Speichern';
     submit.disabled = saved;
     bookingForm.querySelector('[data-booking-close]').textContent = saved ? 'Schließen' : 'Abbrechen';
     bookingForm.elements.combined_title.maxLength =
@@ -733,50 +738,48 @@ async function submitBooking(event) {
       bookingError(result.error || 'Die Buchung konnte nicht gespeichert werden.');
       return;
     }
-    const label = isRequestEdit && result.approved > 0 ? 'Die Anfrage wurde freigegeben.'
+    const wasApproved = isRequestEdit && result.approved > 0;
+    const label = wasApproved ? ''
       : isRequestEdit ? 'Die Anfrage wurde geändert.'
       : editingBooking ? `Änderungen für ${result.updated} Termin(e) gespeichert.`
       : result.pending ? 'Anfrage wurde übermittelt.' : 'Buchung wurde angelegt.';
     const mailFailed = Boolean(result.mail_errors?.length);
-    bookingError(
-      mailFailed ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label,
-      mailFailed ? 'warning' : 'success',
-    );
+    const message = [label, mailFailed ? 'Hinweis: E-Mail-Versand fehlgeschlagen.' : '']
+      .filter(Boolean).join(' ');
+    if (message) bookingError(message, mailFailed ? 'warning' : 'success');
     bookingForm.dataset.saved = 'true';
     updateBookingFields();
     const hasRequestList = Boolean(document.querySelector('#request-list'));
-    if (hasRequestList) {
+    const shouldRefreshRequestDashboard = hasRequestList && (isRequestEdit || result.pending);
+    if (result.pending && Number.isInteger(result.request_page) && result.request_page > 0) {
       const returnUrl = new URL(window.location.href);
-      if (result.pending && Number.isInteger(result.request_page) && result.request_page > 0) {
-        returnUrl.searchParams.set('requests_page', String(result.request_page));
-      }
-      dialog.addEventListener('close', () => {
-        if (isRequestEdit) {
-          sessionStorage.setItem('selectedRequestOccurrenceId', String(editingRequest.occurrence_id));
-        } else if (result.pending && result.occurrence_id) {
-          const occurrenceId = String(result.occurrence_id);
-          sessionStorage.setItem('selectedRequestOccurrenceId', occurrenceId);
-          sessionStorage.setItem('newRequestOccurrenceId', occurrenceId);
-        }
-        window.location.assign(returnUrl.toString());
-      }, { once: true });
+      returnUrl.searchParams.set('requests_page', String(result.request_page));
+      window.history.replaceState(window.history.state, '', returnUrl);
     }
-    if (!editing) {
-      announce(
-        mailFailed ? `${label} Hinweis: E-Mail-Versand fehlgeschlagen.` : label,
-        mailFailed ? 'warning' : 'success',
-      );
-      dialog.close();
-      if (result.pending && hasRequestList) return;
-    } else if (isRequestEdit) {
-      dialog.close();
-    }
+    if (message) announce(message, mailFailed ? 'warning' : 'success');
+    dialog.close();
     try {
+      if (shouldRefreshRequestDashboard) {
+        if (result.pending && result.occurrence_id) {
+          const dashboard = await refreshRequestDashboard();
+          const button = [...(dashboard?.querySelectorAll('[data-dashboard-jump]') || [])]
+            .find((entry) => entry.dataset.occurrenceId === String(result.occurrence_id));
+          if (button) {
+            await showRequestInCalendar(button);
+            return;
+          }
+        } else {
+          const updates = [refreshRequestDashboard(), loadCalendar()];
+          await Promise.all(updates);
+          return;
+        }
+      }
       await loadCalendar();
     } catch (error) {
-      const message = `${label} Der Kalender konnte nicht aktualisiert werden: ${error.message}`;
-      bookingError(message, 'warning');
-      if (!editing) announce(message, 'warning');
+      const refreshMessage = [label, `Die Anzeige konnte nicht aktualisiert werden: ${error.message}`]
+        .filter(Boolean).join(' ');
+      bookingError(refreshMessage, 'warning');
+      announce(refreshMessage, 'warning');
     }
   } catch (error) {
     bookingError(error.message || 'Die Buchung konnte nicht gespeichert werden.');
@@ -886,15 +889,6 @@ function initResourceOrdering() {
   });
 }
 
-function restoreRequestSelection() {
-  const selectedOccurrenceId = sessionStorage.getItem('selectedRequestOccurrenceId');
-  if (!selectedOccurrenceId) return;
-  const button = [...document.querySelectorAll('#request-dashboard [data-occurrence-id]')]
-    .find((entry) => entry.dataset.occurrenceId === selectedOccurrenceId);
-  button?.closest('.request-row')?.classList.add('request-row-selected');
-  sessionStorage.removeItem('selectedRequestOccurrenceId');
-}
-
 function selectRequestRow(button) {
   document.querySelectorAll('.request-row-selected').forEach((row) => {
     row.classList.remove('request-row-selected');
@@ -931,6 +925,37 @@ async function showRequestInCalendar(button) {
   }
 }
 
+async function refreshRequestDashboard() {
+  const currentDashboard = document.querySelector('#request-dashboard');
+  if (!currentDashboard) return null;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('api', 'request-dashboard');
+  const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Buchungsanfragen konnten nicht aktualisiert werden.');
+  if (typeof result.html !== 'string') {
+    throw new Error('Die aktualisierte Anfragenliste konnte nicht geladen werden.');
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = result.html;
+  const nextDashboard = template.content.querySelector('#request-dashboard');
+  if (!nextDashboard) throw new Error('Die aktualisierte Anfragenliste ist unvollständig.');
+
+  const selectedOccurrenceId = currentDashboard.querySelector(
+    '.request-row-selected [data-occurrence-id]',
+  )?.dataset.occurrenceId;
+  nextDashboard.scrollTop = currentDashboard.scrollTop;
+  currentDashboard.replaceWith(nextDashboard);
+  if (selectedOccurrenceId) {
+    const selectedButton = [...nextDashboard.querySelectorAll('[data-occurrence-id]')]
+      .find((button) => button.dataset.occurrenceId === selectedOccurrenceId);
+    selectedButton?.closest('.request-row')?.classList.add('request-row-selected');
+  }
+  return nextDashboard;
+}
+
 function initUserMenu() {
   const menu = document.querySelector('#user-menu');
   if (!menu) return;
@@ -953,9 +978,9 @@ function initControls() {
   initUserMenu();
   initCalendarActionsMenu();
   initDashboardResizer();
-  restoreRequestSelection();
-  document.querySelectorAll('[data-dashboard-jump]').forEach((button) => {
-    button.addEventListener('click', () => void showRequestInCalendar(button));
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('#request-dashboard [data-dashboard-jump]');
+    if (button) void showRequestInCalendar(button);
   });
   const bookingDates = bookingForm ? initBookingDates(bookingForm) : null;
   if (bookingForm) initRequiredNonWhitespace(bookingForm);
@@ -1013,27 +1038,27 @@ function initControls() {
       deleteUserDialog.showModal();
     });
   });
-  const resourceControls = document.querySelector('#calendar-resource-controls');
+  const resourceButtons = [...document.querySelectorAll('[data-calendar-resource]')];
   const viewControls = document.querySelector('#calendar-view-controls');
-  document.querySelectorAll('[data-calendar-resource]').forEach((input) => {
-    input.addEventListener('change', async () => {
-      if (!input.checked) return;
+  resourceButtons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (button.dataset.calendarResource === state.resourceType) return;
       const previous = state.resourceType;
-      resourceControls.disabled = true;
-      viewControls.disabled = true;
+      resourceButtons.forEach((choice) => { choice.disabled = true; });
+      if (viewControls) viewControls.disabled = true;
       try {
-        state.resourceType = input.value;
+        state.resourceType = button.dataset.calendarResource;
         await loadCalendar();
         sessionStorage.setItem(calendarResourceTypeStorageKey, state.resourceType);
       } catch (error) {
         state.resourceType = previous;
-        document.querySelectorAll('[data-calendar-resource]').forEach((choice) => {
-          choice.checked = choice.value === previous;
+        resourceButtons.forEach((choice) => {
+          choice.setAttribute('aria-pressed', String(choice.dataset.calendarResource === previous));
         });
         announce(error.message, 'danger');
       } finally {
-        resourceControls.disabled = false;
-        viewControls.disabled = false;
+        resourceButtons.forEach((choice) => { choice.disabled = false; });
+        if (viewControls) viewControls.disabled = false;
       }
     });
   });
@@ -1041,8 +1066,8 @@ function initControls() {
     button.addEventListener('change', async () => {
       if (!button.checked) return;
       const previous = state.view;
-      resourceControls.disabled = true;
-      viewControls.disabled = true;
+      resourceButtons.forEach((choice) => { choice.disabled = true; });
+      if (viewControls) viewControls.disabled = true;
       try {
         state.view = button.dataset.view;
         await loadCalendar();
@@ -1053,8 +1078,8 @@ function initControls() {
         });
         announce(error.message, 'danger');
       } finally {
-        resourceControls.disabled = false;
-        viewControls.disabled = false;
+        resourceButtons.forEach((choice) => { choice.disabled = false; });
+        if (viewControls) viewControls.disabled = false;
         syncCalendarActionsMenu();
       }
     });
@@ -1142,17 +1167,14 @@ function initControls() {
     }
   }
 
-  document.querySelectorAll('#request-dashboard [data-request-edit]').forEach((button) => {
-    button.addEventListener('click', () => {
-      selectRequestRow(button);
-      void openPendingRequestEditor(button, false);
-    });
-  });
-  document.querySelectorAll('#request-dashboard [data-request-approve]').forEach((button) => {
-    button.addEventListener('click', () => {
-      selectRequestRow(button);
-      void openPendingRequestEditor(button, true);
-    });
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest(
+      '#request-dashboard [data-request-edit], #request-dashboard [data-request-approve]',
+    );
+    if (!button) return;
+    const canApprove = button.matches('[data-request-approve]');
+    selectRequestRow(button);
+    void openPendingRequestEditor(button, canApprove);
   });
   bookingForm?.querySelector('[data-request-approve]')?.addEventListener('click', () => {
     if (!editingRequest?.can_approve) return;
@@ -1190,49 +1212,49 @@ function initControls() {
       bookingForm.elements.count.value = editingBooking.scope_counts[bookingForm.elements.scope.value];
     }
   });
-  document.querySelectorAll('form[data-confirm-action]').forEach((form) => {
-    form.addEventListener('submit', (event) => {
-      if (form.dataset.confirmed === 'true') {
-        delete form.dataset.confirmed;
-        return;
-      }
-      if (form.dataset.confirmAction === 'delete'
-        && form.matches('[data-cancel-form], [data-cancel-cabin-form]')
-        && isRecurring(selectedEvent)
-        && form.dataset.scopeConfirmed !== 'true') {
-        event.preventDefault();
-        requestRecurrenceScope('delete', form);
-        return;
-      }
-
-      delete form.dataset.scopeConfirmed;
+  document.addEventListener('submit', (event) => {
+    const form = event.target.closest('form[data-confirm-action]');
+    if (!form) return;
+    if (form.dataset.confirmed === 'true') {
+      delete form.dataset.confirmed;
+      return;
+    }
+    if (form.dataset.confirmAction === 'delete'
+      && form.matches('[data-cancel-form], [data-cancel-cabin-form]')
+      && isRecurring(selectedEvent)
+      && form.dataset.scopeConfirmed !== 'true') {
       event.preventDefault();
-      if (!actionConfirmDialog) {
-        announce('Der Bestätigungsdialog ist nicht verfügbar.', 'danger');
-        return;
-      }
+      requestRecurrenceScope('delete', form);
+      return;
+    }
 
-      const action = form.dataset.confirmAction;
-      const rejecting = action === 'reject';
-      const cabinDeletion = form.matches('[data-cancel-cabin-form]');
-      const requestDeletion = form.action.includes('booking-delete');
-      const title = rejecting
-        ? 'Buchungsanfrage ablehnen?'
-        : requestDeletion ? 'Buchungsanfrage löschen?' : 'Buchung löschen?';
-      const message = rejecting
-        ? 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
-        : cabinDeletion
-          ? 'Möchten Sie diese Kabinenbelegung wirklich löschen?'
-          : requestDeletion
-            ? 'Möchten Sie diese Buchungsanfrage wirklich löschen?'
-            : 'Möchten Sie diese Buchung wirklich löschen?';
-      actionConfirmDialog.querySelector('[data-confirm-title]').textContent = title;
-      actionConfirmDialog.querySelector('[data-confirm-message]').textContent = message;
-      actionConfirmDialog.querySelector('[data-confirm-submit]').textContent = rejecting
-        ? 'Anfrage ablehnen' : 'Löschen';
-      pendingConfirmationForm = form;
-      actionConfirmDialog.showModal();
-    });
+    delete form.dataset.scopeConfirmed;
+    event.preventDefault();
+    if (!actionConfirmDialog) {
+      announce('Der Bestätigungsdialog ist nicht verfügbar.', 'danger');
+      return;
+    }
+
+    const action = form.dataset.confirmAction;
+    const rejecting = action === 'reject';
+    const cabinDeletion = form.matches('[data-cancel-cabin-form]');
+    const requestDeletion = form.action.includes('booking-delete');
+    const title = rejecting
+      ? 'Buchungsanfrage ablehnen?'
+      : requestDeletion ? 'Buchungsanfrage löschen?' : 'Buchung löschen?';
+    const message = rejecting
+      ? 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
+      : cabinDeletion
+        ? 'Möchten Sie diese Kabinenbelegung wirklich löschen?'
+        : requestDeletion
+          ? 'Möchten Sie diese Buchungsanfrage wirklich löschen?'
+          : 'Möchten Sie diese Buchung wirklich löschen?';
+    actionConfirmDialog.querySelector('[data-confirm-title]').textContent = title;
+    actionConfirmDialog.querySelector('[data-confirm-message]').textContent = message;
+    actionConfirmDialog.querySelector('[data-confirm-submit]').textContent = rejecting
+      ? 'Anfrage ablehnen' : 'Löschen';
+    pendingConfirmationForm = form;
+    actionConfirmDialog.showModal();
   });
   actionConfirmDialog?.querySelector('[data-confirm-submit]')?.addEventListener('click', () => {
     if (!pendingConfirmationForm) return;
@@ -1341,16 +1363,6 @@ function initControls() {
 initControls();
 loadResources()
   .then(async () => {
-    const newRequestOccurrenceId = sessionStorage.getItem('newRequestOccurrenceId');
-    if (newRequestOccurrenceId) {
-      sessionStorage.removeItem('newRequestOccurrenceId');
-      const button = [...document.querySelectorAll('#request-dashboard [data-dashboard-jump]')]
-        .find((entry) => entry.dataset.occurrenceId === newRequestOccurrenceId);
-      if (button) {
-        await showRequestInCalendar(button);
-        return;
-      }
-    }
     await loadCalendar();
   })
   .catch((error) => announce(error.message, 'danger'));
