@@ -58,6 +58,55 @@ final class Application
                 }
             }
 
+            if ((string) ($_GET['page'] ?? '') === 'booking-access') {
+                $occurrenceId = $this->auth->authenticateBookingAccessToken(
+                    (string) ($_GET['token'] ?? '')
+                );
+                $user = $this->auth->currentUser();
+                if ($user === null) {
+                    throw new RuntimeException('Das Benutzerkonto ist nicht mehr aktiv.');
+                }
+                $target = '/?page=dashboard';
+                $flash = [
+                    'type' => 'success',
+                    'message' => 'Du bist als ' . $user['email'] . ' angemeldet.',
+                ];
+                if ($occurrenceId !== null) {
+                    $request = $this->bookings->requestLinkDetails($occurrenceId);
+                    if ($request === null) {
+                        $flash = [
+                            'type' => 'warning',
+                            'message' => 'Diese Buchungsanfrage wurde inzwischen gelöscht.',
+                        ];
+                    } else {
+                        $requestPage = $this->bookings->requestPageForOccurrence(
+                            $occurrenceId,
+                            $user,
+                            false
+                        );
+                        if ($requestPage !== null) {
+                            $target .= '&requests_page=' . $requestPage;
+                        }
+                        $target .= '&request_id=' . $occurrenceId;
+                        if ($request['status'] !== 'pending') {
+                            $statusLabel = match ($request['status']) {
+                                'confirmed' => 'genehmigt',
+                                'rejected' => 'abgelehnt',
+                                'withdrawn' => 'zurückgezogen',
+                                'skipped' => 'ausgelassen',
+                                default => 'geändert',
+                            };
+                            $flash = [
+                                'type' => 'warning',
+                                'message' => 'Diese Buchungsanfrage wurde inzwischen ' . $statusLabel . '.',
+                            ];
+                        }
+                    }
+                }
+                $_SESSION['_flash'] = $flash;
+                $this->redirect($target);
+            }
+
             if (isset($_GET['api'])) {
                 $this->handleApi((string) $_GET['api']);
                 return;
@@ -76,6 +125,16 @@ final class Application
             }
 
             if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                if ((string) ($_GET['page'] ?? '') === 'booking-access') {
+                    if (!$exception instanceof RuntimeException) {
+                        error_log('Booking access link failed: ' . $exception->getMessage());
+                    }
+                    $_SESSION['_flash'] = [
+                        'type' => 'danger',
+                        'message' => 'Der Anmeldelink ist ungültig oder abgelaufen. Bitte fordere eine neue Benachrichtigung an.',
+                    ];
+                    $this->redirect('/?page=login');
+                }
                 if (!$exception instanceof RuntimeException && !$exception instanceof \InvalidArgumentException) {
                     error_log('Application page failed: ' . $exception->getMessage());
                     http_response_code(500);
@@ -246,6 +305,16 @@ final class Application
             echo json_encode($this->bookings->editableOccurrence(
                 $this->positiveId($_GET['occurrence_id'] ?? null), $actor
             ), JSON_THROW_ON_ERROR);
+            return;
+        }
+
+        if ($api === 'booking-link-details' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+            $this->requireRole(['admin', 'manager']);
+            echo json_encode([
+                'request' => $this->bookings->requestLinkDetails(
+                    $this->positiveId($_GET['occurrence_id'] ?? null)
+                ),
+            ], JSON_THROW_ON_ERROR);
             return;
         }
 
@@ -520,8 +589,12 @@ final class Application
 
             case 'booking-delete':
                 $actor = $this->requireRole(['trainer']);
-                $this->bookings->deletePendingRequests($this->postedAssignmentIds(), $actor);
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die offene Anfrage wurde gelöscht.'];
+                $mailErrors = $this->bookings->deletePendingRequests($this->postedAssignmentIds(), $actor);
+                $_SESSION['_flash'] = [
+                    'type' => $mailErrors !== [] ? 'warning' : 'success',
+                    'message' => 'Die offene Anfrage wurde gelöscht.'
+                        . ($mailErrors !== [] ? ' Die Benachrichtigungs-E-Mail konnte nicht versendet werden.' : ''),
+                ];
                 $this->redirect('/?page=dashboard');
 
             case 'request-edit':

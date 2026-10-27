@@ -117,7 +117,7 @@ final class BookingService
             throw $exception;
         }
 
-        $mailErrors = $isTrainer ? $this->notifyApprovers($groupId) : [];
+        $mailErrors = $isTrainer ? $this->notifyApprovers('created', $firstOccurrenceId) : [];
 
         return [
             'group_id' => $groupId,
@@ -303,6 +303,7 @@ final class BookingService
                     MIN(o.rejection_reason) AS rejection_reason,
                     MAX(CASE WHEN {$groupConfirmedSeries} THEN 1 ELSE 0 END) AS is_series_summary,
                     COUNT(DISTINCT o.id) AS occurrence_count,
+                    GROUP_CONCAT(DISTINCT o.id ORDER BY o.id SEPARATOR ',') AS occurrence_ids,
                     GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR ',') AS resource_ids,
                     GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names,
                     MIN(rc.code) AS resource_type,
@@ -330,6 +331,36 @@ final class BookingService
             'page' => $page,
             'page_count' => $pageCount,
             'page_size' => $pageSize,
+        ];
+    }
+
+    public function requestLinkDetails(int $occurrenceId): ?array
+    {
+        $statement = $this->pdo->prepare(
+            "SELECT o.id, o.starts_at, o.status,
+                    CASE WHEN SUM(a.status = 'pending') > 0 THEN 'pending' ELSE o.status END AS assignment_status,
+                    COALESCE(MIN(rc.code), 'pitch') AS resource_type
+             FROM booking_occurrences o
+             JOIN booking_groups g ON g.id = o.group_id
+             LEFT JOIN booking_resource_assignments a ON a.occurrence_id = o.id
+             LEFT JOIN resources r ON r.id = a.resource_id
+             LEFT JOIN resource_categories rc ON rc.id = r.category_id
+             WHERE o.id = :occurrence_id AND g.requested_by IS NOT NULL
+             GROUP BY o.id, o.starts_at, o.status"
+        );
+        $statement->execute(['occurrence_id' => $occurrenceId]);
+        $details = $statement->fetch();
+        if ($details === false) {
+            return null;
+        }
+
+        return [
+            'occurrence_id' => (int) $details['id'],
+            'start' => Recurrence::fromDatabase($details['starts_at'])
+                ->setTimezone(new DateTimeZone('Europe/Berlin'))
+                ->format(DATE_ATOM),
+            'resource_type' => $details['resource_type'],
+            'status' => $details['assignment_status'],
         ];
     }
 
@@ -417,8 +448,12 @@ final class BookingService
                 $this->setAssignmentStatus((int) $assignment['id'], 'confirmed');
                 $result['approved']++;
                 $groupId = (int) $assignment['group_id'];
-                $affectedGroups[$groupId] = true;
                 $this->refreshOccurrenceStatus((int) $assignment['occurrence_id']);
+                if (!array_key_exists($groupId, $affectedGroups)) {
+                    $affectedGroups[$groupId] = $this->requestNotificationDetails(
+                        (int) $assignment['occurrence_id']
+                    );
+                }
             }
 
             $this->pdo->commit();
@@ -429,11 +464,13 @@ final class BookingService
             throw $exception;
         }
 
-        foreach ($affectedGroups as $groupId => $_) {
-            $result['mail_errors'] = array_merge(
-                $result['mail_errors'],
-                $this->notifyGroupRequester((int) $groupId, 'freigegeben')
-            );
+        foreach ($affectedGroups as $details) {
+            if ($details !== null) {
+                $result['mail_errors'] = array_merge(
+                    $result['mail_errors'],
+                    $this->notifyRequesterOfRequest($details, 'freigegeben')
+                );
+            }
         }
 
         return $result;
@@ -462,11 +499,14 @@ final class BookingService
                     throw new RuntimeException('Eine oder mehrere Anfragen sind nicht mehr offen.');
                 }
                 $this->setAssignmentStatus($id, 'rejected');
-                $groups[(int) $details['group_id']] = true;
                 $this->pdo->prepare(
                     'UPDATE booking_occurrences SET rejection_reason = :reason WHERE id = :id'
                 )->execute(['reason' => $reason !== '' ? $reason : null, 'id' => $details['occurrence_id']]);
                 $this->refreshOccurrenceStatus((int) $details['occurrence_id']);
+                $groupId = (int) $details['group_id'];
+                if (!array_key_exists($groupId, $groups)) {
+                    $groups[$groupId] = $this->requestNotificationDetails((int) $details['occurrence_id']);
+                }
             }
             $this->pdo->commit();
         } catch (Throwable $exception) {
@@ -477,17 +517,19 @@ final class BookingService
         }
 
         $mailErrors = [];
-        foreach (array_keys($groups) as $groupId) {
-            $mailErrors = array_merge(
-                $mailErrors,
-                $this->notifyGroupRequester((int) $groupId, 'abgelehnt', $reason)
-            );
+        foreach ($groups as $details) {
+            if ($details !== null) {
+                $mailErrors = array_merge(
+                    $mailErrors,
+                    $this->notifyRequesterOfRequest($details, 'abgelehnt', $reason)
+                );
+            }
         }
 
         return $mailErrors;
     }
 
-    public function deletePendingRequests(array $assignmentIds, array $actor): void
+    public function deletePendingRequests(array $assignmentIds, array $actor): array
     {
         if ($actor['role'] !== 'trainer') {
             throw new RuntimeException('Für das Löschen fehlen die Rechte.');
@@ -508,6 +550,14 @@ final class BookingService
                     throw new RuntimeException('Du kannst nur eigene offene Anfragen löschen.');
                 }
                 $assignments[] = $details;
+            }
+
+            $notificationDetails = [];
+            foreach ($assignments as $assignment) {
+                $occurrenceId = (int) $assignment['occurrence_id'];
+                if (!array_key_exists($occurrenceId, $notificationDetails)) {
+                    $notificationDetails[$occurrenceId] = $this->requestNotificationDetails($occurrenceId);
+                }
             }
 
             $this->deleteOverrideReferences($assignmentIds);
@@ -561,6 +611,19 @@ final class BookingService
             }
             throw $exception;
         }
+
+        $details = reset($notificationDetails);
+        if ($details === false || $details === null) {
+            return [];
+        }
+
+        $firstOccurrenceId = (int) array_key_first($notificationDetails);
+        $details['affected_count'] = count($notificationDetails);
+
+        return array_merge(
+            $this->notifyApprovers('deleted', $firstOccurrenceId, $details),
+            $this->notifyRequesterOfRequest($details, 'gelöscht')
+        );
     }
 
     public function cancel(int $assignmentId, array $actor, string $scope = 'one'): array
@@ -992,11 +1055,21 @@ final class BookingService
             throw $exception;
         }
 
+        $mailErrors = [];
+        if ($approvalGroupId !== null) {
+            $requestDetails = $this->requestNotificationDetails($occurrenceId);
+            if ($requestDetails !== null) {
+                $mailErrors = array_merge(
+                    $mailErrors,
+                    $this->notifyRequesterOfRequest($requestDetails, 'freigegeben')
+                );
+            }
+        }
+
         return [
             'updated' => count($updated),
             'approved' => $approved,
-            'mail_errors' => $approvalGroupId === null
-                ? [] : $this->notifyGroupRequester($approvalGroupId, 'freigegeben'),
+            'mail_errors' => $mailErrors,
         ];
     }
 
@@ -1455,58 +1528,250 @@ final class BookingService
         ]);
     }
 
-    private function notifyApprovers(int $groupId): array
+    private function requestNotificationDetails(int $occurrenceId): ?array
     {
-        $statement = $this->pdo->query(
-            "SELECT DISTINCT u.email, TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS display_name
-             FROM users u
-             WHERE u.status = 'active' AND u.email IS NOT NULL
-               AND u.role IN ('admin', 'manager')"
+        $statement = $this->pdo->prepare(
+            "SELECT o.id, o.event_type, o.title, o.team_name, o.destination, o.purpose,
+                    o.driver_name, o.starts_at, o.ends_at,
+                    COALESCE(bt.name, 'Buchung') AS type_name,
+                    TRIM(CONCAT(requester.first_name, ' ', requester.last_name)) AS requester_name,
+                    requester.email AS requester_email,
+                    GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names
+             FROM booking_occurrences o
+             JOIN booking_groups g ON g.id = o.group_id
+             LEFT JOIN booking_types bt ON bt.code = o.event_type
+             LEFT JOIN users requester ON requester.id = g.requested_by
+             LEFT JOIN booking_resource_assignments a ON a.occurrence_id = o.id
+             LEFT JOIN resources r ON r.id = a.resource_id
+             WHERE o.id = :id
+             GROUP BY o.id, o.event_type, o.title, o.team_name, o.destination, o.purpose,
+                      o.driver_name, o.starts_at, o.ends_at, bt.name, requester.first_name,
+                      requester.last_name, requester.email"
         );
-        $recipients = $statement->fetchAll();
-        $url = $this->config->get('APP_URL') . '/?page=dashboard';
+        $statement->execute(['id' => $occurrenceId]);
+
+        $details = $statement->fetch();
+        return $details === false ? null : $details;
+    }
+
+    private function requestEmailDetails(array $details): array
+    {
+        $start = Recurrence::fromDatabase($details['starts_at'])
+            ->setTimezone(new DateTimeZone('Europe/Berlin'));
+        $end = Recurrence::fromDatabase($details['ends_at'])
+            ->setTimezone(new DateTimeZone('Europe/Berlin'));
+        $dateLabel = $start->format('d.m.Y') . ' · ' . $start->format('H:i')
+            . '–' . $end->format('H:i') . ' Uhr';
+        $fields = [
+            ['Termin', $dateLabel],
+            ['Ressource', trim((string) ($details['resource_names'] ?? '')) ?: 'Keine Ressource angegeben'],
+            ['Mannschaft', trim((string) ($details['team_name'] ?? ''))],
+            ['Ziel', trim((string) ($details['destination'] ?? ''))],
+            ['Zweck', trim((string) ($details['purpose'] ?? ''))],
+            ['Fahrer', trim((string) ($details['driver_name'] ?? ''))],
+        ];
+        $htmlRows = '';
+        $textLines = [];
+        foreach ($fields as [$label, $value]) {
+            if ($value === '') {
+                continue;
+            }
+            $htmlRows .= '<tr><td style="padding-right:14px;color:#647268">'
+                . Security::escape($label) . '</td><td>' . Security::escape($value) . '</td></tr>';
+            $textLines[] = $label . ': ' . $value;
+        }
+
+        return [
+            'title' => self::publicTitle($details),
+            'type_name' => (string) $details['type_name'],
+            'html_rows' => $htmlRows,
+            'text' => implode("\n", $textLines),
+        ];
+    }
+
+    private function notifyApprovers(
+        string $action,
+        ?int $targetOccurrenceId,
+        ?array $details = null
+    ): array {
+        if (!in_array($action, ['created', 'updated', 'deleted'], true)) {
+            throw new RuntimeException('Der Benachrichtigungsanlass ist ungültig.');
+        }
+        if ($details === null && $targetOccurrenceId !== null) {
+            $details = $this->requestNotificationDetails($targetOccurrenceId);
+        }
+        if ($details === null) {
+            return [];
+        }
+
+        $recipients = $this->pdo->query(
+            "SELECT DISTINCT id, email, TRIM(CONCAT(first_name, ' ', last_name)) AS display_name
+             FROM users
+             WHERE status = 'active' AND email IS NOT NULL AND email <> ''
+               AND role IN ('admin', 'manager')"
+        )->fetchAll();
         $errors = [];
+        $emailDetails = $this->requestEmailDetails($details);
+        $title = $emailDetails['title'];
+        $actionLabels = [
+            'created' => ['subject' => 'Neue Buchungsanfrage', 'heading' => 'Neue Buchungsanfrage'],
+            'updated' => ['subject' => 'Buchungsanfrage geändert', 'heading' => 'Buchungsanfrage geändert'],
+            'deleted' => ['subject' => 'Buchungsanfrage gelöscht', 'heading' => 'Buchungsanfrage gelöscht'],
+        ];
+        $label = $actionLabels[$action];
+        $accentColor = $action === 'deleted' ? '#b42318' : '#14532d';
+        $buttonColor = $action === 'deleted' ? '#b42318' : '#198754';
+        $safeTitle = Security::escape($title);
+        $safeType = Security::escape($emailDetails['type_name']);
+        $safeRequester = Security::escape((string) ($details['requester_name'] ?? ''));
+        $plainRequester = (string) ($details['requester_name'] ?? '');
+        $affectedCount = max(1, (int) ($details['affected_count'] ?? 1));
+        $ctaLabel = $action === 'deleted' && $targetOccurrenceId === null
+            ? 'Zu den Buchungsanfragen'
+            : 'Anfrage direkt öffnen';
+        $appUrl = rtrim($this->config->get('APP_URL'), '/');
+        $this->pdo->exec('DELETE FROM booking_access_tokens WHERE expires_at <= UTC_TIMESTAMP()');
         foreach ($recipients as $recipient) {
             try {
+                $token = Security::randomToken();
+                $this->pdo->prepare(
+                    'INSERT INTO booking_access_tokens
+                        (user_id, target_occurrence_id, token_hash, expires_at)
+                     VALUES (:user_id, :target_occurrence_id, :token_hash,
+                                DATE_ADD(UTC_TIMESTAMP(), INTERVAL 48 HOUR))'
+                )->execute([
+                    'user_id' => (int) $recipient['id'],
+                    'target_occurrence_id' => $targetOccurrenceId,
+                    'token_hash' => Security::tokenHash($token),
+                ]);
+                $url = $appUrl . '/?page=booking-access&token=' . rawurlencode($token);
+                $html = '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+                    . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
+                    . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+                    . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+                    . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+                    . '<tr><td style="padding:28px 32px;background:' . $accentColor . ';color:#fff">'
+                    . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">'
+                    . 'Vereins-Buchungssystem</div><h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
+                    . Security::escape($label['heading']) . '</h1></td></tr>'
+                    . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
+                    . Security::escape((string) $recipient['display_name']) . ',</p><p style="color:#536158;margin:0 0 24px">'
+                    . ($action === 'deleted'
+                        ? ($affectedCount === 1
+                            ? 'Eine Buchungsanfrage wurde gelöscht.'
+                            : 'Eine Buchungsanfrage mit ' . $affectedCount . ' Terminen wurde gelöscht.')
+                        : ($action === 'created'
+                            ? 'Eine neue Buchungsanfrage wartet auf Bearbeitung.'
+                            : 'Eine Buchungsanfrage wurde geändert.'))
+                    . '</p><div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px">'
+                    . '<div style="font-size:12px;color:#5d6b62;text-transform:uppercase;letter-spacing:1px">'
+                    . $safeType . '</div><div style="font-size:20px;font-weight:bold;margin:7px 0 16px">'
+                    . $safeTitle . '</div><table role="presentation" cellspacing="0" cellpadding="0"'
+                    . ' style="font-size:14px;line-height:1.7;color:#36443a">' . $emailDetails['html_rows']
+                    . '<tr><td style="padding-right:14px;color:#647268">Angefragt von</td><td>'
+                    . ($safeRequester !== '' ? $safeRequester : '—') . '</td></tr></table></div>'
+                    . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
+                    . '" style="display:inline-block;padding:13px 24px;background:' . $buttonColor . ';color:#fff;'
+                    . 'text-decoration:none;font-weight:bold;border-radius:8px">'
+                    . Security::escape($ctaLabel) . '</a></div>'
+                    . '<p style="font-size:12px;line-height:1.6;color:#738078;text-align:center;margin:14px 0 0">'
+                    . 'Der Anmeldelink ist 48 Stunden gültig und kann innerhalb dieses Zeitraums mehrfach verwendet werden.</p></td></tr>'
+                    . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
+                    . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>';
+                $text = "Hallo {$recipient['display_name']},\n\n"
+                    . $label['heading'] . "\n{$title}\n{$emailDetails['text']}\n"
+                    . 'Angefragt von: ' . ($plainRequester !== '' ? $plainRequester : '—') . "\n\n"
+                    . "{$ctaLabel} und melde dich dabei automatisch an (48 Stunden gültig und mehrfach verwendbar):\n{$url}";
                 $this->mailer->send(
                     $recipient['email'],
-                    'Neue Buchungsanfrage',
-                    '<p>Hallo ' . Security::escape($recipient['display_name']) . ',</p><p>Es gibt eine neue Buchungsanfrage.</p><p><a href="' . Security::escape($url) . '">Anfrage prüfen</a></p>',
-                    "Hallo {$recipient['display_name']},\n\nEs gibt eine neue Buchungsanfrage. Bitte im Dashboard prüfen: {$url}"
+                    $label['subject'],
+                    $html,
+                    $text
                 );
-            } catch (RuntimeException $exception) {
-                $errors[] = $recipient['email'] . ': ' . $exception->getMessage();
+            } catch (Throwable $exception) {
+                error_log('Booking notification failed: ' . $exception->getMessage());
+                $errors[] = $recipient['email'] . ': Die Benachrichtigung konnte nicht versendet werden.';
             }
         }
 
         return $errors;
     }
 
-    private function notifyGroupRequester(int $groupId, string $state, string $reason = ''): array
+    private function notifyRequesterOfRequest(array $details, string $state, string $reason = ''): array
     {
-        $statement = $this->pdo->prepare(
-            "SELECT u.email, TRIM(CONCAT(u.first_name, ' ', u.last_name)) AS display_name
-             FROM booking_groups g JOIN users u ON u.id = g.requested_by
-             WHERE g.id = :id AND u.status = 'active' AND u.email IS NOT NULL"
-        );
-        $statement->execute(['id' => $groupId]);
-        $requester = $statement->fetch();
-        if ($requester === false) {
+        $email = trim((string) ($details['requester_email'] ?? ''));
+        if ($email === '') {
             return [];
         }
 
-        $url = $this->config->get('APP_URL') . '/?page=dashboard';
-        $reasonHtml = $reason === '' ? '' : '<p>Begründung: ' . Security::escape($reason) . '</p>';
-        $textReason = $reason === '' ? '' : "\nBegründung: {$reason}";
+        $stateLabels = [
+            'freigegeben' => [
+                'message' => 'Deine Buchungsanfrage wurde freigegeben.',
+                'color' => '#14532d',
+                'button_color' => '#198754',
+            ],
+            'abgelehnt' => [
+                'message' => 'Deine Buchungsanfrage wurde abgelehnt.',
+                'color' => '#b42318',
+                'button_color' => '#b42318',
+            ],
+            'gelöscht' => [
+                'message' => 'Deine Buchungsanfrage wurde gelöscht.',
+                'color' => '#b42318',
+                'button_color' => '#b42318',
+            ],
+        ];
+        if (!isset($stateLabels[$state])) {
+            throw new RuntimeException('Der Status der Anfragebenachrichtigung ist ungültig.');
+        }
+
+        $emailDetails = $this->requestEmailDetails($details);
+        $name = trim((string) ($details['requester_name'] ?? ''));
+        $greeting = $name === '' ? 'Hallo,' : 'Hallo ' . Security::escape($name) . ',';
+        $plainGreeting = $name === '' ? 'Hallo,' : "Hallo {$name},";
+        $safeType = Security::escape($emailDetails['type_name']);
+        $safeTitle = Security::escape($emailDetails['title']);
+        $safeState = Security::escape($state);
+        $reason = trim($reason);
+        $reasonHtml = $reason === ''
+            ? ''
+            : '<p style="margin:18px 0 0"><strong>Begründung:</strong> '
+                . Security::escape($reason) . '</p>';
+        $reasonText = $reason === '' ? '' : "\nBegründung: {$reason}";
+        $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=dashboard';
+        $label = $stateLabels[$state];
         try {
             $this->mailer->send(
-                $requester['email'],
+                $email,
                 'Buchungsanfrage ' . $state,
-                '<p>Hallo ' . Security::escape($requester['display_name']) . ',</p><p>Deine Anfrage wurde ' . Security::escape($state) . '.</p>' . $reasonHtml . '<p><a href="' . Security::escape($url) . '">Zum Dashboard</a></p>',
-                "Hallo {$requester['display_name']},\n\nDeine Anfrage wurde {$state}.{$textReason}\n{$url}"
+                '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+                    . 'font-family:Arial,Helvetica,sans-serif;color:#24312a"><table role="presentation" width="100%"'
+                    . ' cellspacing="0" cellpadding="0"><tr><td align="center"><table role="presentation" width="600"'
+                    . ' cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#fff;'
+                    . 'border-radius:16px;overflow:hidden"><tr><td style="padding:28px 32px;background:'
+                    . $label['color'] . ';color:#fff"><div style="font-size:13px;letter-spacing:1.5px;'
+                    . 'text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div><h1 style="font-size:24px;'
+                    . 'line-height:1.3;margin:10px 0 0">Buchungsanfrage ' . $safeState
+                    . '</h1></td></tr><tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">'
+                    . $greeting . '</p><p style="color:#536158;margin:0 0 24px">'
+                    . Security::escape($label['message']) . '</p><div style="padding:20px;background:#f4f7f5;'
+                    . 'border:1px solid #e1e9e3;border-radius:12px"><div style="font-size:12px;color:#5d6b62;'
+                    . 'text-transform:uppercase;letter-spacing:1px">' . $safeType
+                    . '</div><div style="font-size:20px;font-weight:bold;margin:7px 0 16px">' . $safeTitle
+                    . '</div><table role="presentation" cellspacing="0" cellpadding="0"'
+                    . ' style="font-size:14px;line-height:1.7;color:#36443a">'
+                    . $emailDetails['html_rows'] . '</table>' . $reasonHtml . '</div>'
+                    . '<div style="text-align:center;padding:26px 0 8px"><a href="'
+                    . Security::escape($url) . '" style="display:inline-block;padding:13px 24px;background:'
+                    . $label['button_color'] . ';color:#fff;text-decoration:none;font-weight:bold;border-radius:8px">'
+                    . 'Zum Dashboard</a></div></td></tr><tr><td style="padding:18px 32px;background:#f8faf8;'
+                    . 'color:#738078;font-size:12px">Automatische Benachrichtigung des Vereins-Buchungssystems'
+                    . '</td></tr></table></td></tr></table></body></html>',
+                "{$plainGreeting}\n\n{$label['message']}\n{$emailDetails['title']}\n"
+                    . "{$emailDetails['text']}{$reasonText}\n{$url}"
             );
         } catch (RuntimeException $exception) {
-            return [$requester['email'] . ': ' . $exception->getMessage()];
+            return [$email . ': ' . $exception->getMessage()];
         }
 
         return [];

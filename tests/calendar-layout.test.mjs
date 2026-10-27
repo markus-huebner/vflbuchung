@@ -212,7 +212,8 @@ test('request selection marks every related calendar entry without selecting its
   assert.match(calendarJs, /wrapper\.dataset\.occurrenceId = event\.occurrence_id/);
   assert.match(calendarJs, /\.filter\(\(card\) => card\.dataset\.occurrenceId === button\.dataset\.occurrenceId\)/);
   assert.match(calendarJs, /booking\.closest\('\.resource-lane'\)\?\.classList\.add\('resource-lane-selected'\)/);
-  assert.match(calendarJs, /button\.closest\('\.request-row'\)\?\.classList\.add\('request-row-selected'\)/);
+  assert.match(calendarJs, /const row = button\.matches\?\.\('\.request-row'\) \? button : button\.closest\?\.\('\.request-row'\)/);
+  assert.match(calendarJs, /row\?\.classList\.add\('request-row-selected'\)/);
   assert.match(calendarJs, /bookings\.forEach\(\(booking\) => \{\s*booking\.classList\.add\('booking-card-highlight'\);\s*booking\.closest\('\.resource-lane'\)\?\.classList\.add\('resource-lane-selected'\);/);
   assert.ok(calendarJs.indexOf('bookings.forEach((booking)') < calendarJs.indexOf('bookings[0].focus({ preventScroll: true })'));
   assert.doesNotMatch(calendarJs, /\.resource-column-selected/);

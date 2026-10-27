@@ -1021,11 +1021,13 @@ function selectRequestRow(button) {
   document.querySelectorAll('.request-row-selected').forEach((row) => {
     row.classList.remove('request-row-selected');
   });
-  button.closest('.request-row')?.classList.add('request-row-selected');
+  const row = button.matches?.('.request-row') ? button : button.closest?.('.request-row');
+  row?.classList.add('request-row-selected');
+  row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-async function showRequestInCalendar(button) {
-  selectRequestRow(button);
+async function showRequestInCalendar(button, requestRow = null) {
+  selectRequestRow(requestRow || button);
   document.querySelectorAll('.booking-card-highlight').forEach((booking) => {
     booking.classList.remove('booking-card-highlight');
   });
@@ -1051,6 +1053,42 @@ async function showRequestInCalendar(button) {
   } catch (error) {
     announce(error.message, 'danger');
   }
+}
+
+async function showLinkedRequest(occurrenceId) {
+  const params = new URLSearchParams({
+    api: 'booking-link-details',
+    occurrence_id: occurrenceId,
+  });
+  const response = await fetch(`/?${params}`, { headers: { Accept: 'application/json' } });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Die Buchungsanfrage konnte nicht geladen werden.');
+  if (!result.request) {
+    announce('Diese Buchungsanfrage wurde inzwischen gelöscht.', 'warning');
+    return;
+  }
+
+  const requestRow = [...document.querySelectorAll('#request-dashboard .request-row')]
+    .find((row) => row.dataset.occurrenceIds?.split(',').includes(String(occurrenceId)));
+  if (requestRow) selectRequestRow(requestRow);
+  const statusLabels = {
+    confirmed: 'genehmigt',
+    rejected: 'abgelehnt',
+    withdrawn: 'zurückgezogen',
+    skipped: 'ausgelassen',
+  };
+  if (result.request.status !== 'pending') {
+    const status = statusLabels[result.request.status] || 'geändert';
+    announce(`Diese Buchungsanfrage wurde inzwischen ${status}.`, 'warning');
+  }
+
+  await showRequestInCalendar({
+    dataset: {
+      occurrenceId: String(result.request.occurrence_id),
+      resourceType: result.request.resource_type,
+      start: result.request.start,
+    },
+  }, requestRow);
 }
 
 async function refreshRequestDashboard() {
@@ -1610,5 +1648,9 @@ initCalendarViewportResize();
 loadResources()
   .then(async () => {
     await loadCalendar();
+    const requestId = new URLSearchParams(window.location.search).get('request_id');
+    if (requestId) {
+      await showLinkedRequest(requestId);
+    }
   })
   .catch((error) => announce(error.message, 'danger'));

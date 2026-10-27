@@ -68,6 +68,49 @@ final class AuthService
         return true;
     }
 
+    public function authenticateBookingAccessToken(string $token): ?int
+    {
+        if (!preg_match('/\A[a-f0-9]{64}\z/', $token)) {
+            throw new RuntimeException('Der Anmeldelink ist ungültig oder abgelaufen.');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $statement = $this->pdo->prepare(
+                "SELECT t.user_id, t.target_occurrence_id
+                 FROM booking_access_tokens t
+                 JOIN users u ON u.id = t.user_id
+                 WHERE t.token_hash = :token_hash
+                   AND t.expires_at > UTC_TIMESTAMP()
+                   AND u.status = 'active'
+                   AND u.role IN ('admin', 'manager')
+                 LIMIT 1 FOR UPDATE"
+            );
+            $statement->execute(['token_hash' => Security::tokenHash($token)]);
+            $access = $statement->fetch();
+            if ($access === false) {
+                throw new RuntimeException('Der Anmeldelink ist ungültig oder abgelaufen.');
+            }
+
+            $this->pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
+
+        $_SESSION = [];
+        session_regenerate_id(true);
+        $_SESSION['user_id'] = (int) $access['user_id'];
+        $_SESSION['created_at'] = time();
+        Security::rotateCsrfToken();
+
+        return $access['target_occurrence_id'] === null
+            ? null
+            : (int) $access['target_occurrence_id'];
+    }
+
     public function logout(): void
     {
         $_SESSION = [];

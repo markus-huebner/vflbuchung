@@ -8,6 +8,7 @@ const styles = readFileSync(new URL('../www/assets/css/app.css', import.meta.url
 const views = readFileSync(new URL('../www/app/Views.php', import.meta.url), 'utf8');
 const application = readFileSync(new URL('../www/app/Application.php', import.meta.url), 'utf8');
 const bookingService = readFileSync(new URL('../www/app/BookingService.php', import.meta.url), 'utf8');
+const authService = readFileSync(new URL('../www/app/AuthService.php', import.meta.url), 'utf8');
 const bookingTypesService = readFileSync(new URL('../www/app/BookingTypeService.php', import.meta.url), 'utf8');
 const bookingTypeLookup = code => ({
   training: { name: 'Training', color_hex: '#27834a', text_hex: '#ffffff' },
@@ -734,6 +735,82 @@ test('booking requests are grouped and review opens the editable dialog', () => 
   assert.match(views, />Ändern<\/button>/);
   assert.match(source, /#request-dashboard \[data-request-edit\], #request-dashboard \[data-request-approve\]/);
   assert.match(source, /data-request-approve/);
+});
+
+test('booking-access links select the latest request state and preserve deleted targets', () => {
+  assert.match(bookingService, /INTERVAL 48 HOUR/);
+  assert.match(bookingService, /Der Anmeldelink ist 48 Stunden gültig/);
+  assert.match(bookingService, /48 Stunden gültig und mehrfach verwendbar/);
+  assert.match(bookingService, /public function requestLinkDetails\(int \$occurrenceId\): \?array/);
+  assert.match(bookingService, /GROUP_CONCAT\(DISTINCT o\.id ORDER BY o\.id SEPARATOR ','\) AS occurrence_ids/);
+  assert.match(bookingService, /notifyApprovers\('deleted', \$firstOccurrenceId, \$details\)/);
+  assert.match(views, /data-occurrence-ids=/);
+  assert.match(application, /if \(\$request\['status'\] !== 'pending'\)/);
+  assert.match(application, /Diese Buchungsanfrage wurde inzwischen gelöscht/);
+  assert.match(application, /if \(\$api === 'booking-link-details'/);
+  const bookingAccessRouteStart = application.indexOf(
+    '$occurrenceId = $this->auth->authenticateBookingAccessToken(',
+  );
+  const bookingAccessRoute = application.slice(
+    bookingAccessRouteStart,
+    application.indexOf("if (isset($_GET['api']))", bookingAccessRouteStart),
+  );
+  assert.match(bookingAccessRoute, /\$target = '\/\?page=dashboard';/);
+  assert.doesNotMatch(bookingAccessRoute, /requests=all/);
+  assert.match(bookingAccessRoute, /\$user,\s*false\s*\)/);
+  assert.match(source, /async function showLinkedRequest\(occurrenceId\)/);
+  assert.match(source, /dataset\.occurrenceIds\?\.split\(','\)/);
+  assert.match(source, /if \(!result\.request\)/);
+  assert.match(source, /await showLinkedRequest\(requestId\)/);
+});
+
+test('booking request emails include request details and state-specific colors', () => {
+  assert.match(bookingService, /requester\.email AS requester_email/);
+  assert.match(bookingService, /\['Termin', \$dateLabel\]/);
+  assert.match(bookingService, /\['Ressource', trim\(\(string\) \(\$details\['resource_names'\]/);
+  assert.match(bookingService, /\['Mannschaft', trim\(\(string\) \(\$details\['team_name'\]/);
+  assert.match(bookingService, /\['Ziel', trim\(\(string\) \(\$details\['destination'\]/);
+  assert.match(bookingService, /\['Zweck', trim\(\(string\) \(\$details\['purpose'\]/);
+  assert.match(bookingService, /\['Fahrer', trim\(\(string\) \(\$details\['driver_name'\]/);
+  assert.match(bookingService, /notifyRequesterOfRequest\(\$details, 'freigegeben'\)/);
+  assert.match(bookingService, /notifyRequesterOfRequest\(\$requestDetails, 'freigegeben'\)/);
+  assert.match(bookingService, /notifyRequesterOfRequest\(\$details, 'abgelehnt', \$reason\)/);
+  assert.match(bookingService, /notifyRequesterOfRequest\(\$details, 'gelöscht'\)/);
+  assert.match(bookingService, /if \(\$email === ''\) \{\s*return \[\];/);
+  assert.doesNotMatch(bookingService, /notifyGroupRequester/);
+  assert.match(bookingService, /\$accentColor = \$action === 'deleted' \? '#b42318' : '#14532d'/);
+  assert.match(bookingService, /'abgelehnt' => \[[\s\S]*?'color' => '#b42318'/);
+  assert.match(bookingService, /'gelöscht' => \[[\s\S]*?'color' => '#b42318'/);
+});
+
+test('editing a booking request does not notify approvers', () => {
+  const requestEditMethod = bookingService.slice(
+    bookingService.indexOf('public function editPendingRequest('),
+    bookingService.indexOf('private function validateBookingInput('),
+  );
+  assert.doesNotMatch(requestEditMethod, /notifyApprovers\('updated'/);
+  assert.match(requestEditMethod, /notifyRequesterOfRequest\(\$requestDetails, 'freigegeben'\)/);
+});
+
+test('calendar selection tolerates linked requests without a rendered dashboard row', () => {
+  const selectRequestRowSource = source.slice(
+    source.indexOf('function selectRequestRow('),
+    source.indexOf('async function showRequestInCalendar('),
+  );
+  const context = vm.createContext({ document: { querySelectorAll: () => [] } });
+  assert.doesNotThrow(() => {
+    vm.runInContext(`${selectRequestRowSource}; selectRequestRow({ dataset: {} });`, context);
+  });
+});
+
+test('booking-access authentication replaces an existing session with the email recipient', () => {
+  const tokenAuthentication = authService.slice(
+    authService.indexOf('public function authenticateBookingAccessToken('),
+    authService.indexOf('public function logout('),
+  );
+  assert.match(tokenAuthentication, /\$_SESSION = \[\];\s*session_regenerate_id\(true\);\s*\$_SESSION\['user_id'\] = \(int\) \$access\['user_id'\]/);
+  assert.doesNotMatch(tokenAuthentication, /DELETE FROM booking_access_tokens WHERE token_hash/);
+  assert.match(application, /'message' => 'Du bist als ' \. \$user\['email'\]/);
 });
 
 test('booking requests cannot reserve cabins and retain creation fields while editing', () => {

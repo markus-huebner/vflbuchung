@@ -12,6 +12,7 @@ final class DatabaseSetup
     private const TABLES = [
         'users',
         'password_resets',
+        'booking_access_tokens',
         'login_attempts',
         'resource_categories',
         'resources',
@@ -31,6 +32,7 @@ final class DatabaseSetup
         'booking_types',
         'booking_occurrences',
         'booking_groups',
+        'booking_access_tokens',
         'password_resets',
         'resources',
         'resource_categories',
@@ -83,9 +85,26 @@ final class DatabaseSetup
 
     public function migrate(): void
     {
-        if (!$this->hasTable('booking_types')) {
+        if (!$this->hasTable('booking_types') || !$this->hasTable('users')) {
             return;
         }
+
+        $this->pdo->exec(
+            "CREATE TABLE IF NOT EXISTS booking_access_tokens (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                user_id BIGINT UNSIGNED NOT NULL,
+                target_occurrence_id BIGINT UNSIGNED NULL,
+                token_hash CHAR(64) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_booking_access_tokens_hash (token_hash),
+                KEY idx_booking_access_tokens_user (user_id),
+                KEY idx_booking_access_tokens_expiry (expires_at),
+                CONSTRAINT fk_booking_access_tokens_user FOREIGN KEY (user_id)
+                    REFERENCES users (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+        );
 
         if (!$this->hasColumn('booking_types', 'trainer_requestable')) {
             $addedColumn = false;

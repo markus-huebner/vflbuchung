@@ -475,6 +475,10 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 ->format($isSeriesSummary ? 'd.m.Y H:i' : 'H:i');
             $assignmentId = (int) $request['assignment_id'];
             $resourceType = $request['resource_type'] === 'bus' ? 'bus' : 'pitch';
+            $occurrenceIds = implode(',', array_values(array_filter(
+                array_map('intval', explode(',', (string) ($request['occurrence_ids'] ?? ''))),
+                static fn(int $id): bool => $id > 0
+            )));
             $entryDetails = '<strong class="booking-title">' . Security::escape($request['title']) . '</strong>'
                 . ' <span class="request-status">' . Security::escape($status) . '</span>'
                 . '<span class="request-details">' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</span>';
@@ -486,7 +490,8 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                     . ' data-start="' . Security::escape(Recurrence::fromDatabase($request['starts_at'])->format(DATE_ATOM)) . '">'
                     . $entryDetails . '</button>'
                 : '<div class="dashboard-entry-closed">' . $entryDetails . '</div>';
-            $rows .= '<article class="request-row"><div class="request-row-layout"><div class="request-row-content">'
+            $rows .= '<article class="request-row" data-occurrence-ids="' . Security::escape($occurrenceIds)
+                . '"><div class="request-row-layout"><div class="request-row-content">'
                 . $jumpButton;
             if ($staff) {
                 $rows .= '<div class="small text-secondary">Anfrage von ' . Security::escape($request['requester_name'] ?? 'Verwalter') . '</div>';
