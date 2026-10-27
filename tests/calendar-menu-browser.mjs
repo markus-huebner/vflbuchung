@@ -150,8 +150,11 @@ try {
     await waitFor(`document.querySelector('#user-menu').open`);
     assert.deepEqual(
       await evaluate(`Array.from(document.querySelectorAll('#user-menu a')).map(link => link.getAttribute('href'))`),
-      role === 'admin' ? ['/?page=profile', '/?page=resources', '/?page=users'] : ['/?page=profile'],
+      role === 'admin'
+        ? ['/?page=resources', '/?page=users', '/?page=booking-types', '/?page=profile']
+        : ['/?page=profile'],
     );
+    assert.equal(await evaluate(`document.querySelectorAll('#user-menu hr').length`), role === 'admin' ? 1 : 0);
     assert.equal(await evaluate(`document.querySelector('#user-menu form').getAttribute('method')`), 'post');
     assert.equal(await evaluate(`document.querySelector('#user-menu form input[name="_csrf"]').value`), 'test-csrf');
     assert.equal(await evaluate(`(() => { const r=document.querySelector('#user-menu .user-actions-menu-items').getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth; })()`), true);

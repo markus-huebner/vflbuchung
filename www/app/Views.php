@@ -24,13 +24,15 @@ final class Views
                 . '<summary class="btn btn-sm user-account-trigger" aria-label="Benutzermenü">'
                 . '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>'
                 . '</summary>'
-                . '<div class="user-actions-menu-items"><a href="/?page=profile">Mein Profil</a>';
+                . '<div class="user-actions-menu-items">';
             if ($user['role'] === 'admin') {
                 $nav .= '<a href="/?page=resources">Ressourcenverwaltung</a>'
                     . '<a href="/?page=users">Benutzerverwaltung</a>'
-                    . '<a href="/?page=booking-types">Buchungsarten</a>';
+                    . '<a href="/?page=booking-types">Buchungsarten</a>'
+                    . '<hr class="my-1">';
             }
-            $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
+            $nav .= '<a href="/?page=profile">Mein Profil</a>'
+                . '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
                 . '</div></details></div>';
         } else {
             $nav .= '<a class="nav-link" href="/?page=login">Anmelden</a>';
@@ -417,6 +419,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
   <div class="mb-3"><label class="form-label" for="password">Passwort</label><input class="form-control" id="password" name="password" type="password" autocomplete="current-password" required></div>
   <button class="btn btn-primary w-100" type="submit">Anmelden</button>
 </form>
+<a class="btn btn-outline-secondary w-100 mt-2" href="/">Zurück</a>
 <p class="mt-3 mb-0"><a href="/?page=forgot">Passwort vergessen?</a></p></section>';
     }
 

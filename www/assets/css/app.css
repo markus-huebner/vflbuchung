@@ -1340,6 +1340,12 @@ dialog::backdrop {
   white-space: normal;
 }
 
+.user-actions-menu-items hr {
+  margin: .25rem 0;
+  border-color: #dce3ea;
+  opacity: 1;
+}
+
 .user-actions-menu-items a:hover,
 .user-actions-menu-items a:focus-visible,
 .user-actions-menu-items button:hover,

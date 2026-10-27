@@ -83,27 +83,52 @@ final class DatabaseSetup
 
     public function migrate(): void
     {
-        if (!$this->hasTable('booking_types') || $this->hasColumn('booking_types', 'trainer_requestable')) {
+        if (!$this->hasTable('booking_types')) {
             return;
         }
 
-        $addedColumn = false;
-        try {
-            $this->pdo->exec(
-                'ALTER TABLE booking_types
-                 ADD COLUMN trainer_requestable TINYINT(1) NOT NULL DEFAULT 1'
-            );
-            $addedColumn = true;
-        } catch (PDOException $exception) {
-            if (($exception->errorInfo[1] ?? null) !== 1060
-                || !$this->hasColumn('booking_types', 'trainer_requestable')) {
-                throw $exception;
+        if (!$this->hasColumn('booking_types', 'trainer_requestable')) {
+            $addedColumn = false;
+            try {
+                $this->pdo->exec(
+                    'ALTER TABLE booking_types
+                     ADD COLUMN trainer_requestable TINYINT(1) NOT NULL DEFAULT 1'
+                );
+                $addedColumn = true;
+            } catch (PDOException $exception) {
+                if (($exception->errorInfo[1] ?? null) !== 1060
+                    || !$this->hasColumn('booking_types', 'trainer_requestable')) {
+                    throw $exception;
+                }
+            }
+            if ($addedColumn) {
+                $this->pdo->exec(
+                    "UPDATE booking_types SET trainer_requestable = 0 WHERE code = 'external'"
+                );
             }
         }
-        if ($addedColumn) {
-            $this->pdo->exec(
-                "UPDATE booking_types SET trainer_requestable = 0 WHERE code = 'external'"
+
+        if ($this->hasTable('app_settings')) {
+            $migrationKey = 'external_booking_type_renamed';
+            $migration = $this->pdo->prepare(
+                'SELECT 1 FROM app_settings WHERE setting_key = :setting_key'
             );
+            $migration->execute(['setting_key' => $migrationKey]);
+            if ($migration->fetchColumn() === false) {
+                $this->pdo->exec(
+                    "UPDATE booking_types SET name = 'Extern'
+                     WHERE code = 'external' AND name = 'Externe Belegung'"
+                );
+                $statement = $this->pdo->prepare(
+                    'INSERT INTO app_settings (setting_key, setting_value)
+                     VALUES (:setting_key, :setting_value)
+                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)'
+                );
+                $statement->execute([
+                    'setting_key' => $migrationKey,
+                    'setting_value' => '1',
+                ]);
+            }
         }
     }
 

@@ -74,20 +74,20 @@ function keyEvent(key, target = null) {
   return event;
 }
 
-test('offers all 48 quarter-hour values from 08:00 through 19:45', () => {
-  assert.equal(QUARTER_HOUR_TIMES.length, 48);
+test('offers all 52 quarter-hour values from 08:00 through 20:45', () => {
+  assert.equal(QUARTER_HOUR_TIMES.length, 52);
   assert.equal(QUARTER_HOUR_TIMES[0], '08:00');
-  assert.equal(QUARTER_HOUR_TIMES.at(-1), '19:45');
+  assert.equal(QUARTER_HOUR_TIMES.at(-1), '20:45');
   assert.ok(QUARTER_HOUR_TIMES.every((time, index) => {
     const [hours, minutes] = time.split(':').map(Number);
     const totalMinutes = hours * 60 + minutes;
     return minutes % 15 === 0
       && (index === 0 || time > QUARTER_HOUR_TIMES[index - 1])
       && totalMinutes >= 8 * 60
-      && totalMinutes <= 19 * 60 + 45;
+      && totalMinutes <= 20 * 60 + 45;
   }));
   assert.deepEqual(QUARTER_HOUR_TIMES.slice(0, 4), ['08:00', '08:15', '08:30', '08:45']);
-  assert.deepEqual(QUARTER_HOUR_TIMES.slice(-4), ['19:00', '19:15', '19:30', '19:45']);
+  assert.deepEqual(QUARTER_HOUR_TIMES.slice(-4), ['20:00', '20:15', '20:30', '20:45']);
 });
 
 test('opens the menu with the selected value focused and navigates by keyboard', () => {
@@ -95,9 +95,9 @@ test('opens the menu with the selected value focused and navigates by keyboard',
   trigger.dispatchEvent(new Event('click'));
   assert.equal(menu.hidden, false);
   assert.equal(trigger.getAttribute('aria-expanded'), 'true');
-  assert.equal(menu.children.length, 48);
+  assert.equal(menu.children.length, 52);
   assert.deepEqual(menu.children.slice(0, 4).map(option => option.textContent), ['8:00', '8:15', '8:30', '8:45']);
-  assert.deepEqual(menu.children.slice(-4).map(option => option.textContent), ['19:00', '19:15', '19:30', '19:45']);
+  assert.deepEqual(menu.children.slice(-4).map(option => option.textContent), ['20:00', '20:15', '20:30', '20:45']);
   assert.equal(menu.children.find(option => option.dataset.timeOption === '12:30').getAttribute('aria-checked'), 'true');
   assert.equal(document.activeElement.dataset.timeOption, '12:30');
 
@@ -106,7 +106,7 @@ test('opens the menu with the selected value focused and navigates by keyboard',
   menu.dispatchEvent(keyEvent('ArrowRight', document.activeElement));
   assert.equal(document.activeElement.dataset.timeOption, '13:45');
   menu.dispatchEvent(keyEvent('End', document.activeElement));
-  assert.equal(document.activeElement.dataset.timeOption, '19:45');
+  assert.equal(document.activeElement.dataset.timeOption, '20:45');
 });
 
 test('selecting a suggestion updates the editable field and dispatches input and change', () => {

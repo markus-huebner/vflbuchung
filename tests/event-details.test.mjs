@@ -12,7 +12,7 @@ const bookingTypesService = readFileSync(new URL('../www/app/BookingTypeService.
 const bookingTypeLookup = code => ({
   training: { name: 'Training', color_hex: '#27834a', text_hex: '#ffffff' },
   match: { name: 'Spiel', color_hex: '#2865a6', text_hex: '#ffffff' },
-  external: { name: 'Externe Belegung', color_hex: '#bf6a18', text_hex: '#ffffff' },
+  external: { name: 'Extern', color_hex: '#bf6a18', text_hex: '#ffffff' },
   yellow: { name: 'Gelb', color_hex: '#f4d03f', text_hex: '#000000' },
 }[code] || null);
 const bookingTypeColorPickerSource = source.slice(
@@ -753,11 +753,19 @@ test('admin management links stay inside the role-gated account menu', () => {
   );
   assert.match(
     layoutSource,
-    /if \(\$user\['role'\] === 'admin'\) \{\s*\$nav \.= '<a href="\/\?page=resources">Ressourcenverwaltung<\/a>'[\s\S]*?href="\/\?page=users">Benutzerverwaltung<\/a>/,
+    /if \(\$user\['role'\] === 'admin'\) \{\s*\$nav \.= '<a href="\/\?page=resources">Ressourcenverwaltung<\/a>'[\s\S]*?href="\/\?page=users">Benutzerverwaltung<\/a>[\s\S]*?href="\/\?page=booking-types">Buchungsarten<\/a>'[\s\S]*?<hr class="my-1">';\s*\}\s*\$nav \.= '<a href="\/\?page=profile">Mein Profil<\/a>'/,
   );
   assert.doesNotMatch(application, /case 'settings':/);
   assert.match(application, /case 'users':\s*\$this->requireRole\(\['admin'\]\)/);
   assert.match(application, /case 'resources':\s*\$this->requireRole\(\['admin'\]\)/);
+});
+
+test('login view includes a button to return to the calendar', () => {
+  const loginView = views.slice(
+    views.indexOf('public static function login('),
+    views.indexOf('public static function dashboard('),
+  );
+  assert.match(loginView, /<a class="btn btn-outline-secondary w-100 mt-2" href="\/">Zurück<\/a>/);
 });
 
 test('hidden rejection action is not forced visible by a display utility', () => {

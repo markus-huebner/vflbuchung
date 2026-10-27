@@ -18,6 +18,12 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
    docker compose up --build -d
    ```
 
+   Den Webcontainer kannst du später mit folgendem Befehl neu starten:
+
+   ```powershell
+   docker compose restart web
+   ```
+
 3. Öffne [http://localhost:8100](http://localhost:8100). Wenn die Datenbank nicht erreichbar ist, öffnet sich zuerst ein Verbindungsassistent. Er erfasst Anwendungs- und Mail-Absenderdaten sowie Host, Port, Datenbankname und Zugangsdaten eines bereits angelegten MySQL-Datenbankbenutzers. Ein Root-Passwort wird nicht abgefragt. Nach einem erfolgreichen Verbindungstest kannst du die Angaben prüfen oder korrigieren und anschließend geschützt speichern. Die Einstellungen bleiben in einem separaten Docker-Volume erhalten. Bei einer leeren Datenbank öffnet sich danach die Einrichtung von Schema und erstem Administratorkonto; dafür ist kein Setup-Schlüssel erforderlich. Ein erkanntes aktuelles Datenbankschema wird nicht automatisch verändert; bei vorhandenen Anwendungstabellen kannst du die Daten behalten oder nach ausdrücklicher Bestätigung alle Anwendungstabellen neu anlegen lassen.
 
 Die lokale Oberfläche läuft auf Port `8100`; phpMyAdmin ist unter `http://localhost:8101` und Mailpit unter `http://localhost:8103` erreichbar. MySQL ist auf Host-Port `8102` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
@@ -65,7 +71,7 @@ Kalenderansichten:
 
 Das Burger-Menü rechts oben am Belegungsplan enthält Kalender- und Ansichtseinstellungen: Radiobuttons wählen Platzbelegung oder Fahrzeugkalender sowie Tag oder Woche; „Ganzen Tag anzeigen“ bleibt eine Checkbox. Nach einer Auswahl schließt sich das Menü automatisch. Ausgewähltes Datum und Tages-/Wochenansicht bleiben beim Kalenderwechsel erhalten.
 
-Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+** öffnet für angemeldete Benutzer die Auswahl zum Anlegen einer Platz- oder Fahrzeugbuchung beziehungsweise einer Traineranfrage; das **Burger-Menü** enthält Kalender- und Ansichtseinstellungen und schließt sich nach einer Auswahl. „Ganzen Tag anzeigen“ ist nur in der Tagesansicht aktiv. Es ist immer nur eines der beiden Kalendermenüs geöffnet. Die Kopfzeile zeigt angemeldet das Kopfsymbol und daneben den Namen als normalen Text außerhalb des Buttons; das Symbol öffnet „Mein Profil“, für Admins außerdem „Ressourcen“, „Buchungsarten“ und „Benutzerverwaltung“ sowie „Abmelden“. Ohne Anmeldung erscheint nur „Anmelden“ und kein Anlegen-Menü.
+Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+** öffnet für angemeldete Benutzer die Auswahl zum Anlegen einer Platz- oder Fahrzeugbuchung beziehungsweise einer Traineranfrage; das **Burger-Menü** enthält Kalender- und Ansichtseinstellungen und schließt sich nach einer Auswahl. „Ganzen Tag anzeigen“ ist nur in der Tagesansicht aktiv. Es ist immer nur eines der beiden Kalendermenüs geöffnet. Die Kopfzeile zeigt angemeldet das Kopfsymbol und daneben den Namen als normalen Text außerhalb des Buttons; das Symbol öffnet für Admins zuerst „Ressourcen“, „Benutzerverwaltung“ und „Buchungsarten“, dann eine Trennlinie, „Mein Profil“ und „Abmelden“. Ohne Anmeldung erscheint nur „Anmelden“ und kein Anlegen-Menü.
 
 - **Plätze:** Tagesraster mit Platzspalten (standardmäßig 09:00–21:00 Uhr; außerhalb dieses Zeitraums kann der restliche Tag eingeblendet werden) und Wochenansicht mit Tagen als Spalten. Die Spalten teilen die verfügbare Breite gleichmäßig; feste Mindestbreiten werden vermieden, damit horizontaler Bildlauf möglichst entfällt. Stundenzeilen sind 51,2 statt 64 Pixel hoch; Eintragspositionen und Mindesthöhen verwenden denselben Maßstab.
 - **Kabinen:** Zugeordnete Kabinen erscheinen direkt an den Platzterminen und in deren Buchungsdialog.

@@ -102,7 +102,7 @@ SELECT default_types.code, default_types.name, default_types.color, default_type
 FROM (
     SELECT 'training' AS code, 'Training' AS name, 'green-medium' AS color, 10 AS sort_order, 1 AS trainer_requestable
     UNION ALL SELECT 'match', 'Spiel', 'blue-medium', 20, 1
-    UNION ALL SELECT 'external', 'Externe Belegung', 'orange-medium', 30, 0
+    UNION ALL SELECT 'external', 'Extern', 'orange-medium', 30, 0
 ) AS default_types
 WHERE NOT EXISTS (SELECT 1 FROM booking_types)
 ON DUPLICATE KEY UPDATE code = VALUES(code);

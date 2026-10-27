@@ -1,4 +1,4 @@
-export const QUARTER_HOUR_TIMES = Object.freeze(Array.from({ length: 48 }, (_, index) => {
+export const QUARTER_HOUR_TIMES = Object.freeze(Array.from({ length: 52 }, (_, index) => {
   const minutes = 8 * 60 + index * 15;
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }));

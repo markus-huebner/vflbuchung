@@ -38,6 +38,7 @@ $auth->createInitialAdmin(
 );
 
 $pdo->exec("UPDATE booking_types SET name = 'Training angepasst', color = 'purple' WHERE code = 'training'");
+$pdo->exec("UPDATE booking_types SET name = 'Externe Belegung' WHERE code = 'external'");
 $pdo->exec('ALTER TABLE booking_types DROP COLUMN trainer_requestable');
 $setup->initialize(false);
 $migratedTraining = $pdo->query(
@@ -46,11 +47,20 @@ $migratedTraining = $pdo->query(
 $migratedExternalPermission = $pdo->query(
     "SELECT trainer_requestable FROM booking_types WHERE code = 'external'"
 )->fetchColumn();
+$migratedExternalName = $pdo->query(
+    "SELECT name FROM booking_types WHERE code = 'external'"
+)->fetchColumn();
 if ($migratedTraining['name'] !== 'Training angepasst'
     || $migratedTraining['color'] !== 'purple'
     || (int) $migratedTraining['trainer_requestable'] !== 1
-    || (int) $migratedExternalPermission !== 0) {
+    || (int) $migratedExternalPermission !== 0
+    || $migratedExternalName !== 'Extern') {
     throw new RuntimeException('The schema migration must preserve booking types and apply compatible trainer defaults.');
+}
+$pdo->exec("UPDATE booking_types SET name = 'Externe Belegung' WHERE code = 'external'");
+$setup->initialize(false);
+if ($pdo->query("SELECT name FROM booking_types WHERE code = 'external'")->fetchColumn() !== 'Externe Belegung') {
+    throw new RuntimeException('The booking type migration must not overwrite a later custom name.');
 }
 
 $bookingTypeService = new BookingTypeService($pdo);

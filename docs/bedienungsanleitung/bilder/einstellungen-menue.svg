@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 470" role="img" aria-labelledby="title desc">
   <title id="title">Benutzermenü für Admins</title>
-  <desc id="desc">Ein Admin öffnet das Kopfsymbol neben seinem Namen. Das Menü enthält Mein Profil, Ressourcenverwaltung, Benutzerverwaltung und Abmelden. Die Verwaltungsoptionen sind nur für Admins sichtbar.</desc>
+  <desc id="desc">Ein Admin öffnet das Kopfsymbol neben seinem Namen. Das Menü enthält Ressourcenverwaltung, Benutzerverwaltung und Buchungsarten, eine Trennlinie, Mein Profil und Abmelden. Die Verwaltungsoptionen sind nur für Admins sichtbar.</desc>
   <defs>
     <style>
       text { font-family: Arial, sans-serif; fill: #1d2935; }
@@ -19,14 +19,16 @@
   <path d="M831 53v-2a10 10 0 0 1 20 0v2" fill="none" stroke="#fff" stroke-width="2"/>
 
   <path d="M841 66V112" stroke="#557185" stroke-width="3" stroke-dasharray="5 5"/>
-  <rect x="560" y="118" width="310" height="200" rx="10" fill="#fff" stroke="#c9d4dd" stroke-width="2"/>
-  <text x="585" y="150" class="small">Mein Profil</text>
-  <line x1="560" y1="164" x2="870" y2="164" stroke="#e2e8ed"/>
-  <text x="585" y="198" class="small">Ressourcenverwaltung</text>
-  <line x1="560" y1="214" x2="870" y2="214" stroke="#eef1f4"/>
-  <text x="585" y="247" class="small">Benutzerverwaltung</text>
-  <line x1="560" y1="264" x2="870" y2="264" stroke="#eef1f4"/>
-  <text x="585" y="297" class="small">Abmelden</text>
+  <rect x="560" y="118" width="310" height="260" rx="10" fill="#fff" stroke="#c9d4dd" stroke-width="2"/>
+  <text x="585" y="150" class="small">Ressourcenverwaltung</text>
+  <line x1="560" y1="164" x2="870" y2="164" stroke="#eef1f4"/>
+  <text x="585" y="198" class="small">Benutzerverwaltung</text>
+  <line x1="560" y1="212" x2="870" y2="212" stroke="#eef1f4"/>
+  <text x="585" y="246" class="small">Buchungsarten</text>
+  <line x1="560" y1="263" x2="870" y2="263" stroke="#c9d4dd"/>
+  <text x="585" y="297" class="small">Mein Profil</text>
+  <line x1="560" y1="311" x2="870" y2="311" stroke="#e2e8ed"/>
+  <text x="585" y="348" class="small">Abmelden</text>
 
   <rect x="42" y="148" width="430" height="118" rx="12" fill="#fff" stroke="#d0dbe3"/>
   <text x="70" y="190" class="head">Benutzerverwaltung</text>

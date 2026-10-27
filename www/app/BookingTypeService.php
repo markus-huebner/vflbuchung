@@ -143,7 +143,7 @@ final class BookingTypeService
     private const DEFAULTS = [
         ['code' => 'training', 'name' => 'Training', 'color' => 'green-medium', 'sort_order' => 10, 'trainer_requestable' => true],
         ['code' => 'match', 'name' => 'Spiel', 'color' => 'blue-medium', 'sort_order' => 20, 'trainer_requestable' => true],
-        ['code' => 'external', 'name' => 'Externe Belegung', 'color' => 'orange-medium', 'sort_order' => 30, 'trainer_requestable' => false],
+        ['code' => 'external', 'name' => 'Extern', 'color' => 'orange-medium', 'sort_order' => 30, 'trainer_requestable' => false],
     ];
 
     public function __construct(private readonly PDO $pdo)

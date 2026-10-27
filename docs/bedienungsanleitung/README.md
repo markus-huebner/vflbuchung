@@ -54,7 +54,7 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 - Im Burger-Menü wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**. Nach einer Auswahl schließt sich das Menü automatisch.
 - Im selben Menü wählst du auf Handy und Desktop per Radiobutton zwischen **Tag** und **Woche**. **Ganzen Tag anzeigen** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
 - Angemeldet öffnet der separate **+**-Button die Auswahl für neue Platz- oder Fahrzeugeinträge. Trainer stellen darüber Buchungsanfragen, Verwalter und Admins legen Buchungen an.
-- Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins finden dort zusätzlich **Ressourcenverwaltung** und **Benutzerverwaltung**. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
+- Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins finden dort zuerst **Ressourcenverwaltung**, **Benutzerverwaltung** und **Buchungsarten**; eine Trennlinie grenzt diese Verwaltungspunkte von **Mein Profil** und **Abmelden** ab. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
 - Mit den Pfeilen oder einer horizontalen Wischgeste im Kalender wechselst du zum vorherigen oder nächsten Zeitraum. In der Tagesansicht wechselst du dabei um einen Tag, in der Wochenansicht um eine Woche. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - Das Datumsfeld ist kompakt, behält für Tages- und Wochenwerte dieselbe Breite und ist genauso hoch wie die benachbarten Pfeilbuttons.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
@@ -93,7 +93,7 @@ Als Trainer prüfst du im Dialog Kategorie, Mannschaft oder Hinweis, Datum, Uhrz
 
 ### 4.1 Angaben bei einer Platzbelegung
 
-- Wähle eine Kategorie: **Training** oder **Spiel**. Verwalter und Admins können außerdem **Externe Belegung** auswählen.
+- Wähle eine Kategorie: **Training** oder **Spiel**. Verwalter und Admins können außerdem **Extern** auswählen.
 - **Mannschaft / Hinweis** ist erforderlich.
 - Wähle ein Datum, Beginn und Ende. Neue Buchungen starten mit 90 Minuten Dauer. Platzbuchungen müssen am selben Tag enden.
 - Wähle mindestens einen Platz. Verwalter und Admins können zusätzlich Kabinen für den gesamten Buchungstermin zuordnen. Traineranfragen können keine Kabinen belegen.
@@ -147,9 +147,9 @@ Zum Löschen wählst du im Termindialog **Löschen**. Bei Serienterminen wird zu
 
 ## Kapitel 8: Einstellungen für Admins
 
-![Benutzermenü für Admins mit Profil, Ressourcenverwaltung, Benutzerverwaltung und Abmelden](bilder/einstellungen-menue.svg)
+![Benutzermenü für Admins mit den Verwaltungspunkten, Trennlinie, Mein Profil und Abmelden](bilder/einstellungen-menue.svg)
 
-Admins öffnen über das **Kopfsymbol neben ihrem Namen** das Benutzermenü und wählen dort **Benutzerverwaltung** oder **Ressourcenverwaltung**. **Mein Profil** und **Abmelden** stehen allen angemeldeten Benutzern im selben Menü zur Verfügung.
+Admins öffnen über das **Kopfsymbol neben ihrem Namen** das Benutzermenü und wählen dort **Ressourcenverwaltung**, **Benutzerverwaltung** oder **Buchungsarten**. **Mein Profil** und **Abmelden** stehen allen angemeldeten Benutzern unterhalb der Trennlinie im selben Menü zur Verfügung.
 
 ### Benutzerverwaltung
 
