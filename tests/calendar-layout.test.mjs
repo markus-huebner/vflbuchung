@@ -37,6 +37,13 @@ test('resource booking cards remain absolutely positioned in the time grid', () 
   assert.match(rule[1], /position:\s*absolute/);
 });
 
+test('calendar scroll surfaces reserve horizontal touch gestures for swipe navigation', () => {
+  const rule = calendarCss.match(/\.resource-day-scroll,\s*\.resource-week-scroll\s*\{([^}]+)\}/);
+  assert.ok(rule, 'day and week scroll surfaces need a shared touch-action rule');
+  assert.match(rule[1], /touch-action:\s*pan-y\s*;/);
+  assert.match(rule[1], /overflow:\s*auto\s*;/);
+});
+
 test('week calendar uses fixed, equally sized day columns', () => {
   const rule = calendarCss.match(/\.resource-week-table\s*\{([^}]+)\}/);
   assert.ok(rule, 'week calendar needs an explicit table layout rule');

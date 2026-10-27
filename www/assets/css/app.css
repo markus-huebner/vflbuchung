@@ -374,6 +374,7 @@ body {
 .resource-day-scroll,
 .resource-week-scroll {
   overflow: auto;
+  touch-action: pan-y;
 }
 
 .resource-day-grid {
