@@ -267,7 +267,11 @@ test('calendar resource selection persists in the current window session', () =>
   assert.doesNotMatch(views, /id="calendar-resource-switcher"/);
   assert.match(calendarJs, /option\.checked = option\.dataset\.calendarResource === state\.resourceType/);
   assert.match(calendarCss, /\.request-row-actions\s+\.btn\s*\{[^}]*width:\s*100%/s);
-  assert.doesNotMatch(views, /name="reason"|placeholder="Begründung/);
+  const bookingDialog = views.slice(
+    views.indexOf('private static function bookingDialog('),
+    views.indexOf('private static function eventDialog('),
+  );
+  assert.doesNotMatch(bookingDialog, /name="reason"|placeholder="Begründung/);
   assert.doesNotMatch(views, /data-dashboard-toggle|Dashboard ausblenden|Dashboard einblenden/);
   assert.doesNotMatch(calendarJs, /data-dashboard-toggle/);
   assert.match(calendarJs, /data-dashboard-jump/);

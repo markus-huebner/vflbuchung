@@ -172,7 +172,7 @@ final class Application
                 'user-invite' => '/?page=users&form=invite',
                 'user-create' => '/?page=users&form=create',
                 'profile-update' => '/?page=profile',
-                'user-password', 'user-role', 'user-deactivate', 'user-delete' => '/?page=users',
+                'user-update', 'user-password', 'user-role', 'user-deactivate', 'user-delete' => '/?page=users',
                 'resource-save' => trim((string) ($_POST['id'] ?? '')) === ''
                     ? '/?page=resources&form=create'
                     : '/?page=resources',
@@ -457,6 +457,19 @@ final class Application
                     (string) ($_POST['password_confirm'] ?? '')
                 );
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Passwort wurde geändert.'];
+                $this->redirect('/?page=users');
+
+            case 'user-update':
+                $this->requireRole(['admin']);
+                $this->users->updateDetails(
+                    $this->positiveId($_POST['id'] ?? null),
+                    (string) ($_POST['email'] ?? ''),
+                    (string) ($_POST['first_name'] ?? ''),
+                    (string) ($_POST['last_name'] ?? ''),
+                    (string) ($_POST['role'] ?? ''),
+                    (string) ($_POST['status'] ?? '')
+                );
+                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Benutzerdaten wurden gespeichert.'];
                 $this->redirect('/?page=users');
 
             case 'user-role':

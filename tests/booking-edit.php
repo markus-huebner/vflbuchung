@@ -130,13 +130,32 @@ check(
     'A multi-place request must be shown once with all pending assignment IDs.'
 );
 $today = new DateTimeImmutable('now', new DateTimeZone('Europe/Berlin'));
+$submittedFirst = createBooking($today->modify('+2 months')->format('Y-m-d'), [], $actors['trainer'])[0];
+$submittedSecond = createBooking($today->modify('+1 month')->format('Y-m-d'), [], $actors['trainer'])[0];
+$submissionOrder = $service->requests($actors['trainer'], false, 1, 50);
+$submissionOrderIds = array_map('intval', array_column($submissionOrder['items'], 'occurrence_id'));
+$submittedFirstIndex = array_search($submittedFirst, $submissionOrderIds, true);
+$submittedSecondIndex = array_search($submittedSecond, $submissionOrderIds, true);
+check(
+    $submittedSecondIndex !== false && $submittedFirstIndex !== false
+        && $submittedSecondIndex < $submittedFirstIndex,
+    'Requests must be ordered by submission time, not by scheduled booking date.'
+);
 $oldRequestId = createBooking($today->modify('-4 months')->format('Y-m-d'), [], $actors['trainer'])[0];
 $recentRequestId = createBooking($today->modify('-2 months')->format('Y-m-d'), [], $actors['trainer'])[0];
 $pendingAssignment = $pdo->prepare(
     "SELECT id FROM booking_resource_assignments WHERE occurrence_id = :occurrence_id AND status = 'pending'"
 );
 $pendingAssignment->execute(['occurrence_id' => $oldRequestId]);
-$service->reject([(int) $pendingAssignment->fetchColumn()], $manager);
+$oldAssignmentId = (int) $pendingAssignment->fetchColumn();
+fails(
+    fn() => $service->reject([$oldAssignmentId], $manager, " \t\u{00a0} "),
+    'Bitte gib eine Begründung für die Ablehnung an'
+);
+$service->reject([$oldAssignmentId], $manager, 'Terminüberschneidung');
+$reasonQuery = $pdo->prepare('SELECT rejection_reason FROM booking_occurrences WHERE id = :id');
+$reasonQuery->execute(['id' => $oldRequestId]);
+check($reasonQuery->fetchColumn() === 'Terminüberschneidung', 'Persist the required rejection reason.');
 foreach ([false, true] as $includeClosed) {
     $listing = $service->requests($actors['trainer'], $includeClosed);
     $visibleIds = array_map('intval', array_column($listing['items'], 'occurrence_id'));
@@ -263,7 +282,7 @@ for ($day = 1; $day <= 21; $day++) {
     $paginationRequests[] = createBooking(sprintf('2032-06-%02d', $day), [], $paginationActor)[0];
 }
 $paginationEvent = $service->events('2032-06-01', '2032-06-02', 'pitch', false)[0];
-$service->reject([$paginationEvent['assignment_id']], $manager);
+$service->reject([$paginationEvent['assignment_id']], $manager, 'Nicht verfügbar');
 $openListing = $service->requests($paginationActor, false, 1, 10);
 $allListingPageOne = $service->requests($paginationActor, true, 1, 10);
 $allListingPageTwo = $service->requests($paginationActor, true, 2, 10);
@@ -451,7 +470,7 @@ foreach (['rejected', 'deleted', 'skipped'] as $status) {
     $pending = createBooking('2033-03-01', [], $actors['trainer'])[0];
     $event = $service->events('2033-03-01', '2033-03-02', 'pitch', false)[0];
     if ($status === 'rejected') {
-        $service->reject([$event['assignment_id']], $manager);
+        $service->reject([$event['assignment_id']], $manager, 'Nicht verfügbar');
     } elseif ($status === 'deleted') {
         $assignmentId = (int) $event['assignment_id'];
         $group = $pdo->prepare('SELECT group_id FROM booking_occurrences WHERE id = :id');
@@ -585,7 +604,7 @@ check(
     'Partially approved bookings must show both the confirmed and pending resource assignments.'
 );
 check($partial[0]['occurrence_status'] === 'pending', 'Expose aggregate status to guard editing partially approved bookings.');
-$service->reject([$partial[1]['assignment_id']], $manager);
+$service->reject([$partial[1]['assignment_id']], $manager, 'Ressource bereits belegt');
 $public = $service->events('2033-02-01', '2033-02-02', 'pitch', false);
 check(count($public) === 1 && $public[0]['resource_names'] === 'pitch0', 'Rejected resources must disappear from public details.');
 $service->cancel($public[0]['assignment_id'], $manager);

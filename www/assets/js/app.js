@@ -1309,6 +1309,35 @@ function initControls() {
       deleteUserDialog.showModal();
     });
   });
+  const userEditDialog = document.querySelector('#user-edit-dialog');
+  const userEditForm = document.querySelector('#user-edit-form');
+  document.querySelectorAll('[data-edit-user]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const idField = userEditForm?.querySelector('[name="id"]');
+      const firstNameField = userEditForm?.querySelector('[name="first_name"]');
+      const lastNameField = userEditForm?.querySelector('[name="last_name"]');
+      const emailField = userEditForm?.querySelector('[name="email"]');
+      const usernameField = userEditForm?.querySelector('#user-edit-username');
+      const roleField = userEditForm?.querySelector('[name="role"]');
+      const statusField = userEditForm?.querySelector('[name="status"]');
+      if (!userEditDialog || !idField || !firstNameField || !lastNameField
+        || !emailField || !usernameField || !roleField || !statusField) return;
+
+      idField.value = button.dataset.userId;
+      firstNameField.value = button.dataset.userFirstName;
+      lastNameField.value = button.dataset.userLastName;
+      emailField.value = button.dataset.userEmail;
+      usernameField.value = button.dataset.userUsername;
+      roleField.value = button.dataset.userRole;
+      statusField.querySelectorAll('option').forEach((option) => {
+        option.hidden = (option.value === 'active' && button.dataset.userStatus === 'invited')
+          || (option.value === 'invited' && button.dataset.userStatus !== 'invited');
+      });
+      statusField.value = button.dataset.userStatus;
+      userEditDialog.showModal();
+      firstNameField.focus();
+    });
+  });
   const resourceOptions = [...document.querySelectorAll('[data-calendar-resource]')];
   const viewControls = document.querySelector('#calendar-view-controls');
   resourceOptions.forEach((option) => {
@@ -1533,14 +1562,40 @@ function initControls() {
           : 'Möchten Sie diese Buchung wirklich löschen?';
     actionConfirmDialog.querySelector('[data-confirm-title]').textContent = title;
     actionConfirmDialog.querySelector('[data-confirm-message]').textContent = message;
+    const reasonWrap = actionConfirmDialog.querySelector('[data-confirm-reason-wrap]');
+    const reasonInput = actionConfirmDialog.querySelector('[data-confirm-reason]');
+    reasonWrap.hidden = !rejecting;
+    reasonInput.required = rejecting;
+    reasonInput.setAttribute('aria-required', String(rejecting));
+    reasonInput.setCustomValidity('');
+    reasonInput.value = '';
     actionConfirmDialog.querySelector('[data-confirm-submit]').textContent = rejecting
       ? 'Anfrage ablehnen' : bookingTypeRemoval ? 'Entfernen' : 'Löschen';
     pendingConfirmationForm = form;
     actionConfirmDialog.showModal();
+    if (rejecting) reasonInput.focus();
+  });
+  actionConfirmDialog?.querySelector('[data-confirm-reason]')?.addEventListener('input', (event) => {
+    event.currentTarget.setCustomValidity('');
   });
   actionConfirmDialog?.querySelector('[data-confirm-submit]')?.addEventListener('click', () => {
     if (!pendingConfirmationForm) return;
     const form = pendingConfirmationForm;
+    if (form.dataset.confirmAction === 'reject') {
+      const reasonInput = actionConfirmDialog.querySelector('[data-confirm-reason]');
+      const reason = reasonInput.value.trim();
+      const reasonField = form.elements.namedItem('reason');
+      if (reason === '') {
+        reasonInput.setCustomValidity('Bitte gib eine Begründung für die Ablehnung an.');
+        reasonInput.reportValidity();
+        return;
+      }
+      if (!(reasonField instanceof HTMLInputElement)) {
+        announce('Das Begründungsfeld für die Ablehnung ist nicht verfügbar.', 'danger');
+        return;
+      }
+      reasonField.value = reason;
+    }
     pendingConfirmationForm = null;
     actionConfirmDialog.close();
     form.dataset.confirmed = 'true';

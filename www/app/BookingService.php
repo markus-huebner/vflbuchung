@@ -320,7 +320,7 @@ final class BookingService
              LEFT JOIN resources c ON c.id = bca.cabin_id
              WHERE {$where}
              GROUP BY {$requestEntryKey}, g.id, u.id, u.first_name, u.last_name, u.email
-             ORDER BY MIN(o.starts_at) DESC, MIN(o.id)
+             ORDER BY MAX(g.created_at) DESC, g.id DESC
              LIMIT {$pageSize} OFFSET {$offset}"
         );
         $statement->execute($params);
@@ -476,7 +476,7 @@ final class BookingService
         return $result;
     }
 
-    public function reject(array $assignmentIds, array $actor, string $reason = ''): array
+    public function reject(array $assignmentIds, array $actor, string $reason): array
     {
         if (!in_array($actor['role'], ['admin', 'manager'], true)) {
             throw new RuntimeException('Für Ablehnungen fehlen die Rechte.');
@@ -486,6 +486,9 @@ final class BookingService
             throw new RuntimeException('Wähle mindestens eine Anfrage aus.');
         }
         $reason = trim($reason);
+        if ($reason === '' || preg_match('/[^\s\p{Z}]/u', $reason) !== 1) {
+            throw new RuntimeException('Bitte gib eine Begründung für die Ablehnung an.');
+        }
         if (mb_strlen($reason) > 500) {
             throw new RuntimeException('Die Begründung darf höchstens 500 Zeichen lang sein.');
         }
@@ -501,7 +504,7 @@ final class BookingService
                 $this->setAssignmentStatus($id, 'rejected');
                 $this->pdo->prepare(
                     'UPDATE booking_occurrences SET rejection_reason = :reason WHERE id = :id'
-                )->execute(['reason' => $reason !== '' ? $reason : null, 'id' => $details['occurrence_id']]);
+                )->execute(['reason' => $reason, 'id' => $details['occurrence_id']]);
                 $this->refreshOccurrenceStatus((int) $details['occurrence_id']);
                 $groupId = (int) $details['group_id'];
                 if (!array_key_exists($groupId, $groups)) {

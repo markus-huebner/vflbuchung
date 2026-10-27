@@ -1147,9 +1147,22 @@ dialog::backdrop {
   display: inline-block;
   padding: .15rem .5rem;
   border-radius: 99px;
-  background: #edf3f8;
-  color: var(--club-navy);
   font-size: .75rem;
+}
+
+.request-status-open {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.request-status-confirmed {
+  background: #d1e7dd;
+  color: #0f5132;
+}
+
+.request-status-rejected {
+  background: #f8d7da;
+  color: #842029;
 }
 
 .request-row {
@@ -1231,6 +1244,10 @@ dialog::backdrop {
 
 .table-responsive {
   border-radius: .5rem;
+}
+
+.user-management-table .user-mobile-cell {
+  display: none;
 }
 
 .user-password-form {
@@ -1516,6 +1533,121 @@ dialog::backdrop {
 
 [data-resource-order-group][aria-busy="true"] {
   opacity: .7;
+}
+
+@media (max-width: 900px) {
+  .user-management-table {
+    width: 100%;
+    max-width: 100%;
+    table-layout: auto;
+  }
+
+  .user-management-table thead .user-desktop-cell,
+  .user-management-table tbody .user-desktop-cell {
+    display: none;
+  }
+
+  .user-management-table thead .user-mobile-cell {
+    display: table-cell;
+    min-width: 0;
+    padding: .35rem .25rem;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--bs-body-color);
+    font-size: .8rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .user-management-table thead .user-actions-heading {
+    display: table-cell;
+    min-width: 0;
+    padding: .35rem .25rem;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--bs-body-color);
+    font-size: .8rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .user-management-table thead .user-mobile-cell > span {
+    display: block;
+  }
+
+  .user-management-table tbody tr {
+    border-bottom: 1px solid var(--bs-border-color);
+  }
+
+  .user-management-table tbody .user-mobile-cell {
+    display: table-cell;
+    min-width: 0;
+    padding: .2rem .25rem;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow-wrap: anywhere;
+  }
+
+  .user-mobile-account {
+    color: var(--bs-secondary-color);
+  }
+
+  .user-mobile-role-status {
+    color: var(--bs-secondary-color);
+  }
+
+  .user-mobile-name,
+  .user-mobile-account,
+  .user-mobile-role-status {
+    font-size: .875rem;
+    overflow-wrap: anywhere;
+  }
+
+  .user-mobile-name > div,
+  .user-mobile-account > div,
+  .user-mobile-role-status > div {
+    display: block;
+    min-width: 0;
+  }
+
+  .user-management-table tbody .user-actions-cell {
+    display: table-cell;
+    min-width: 0;
+    padding: .2rem .25rem;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .user-management-table tbody td[colspan] {
+    text-align: center;
+  }
+
+  .user-row-actions {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: .4rem !important;
+  }
+
+  .user-row-actions > button,
+  .user-row-actions > details,
+  .user-row-actions > details > summary {
+    width: 100%;
+    min-width: 0;
+    white-space: normal !important;
+    text-align: center;
+  }
+
+  .user-row-actions .user-password-form {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 700px) {

@@ -8,6 +8,7 @@ const styles = readFileSync(new URL('../www/assets/css/app.css', import.meta.url
 const views = readFileSync(new URL('../www/app/Views.php', import.meta.url), 'utf8');
 const application = readFileSync(new URL('../www/app/Application.php', import.meta.url), 'utf8');
 const bookingService = readFileSync(new URL('../www/app/BookingService.php', import.meta.url), 'utf8');
+const userService = readFileSync(new URL('../www/app/UserService.php', import.meta.url), 'utf8');
 const authService = readFileSync(new URL('../www/app/AuthService.php', import.meta.url), 'utf8');
 const bookingTypesService = readFileSync(new URL('../www/app/BookingTypeService.php', import.meta.url), 'utf8');
 const bookingTypeLookup = code => ({
@@ -837,6 +838,53 @@ test('admin management links stay inside the role-gated account menu', () => {
   assert.match(application, /case 'resources':\s*\$this->requireRole\(\['admin'\]\)/);
 });
 
+test('admins can edit user details without changing the username', () => {
+  const userUpdateAction = application.slice(
+    application.indexOf("case 'user-update':"),
+    application.indexOf("case 'user-role':"),
+  );
+  const userEditForm = views.slice(
+    views.indexOf('private static function userEditDialog('),
+    views.indexOf('public static function profile('),
+  );
+  assert.match(userUpdateAction, /\$this->requireRole\(\['admin'\]\)/);
+  assert.match(userUpdateAction, /\$this->users->updateDetails\(/);
+  assert.match(userService, /public function updateDetails\(/);
+  assert.match(userService, /SET email = :email, first_name = :first_name, last_name = :last_name/);
+  assert.match(userService, /role = :role, status = :status/);
+  assert.match(userService, /Der letzte aktive Administrator kann nicht herabgestuft oder deaktiviert werden/);
+  assert.match(userEditForm, /name="first_name"/);
+  assert.match(userEditForm, /name="last_name"/);
+  assert.match(userEditForm, /name="email"/);
+  assert.match(userEditForm, /name="role"/);
+  assert.match(userEditForm, /name="status"/);
+  assert.match(userEditForm, /id="user-edit-username" readonly tabindex="-1"/);
+  assert.doesNotMatch(userEditForm, /name="username"/);
+  assert.match(views, /data-edit-user/);
+  assert.match(views, /">Ändern<\/button>/);
+  assert.match(views, />Passwort ändern<\/summary>/);
+  assert.match(views, />Löschen<\/button>/);
+  assert.match(views, /user-mobile-name/);
+  assert.match(views, /user-mobile-account/);
+  assert.match(views, /user-mobile-role-status/);
+  assert.match(views, /user-mobile-cell"><span>Nachname<\/span><span>Vorname<\/span>/);
+  assert.match(views, /user-mobile-cell"><span>Benutzername<\/span><span>E-Mail<\/span>/);
+  assert.match(views, /user-mobile-cell"><span>Rolle<\/span><span>Status<\/span>/);
+  assert.match(styles, /\.user-management-table\s*\{[^}]*width:\s*100%[^}]*table-layout:\s*auto/s);
+  assert.match(styles, /\.user-management-table tbody \.user-mobile-cell\s*\{[^}]*display:\s*table-cell/s);
+  assert.match(styles, /\.user-management-table tbody \.user-actions-cell\s*\{[^}]*display:\s*table-cell/s);
+  assert.doesNotMatch(styles, /\.user-management-table thead \.user-actions-heading\s*\{\s*display:\s*none/);
+  assert.match(styles, /\.user-management-table thead \.user-actions-heading\s*\{[^}]*display:\s*table-cell/s);
+  assert.match(styles, /\.user-management-table thead \.user-mobile-cell > span\s*\{\s*display:\s*block/s);
+  assert.match(styles, /\.user-management-table thead \.user-mobile-cell\s*\{[^}]*display:\s*table-cell/s);
+  assert.match(styles, /\.user-mobile-name > div,[\s\S]*?display:\s*block/);
+  assert.match(styles, /\.user-row-actions\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(styles, /\.user-row-actions > button,[\s\S]*?width:\s*100%/);
+  assert.doesNotMatch(styles, /\.user-management-table tbody tr\s*\{[^}]*border-radius/s);
+  assert.match(source, /document\.querySelector\('#user-edit-dialog'\)[\s\S]*?userEditDialog\.showModal\(\)/);
+  assert.match(source, /firstNameField\.value = button\.dataset\.userFirstName/);
+});
+
 test('login view includes a button to return to the calendar', () => {
   const loginView = views.slice(
     views.indexOf('public static function login('),
@@ -852,12 +900,28 @@ test('hidden rejection action is not forced visible by a display utility', () =>
 });
 
 test('rejecting a booking request requires confirmation', () => {
-  assert.match(views, /id="action-confirm-dialog"[\s\S]*data-confirm-title[\s\S]*data-confirm-message[\s\S]*data-confirm-submit/);
+  assert.match(views, /id="action-confirm-dialog"[\s\S]*data-confirm-title[\s\S]*data-confirm-message[\s\S]*data-confirm-reason-wrap[\s\S]*data-confirm-submit/);
   assert.equal([...views.matchAll(/action="\/\?action=booking-reject"[^>]*data-confirm-action="reject"/g)].length, 2);
+  assert.equal([...views.matchAll(/<input type="hidden" name="reason" value=""/g)].length, 2);
   assert.match(source, /document\.addEventListener\('submit', \(event\) => \{\s*const form = event\.target\.closest\('form\[data-confirm-action\]'\)/);
   assert.match(source, /actionConfirmDialog\.showModal\(\)/);
+  assert.match(source, /reasonInput\.required = rejecting/);
+  assert.match(source, /const reason = reasonInput\.value\.trim\(\)/);
+  assert.match(source, /reasonField\.value = reason/);
   assert.match(source, /actionConfirmDialog\.querySelector\('\[data-confirm-submit\]'\)[\s\S]*?form\.requestSubmit\(\)/);
+  assert.match(bookingService, /public function reject\(array \$assignmentIds, array \$actor, string \$reason\)/);
+  assert.match(bookingService, /Bitte gib eine Begründung für die Ablehnung an/);
   assert.doesNotMatch(source, /window\.confirm/);
+});
+
+test('request overview sorts by submission time and colors statuses', () => {
+  assert.match(bookingService, /ORDER BY MAX\(g\.created_at\) DESC, g\.id DESC/);
+  assert.match(views, /'confirmed' => 'request-status-confirmed'/);
+  assert.match(views, /'rejected' => 'request-status-rejected'/);
+  assert.match(views, /default => 'request-status-open'/);
+  assert.match(styles, /\.request-status-open\s*\{[^}]*background:\s*#e9ecef;[^}]*color:\s*#495057;/s);
+  assert.match(styles, /\.request-status-confirmed\s*\{[^}]*background:\s*#d1e7dd;[^}]*color:\s*#0f5132;/s);
+  assert.match(styles, /\.request-status-rejected\s*\{[^}]*background:\s*#f8d7da;[^}]*color:\s*#842029;/s);
 });
 
 test('deleting a booking or cabin requires custom confirmation after choosing series scope', () => {

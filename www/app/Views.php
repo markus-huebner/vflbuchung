@@ -79,7 +79,13 @@ final class Views
     {
         return '<dialog id="action-confirm-dialog" aria-labelledby="action-confirm-title">
   <div class="dialog-header"><h2 class="h5 mb-0" data-confirm-title>Aktion bestätigen</h2></div>
-  <div class="dialog-body"><p class="mb-0" data-confirm-message></p></div>
+  <div class="dialog-body">
+    <p class="mb-0" data-confirm-message></p>
+    <div class="mt-3" data-confirm-reason-wrap hidden>
+      <label class="form-label" for="action-confirm-reason">Begründung (erforderlich)</label>
+      <textarea class="form-control" id="action-confirm-reason" data-confirm-reason maxlength="500" rows="3"></textarea>
+    </div>
+  </div>
   <div class="dialog-footer">
     <button type="button" class="btn btn-outline-secondary" data-confirm-cancel>Abbrechen</button>
     <button type="button" class="btn btn-danger" data-confirm-submit>Bestätigen</button>
@@ -368,6 +374,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '<form method="post" action="/?action=booking-reject" data-event-reject data-confirm-action="reject" hidden>'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
                 . '<input type="hidden" name="assignment_id" value="">'
+                . '<input type="hidden" name="reason" value="">'
                 . '<button class="btn btn-outline-danger" type="submit">Ablehnen</button></form>'
             : '';
         $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
@@ -448,6 +455,11 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         $rows = '';
         foreach ($requests as $request) {
             $status = self::statusLabel($request['assignment_status']);
+            $statusClass = match ($request['assignment_status']) {
+                'confirmed' => 'request-status-confirmed',
+                'rejected' => 'request-status-rejected',
+                default => 'request-status-open',
+            };
             $isSeriesSummary = (int) ($request['is_series_summary'] ?? 0) === 1;
             if ($isSeriesSummary) {
                 $status .= ' · ' . (int) $request['occurrence_count'] . ' Serientermine';
@@ -480,7 +492,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 static fn(int $id): bool => $id > 0
             )));
             $entryDetails = '<strong class="booking-title">' . Security::escape($request['title']) . '</strong>'
-                . ' <span class="request-status">' . Security::escape($status) . '</span>'
+                . ' <span class="request-status ' . $statusClass . '">' . Security::escape($status) . '</span>'
                 . '<span class="request-details">' . Security::escape($date . '–' . $end) . ' · ' . Security::escape(implode(' · ', array_filter($details))) . '</span>';
             $jumpButton = in_array($request['assignment_status'], ['pending', 'confirmed'], true)
                 ? '<button type="button" class="dashboard-entry-link" data-dashboard-jump'
@@ -505,7 +517,8 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 $rows .= '<button class="btn btn-sm btn-success" type="button" data-request-approve'
                     . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Freigeben</button>'
                     . '<form method="post" action="/?action=booking-reject" data-confirm-action="reject"><input type="hidden" name="_csrf" value="'
-                    . Security::escape($csrf) . '">' . $assignmentInputs . '<button class="btn btn-sm btn-outline-danger"'
+                    . Security::escape($csrf) . '">' . $assignmentInputs
+                    . '<input type="hidden" name="reason" value=""><button class="btn btn-sm btn-outline-danger"'
                     . ' type="submit">Ablehnen</button></form>';
             } elseif (!$staff && $request['assignment_status'] === 'pending') {
                 $rows .= '<button type="button" class="btn btn-sm btn-outline-primary" data-request-edit'
@@ -567,23 +580,30 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             $roleLabels = ['admin' => 'Admin', 'manager' => 'Verwalter', 'trainer' => 'Trainer'];
             $statusLabels = ['active' => 'Aktiv', 'invited' => 'Eingeladen', 'inactive' => 'Deaktiviert'];
             $fullName = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
-            $rows .= '<tr><td class="fw-semibold">' . Security::escape($user['first_name'])
-                . '</td><td>' . Security::escape($user['last_name'])
-                . '</td><td>' . Security::escape((string) ($user['email'] ?? '—'))
-                . '</td><td>' . Security::escape((string) ($user['username'] ?? '—'))
-                . '</td><td><form method="post" action="/?action=user-role" class="d-flex gap-2">'
-                . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf)
-                . '"><input type="hidden" name="id" value="' . $id
-                . '"><select class="form-select form-select-sm" name="role" aria-label="Rolle für '
-                . Security::escape($fullName) . '">';
-            foreach ($roleLabels as $role => $label) {
-                $rows .= '<option value="' . $role . '"' . ($user['role'] === $role ? ' selected' : '')
-                    . '>' . $label . '</option>';
-            }
-            $rows .= '</select><button class="btn btn-sm btn-outline-primary text-nowrap" type="submit">'
-                . 'Rolle ändern</button></form></td><td>'
-                . Security::escape($statusLabels[$user['status']] ?? $user['status'])
-                . '</td><td><div class="d-flex flex-wrap gap-2 align-items-start">'
+            $rows .= '<tr><td class="user-desktop-cell fw-semibold">' . Security::escape($user['first_name'])
+                . '</td><td class="user-desktop-cell">' . Security::escape($user['last_name'])
+                . '</td><td class="user-desktop-cell">' . Security::escape((string) ($user['email'] ?? '—'))
+                . '</td><td class="user-desktop-cell">' . Security::escape((string) ($user['username'] ?? '—'))
+                . '</td><td class="user-desktop-cell">' . Security::escape($roleLabels[$user['role']] ?? $user['role'])
+                . '</td><td class="user-desktop-cell">' . Security::escape($statusLabels[$user['status']] ?? $user['status'])
+                . '</td><td class="user-mobile-cell user-mobile-name">'
+                . '<div>' . Security::escape($user['last_name']) . '</div>'
+                . '<div>' . Security::escape($user['first_name']) . '</div></td>'
+                . '<td class="user-mobile-cell user-mobile-account">'
+                . '<div>' . Security::escape((string) ($user['username'] ?? '—')) . '</div>'
+                . '<div>' . Security::escape((string) ($user['email'] ?? '—')) . '</div></td>'
+                . '<td class="user-mobile-cell user-mobile-role-status">'
+                . '<div>' . Security::escape($roleLabels[$user['role']] ?? $user['role']) . '</div>'
+                . '<div>' . Security::escape($statusLabels[$user['status']] ?? $user['status']) . '</div></td>'
+                . '<td class="user-actions-cell"><div class="user-row-actions d-flex flex-wrap gap-2 align-items-start">'
+                . '<button class="btn btn-sm btn-outline-primary text-nowrap" type="button" data-edit-user'
+                . ' data-user-id="' . $id . '" data-user-first-name="' . Security::escape((string) $user['first_name'])
+                . '" data-user-last-name="' . Security::escape((string) $user['last_name'])
+                . '" data-user-email="' . Security::escape((string) ($user['email'] ?? ''))
+                . '" data-user-username="' . Security::escape((string) $user['username'])
+                . '" data-user-role="' . Security::escape((string) $user['role'])
+                . '" data-user-status="' . Security::escape((string) $user['status'])
+                . '">Ändern</button>'
                 . '<details><summary class="btn btn-sm btn-outline-primary text-nowrap">Passwort ändern</summary>'
                 . '<form method="post" action="/?action=user-password" class="user-password-form mt-2">'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf)
@@ -600,7 +620,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '">Löschen</button></div></td></tr>';
         }
 
-        $empty = $rows === '' ? '<tr><td colspan="7" class="text-center text-secondary py-4">'
+        $empty = $rows === '' ? '<tr><td colspan="10" class="text-center text-secondary py-4">'
             . 'Es sind noch keine Benutzer angelegt.</td></tr>' : $rows;
 
         $header = '<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">'
@@ -619,9 +639,16 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         }
 
         return $header . '<section class="panel-card p-3"><div class="table-responsive">'
-            . '<table class="table align-middle mb-0">'
-            . '<thead><tr><th>Vorname</th><th>Nachname</th><th>E-Mail</th><th>Benutzername</th><th>Rolle</th><th>Status</th>'
-            . '<th>Aktionen</th></tr></thead><tbody>' . $empty . '</tbody></table></div></section>'
+            . '<table class="table align-middle mb-0 user-management-table">'
+            . '<thead><tr><th class="user-desktop-cell">Vorname</th><th class="user-desktop-cell">Nachname</th>'
+            . '<th class="user-desktop-cell">E-Mail</th><th class="user-desktop-cell">Benutzername</th>'
+            . '<th class="user-desktop-cell">Rolle</th><th class="user-desktop-cell">Status</th>'
+            . '<th scope="col" class="user-mobile-cell"><span>Nachname</span><span>Vorname</span></th>'
+            . '<th scope="col" class="user-mobile-cell"><span>Benutzername</span><span>E-Mail</span></th>'
+            . '<th scope="col" class="user-mobile-cell"><span>Rolle</span><span>Status</span></th>'
+            . '<th class="user-actions-heading">Aktionen</th></tr></thead><tbody>'
+            . $empty . '</tbody></table></div></section>'
+            . self::userEditDialog($csrf)
             . '<dialog id="delete-user-dialog" aria-labelledby="delete-user-title">'
             . '<form method="post" action="/?action=user-delete">'
             . '<div class="dialog-header"><h2 id="delete-user-title" class="h5 mb-0">Benutzer löschen</h2>'
@@ -632,6 +659,36 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<p class="mb-0 text-secondary">Alle zugehörigen Reservierungen bleiben erhalten und werden keinem Benutzer mehr zugeordnet.</p></div>'
             . '<div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>'
             . 'Abbrechen</button><button class="btn btn-danger" type="submit">Endgültig löschen</button></div></form></dialog>';
+    }
+
+    private static function userEditDialog(string $csrf): string
+    {
+        return '<dialog id="user-edit-dialog" aria-labelledby="user-edit-title">'
+            . '<form method="post" action="/?action=user-update" id="user-edit-form">'
+            . '<div class="dialog-header"><h2 class="h5 mb-0" id="user-edit-title">Benutzer ändern</h2>'
+            . '<button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>'
+            . '<div class="dialog-body"><input type="hidden" name="_csrf" value="' . Security::escape($csrf)
+            . '"><input type="hidden" name="id">'
+            . '<label class="form-label" for="user-edit-username">Benutzername</label>'
+            . '<input class="form-control mb-2" id="user-edit-username" readonly tabindex="-1">'
+            . '<div class="form-text mb-3">Der Benutzername kann nicht geändert werden.</div>'
+            . '<label class="form-label" for="user-edit-first-name">Vorname</label>'
+            . '<input class="form-control mb-2" id="user-edit-first-name" name="first_name" maxlength="120" required>'
+            . '<label class="form-label" for="user-edit-last-name">Nachname</label>'
+            . '<input class="form-control mb-2" id="user-edit-last-name" name="last_name" maxlength="120">'
+            . '<label class="form-label" for="user-edit-email">E-Mail</label>'
+            . '<input class="form-control mb-2" id="user-edit-email" name="email" type="email" maxlength="254">'
+            . '<label class="form-label" for="user-edit-role">Rolle</label>'
+            . '<select class="form-select mb-2" id="user-edit-role" name="role">'
+            . '<option value="admin">Admin</option><option value="manager">Verwalter</option>'
+            . '<option value="trainer">Trainer</option></select>'
+            . '<label class="form-label" for="user-edit-status">Status</label>'
+            . '<select class="form-select" id="user-edit-status" name="status">'
+            . '<option value="active">Aktiv</option><option value="invited">Eingeladen</option>'
+            . '<option value="inactive">Deaktiviert</option></select></div>'
+            . '<div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>'
+            . 'Abbrechen</button><button type="submit" class="btn btn-primary">Änderungen speichern</button></div>'
+            . '</form></dialog>';
     }
 
     public static function profile(array $user, string $csrf): string
