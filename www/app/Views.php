@@ -135,7 +135,6 @@ final class Views
 <div class="calendar-main-content">
 <div id="app-message" class="alert" role="status" hidden></div>
 <section class="calendar-toolbar calendar-heading-toolbar">
-  <h1>Belegungsplan</h1>
   <div class="calendar-actions" id="calendar-actions">
     ' . $createButton . '
   <details class="calendar-actions-menu" id="calendar-actions-menu">
@@ -165,8 +164,6 @@ final class Views
     </div>
   </details>
   </div>
-</section>
-<section class="calendar-toolbar">
   <div class="calendar-navigation" role="group" aria-label="Kalenderdatum">
   <button id="calendar-prev" class="btn btn-outline-secondary" type="button" aria-label="Zurück">‹</button>
   <button id="calendar-date-picker" class="calendar-date-button" type="button" aria-haspopup="dialog" aria-label="Datum im Kalender auswählen">

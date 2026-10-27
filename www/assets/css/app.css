@@ -149,7 +149,7 @@ body {
 
 .calendar-toolbar {
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: .5rem;
 }
 
 .calendar-toolbar h1 {
@@ -161,17 +161,15 @@ body {
 .calendar-toolbar.calendar-heading-toolbar {
   align-items: center;
   flex-wrap: nowrap;
-}
-
-@media (max-width: 359.98px) {
-  .calendar-toolbar.calendar-heading-toolbar {
-    flex-wrap: wrap;
-  }
+  gap: .35rem;
 }
 
 .calendar-actions {
   position: relative;
   flex-wrap: nowrap;
+  flex: 0 0 auto;
+  order: 2;
+  gap: .35rem;
   margin-left: auto;
 }
 
@@ -183,9 +181,9 @@ body {
 .calendar-actions-menu > summary,
 .booking-create-menu > summary {
   display: grid;
-  width: 2.75rem;
-  height: 2.75rem;
-  padding: .55rem;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: .4rem;
   place-items: center;
   list-style: none;
   cursor: pointer;
@@ -334,14 +332,19 @@ body {
 .calendar-navigation {
   display: flex;
   align-items: center;
-  gap: .4rem;
+  flex: 1 1 auto;
+  order: 1;
+  gap: .3rem;
+  min-width: 0;
   max-width: 100%;
   overflow-x: auto;
 }
 
 .calendar-navigation > button {
   flex: 0 0 auto;
-  height: 2.375rem;
+  height: 2.125rem;
+  padding-top: .2rem;
+  padding-bottom: .2rem;
   white-space: nowrap;
 }
 
@@ -354,7 +357,7 @@ body {
 }
 
 .booking-create-menu > summary {
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   line-height: 1;
 }
 
@@ -374,6 +377,9 @@ body {
 .resource-day-scroll,
 .resource-week-scroll {
   overflow: auto;
+  max-height: calc(100vh - 9rem);
+  max-height: calc(100dvh - 9rem);
+  overscroll-behavior-y: auto;
   touch-action: pan-y;
 }
 
@@ -391,7 +397,7 @@ body {
 }
 
 .resource-time-axis {
-  padding-top: var(--resource-heading-height, 42px);
+  padding-top: var(--resource-heading-height, 24px);
   background: #f8fafc;
   color: #58697a;
   font-size: .75rem;
@@ -409,12 +415,11 @@ body {
   top: 0;
   z-index: 2;
   height: var(--resource-heading-height, auto);
-  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0;
-  padding: .65rem .4rem;
+  padding: .15rem .25rem;
   border-bottom: 1px solid #dce3ea;
   background: #edf3f8;
   color: var(--club-navy);
@@ -588,9 +593,11 @@ body {
   position: sticky;
   top: 0;
   z-index: 1;
+  padding: .2rem .15rem;
   background: #edf3f8;
   color: var(--club-navy);
   overflow-wrap: anywhere;
+  line-height: 1.15;
 }
 
 .resource-week-table tbody th {
@@ -697,7 +704,7 @@ dialog::backdrop {
   justify-content: center;
   width: max-content;
   gap: .3rem;
-  padding: .375rem .5rem;
+  padding: .25rem .4rem;
   font-size: .8rem;
   border: 1px solid #d9e1e8;
   border-radius: .7rem;
@@ -1329,24 +1336,23 @@ dialog::backdrop {
   }
 
   .calendar-navigation {
-    width: 100%;
-  }
-
-  .calendar-navigation {
-    gap: .3rem;
+    width: auto;
+    gap: .2rem;
   }
 
   .calendar-navigation > .btn {
-    padding-right: .5rem;
-    padding-left: .5rem;
+    padding-right: .35rem;
+    padding-left: .35rem;
   }
 
   .page-shell {
     padding: .7rem;
   }
 
-  .calendar-toolbar {
-    align-items: flex-start;
+  .resource-day-scroll,
+  .resource-week-scroll {
+    max-height: calc(100vh - 8rem);
+    max-height: calc(100dvh - 8rem);
   }
 
 }

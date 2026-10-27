@@ -42,6 +42,33 @@ test('calendar scroll surfaces reserve horizontal touch gestures for swipe navig
   assert.ok(rule, 'day and week scroll surfaces need a shared touch-action rule');
   assert.match(rule[1], /touch-action:\s*pan-y\s*;/);
   assert.match(rule[1], /overflow:\s*auto\s*;/);
+  assert.match(rule[1], /max-height:\s*calc\(100dvh\s*-\s*9rem\)/);
+  assert.match(rule[1], /overscroll-behavior-y:\s*auto/);
+});
+
+test('calendar controls fit in one compact toolbar above the scrollable calendar', () => {
+  assert.doesNotMatch(views, /<h1>Belegungsplan<\/h1>/);
+  assert.match(views, /<section class="calendar-toolbar calendar-heading-toolbar">[\s\S]*?id="calendar-actions"[\s\S]*?class="calendar-navigation"[\s\S]*?<\/section>/);
+  assert.doesNotMatch(views, /<\/section>\s*<section class="calendar-toolbar">/);
+
+  const navigationRule = [...calendarCss.matchAll(/\.calendar-navigation\s*\{([^}]+)\}/g)]
+    .find(([, declarations]) => /order:\s*1/.test(declarations));
+  const actionsRule = [...calendarCss.matchAll(/\.calendar-actions\s*\{([^}]+)\}/g)]
+    .find(([, declarations]) => /order:\s*2/.test(declarations));
+  const navigationButtonsRule = calendarCss.match(/\.calendar-navigation > button\s*\{([^}]+)\}/);
+  const menuButtonRule = calendarCss.match(/\.calendar-actions-menu > summary,\s*\.booking-create-menu > summary\s*\{([^}]+)\}/);
+  assert.ok(navigationRule && actionsRule && navigationButtonsRule && menuButtonRule);
+  assert.match(navigationRule[1], /order:\s*1/);
+  assert.match(actionsRule[1], /margin-left:\s*auto/);
+  assert.match(navigationButtonsRule[1], /height:\s*2\.125rem/);
+  assert.match(menuButtonRule[1], /width:\s*2\.35rem/);
+  assert.match(menuButtonRule[1], /height:\s*2\.35rem/);
+
+  const headingRule = calendarCss.match(/\.resource-column-heading\s*\{([^}]+)\}/);
+  assert.ok(headingRule);
+  assert.doesNotMatch(headingRule[1], /min-height:\s*42px/);
+  assert.match(headingRule[1], /padding:\s*\.15rem\s+\.25rem/);
+  assert.match(calendarJs, /const headingHeight = Math\.max\(\s*24,/);
 });
 
 test('week calendar uses fixed, equally sized day columns', () => {
@@ -69,10 +96,13 @@ test('day calendar keeps the time axis narrow and wraps resource headings withou
   assert.match(headingRule[1], /white-space:\s*normal/);
   assert.match(headingRule[1], /overflow-wrap:\s*anywhere/);
   assert.match(headingRule[1], /height:\s*var\(--resource-heading-height,\s*auto\)/);
-  assert.match(calendarCss, /\.resource-time-axis\s*\{[^}]*padding-top:\s*var\(--resource-heading-height,\s*42px\)/s);
+  assert.match(calendarCss, /\.resource-time-axis\s*\{[^}]*padding-top:\s*var\(--resource-heading-height,\s*24px\)/s);
   assert.match(calendarJs, /const headingHeight = Math\.max\(/);
   assert.match(calendarJs, /\[\.\.\.grid\.querySelectorAll\('\.resource-column-heading'\)\]\.map\(heading => heading\.offsetHeight\)/);
   assert.match(calendarJs, /grid\.style\.setProperty\('--resource-heading-height', `\$\{headingHeight\}px`\)/);
+  assert.match(calendarJs, /grid\.style\.removeProperty\('--resource-heading-height'\)/);
+  assert.match(calendarJs, /resourceHeadingObserver = new ResizeObserver\(updateHeadingHeight\)/);
+  assert.match(calendarJs, /resourceHeadingObserver\.observe\(grid\)/);
 });
 
 test('positive success messages are not rendered', () => {

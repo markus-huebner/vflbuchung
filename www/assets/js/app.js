@@ -44,6 +44,7 @@ let editingBooking = null;
 let editingRequest = null;
 let pendingConfirmationForm = null;
 let pendingScopeAction = null;
+let resourceHeadingObserver = null;
 
 function announce(message, kind = 'info') {
   if (!messageBox || kind === 'success') return;
@@ -355,11 +356,18 @@ function renderResourceDay() {
   });
 
   target.append(grid);
-  const headingHeight = Math.max(
-    42,
-    ...[...grid.querySelectorAll('.resource-column-heading')].map(heading => heading.offsetHeight),
-  );
-  grid.style.setProperty('--resource-heading-height', `${headingHeight}px`);
+  const updateHeadingHeight = () => {
+    grid.style.removeProperty('--resource-heading-height');
+    const headingHeight = Math.max(
+      24,
+      ...[...grid.querySelectorAll('.resource-column-heading')].map(heading => heading.offsetHeight),
+    );
+    grid.style.setProperty('--resource-heading-height', `${headingHeight}px`);
+  };
+  updateHeadingHeight();
+  resourceHeadingObserver?.disconnect();
+  resourceHeadingObserver = new ResizeObserver(updateHeadingHeight);
+  resourceHeadingObserver.observe(grid);
 }
 
 function renderResourceWeek() {
