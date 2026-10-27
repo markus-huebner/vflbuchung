@@ -11,11 +11,15 @@ use Throwable;
 
 final class BookingService
 {
+    private BookingTypeService $bookingTypes;
+
     public function __construct(
         private readonly PDO $pdo,
         private readonly Mailer $mailer,
-        private readonly Config $config
+        private readonly Config $config,
+        ?BookingTypeService $bookingTypes = null
     ) {
+        $this->bookingTypes = $bookingTypes ?? new BookingTypeService($pdo);
     }
 
     public function create(array $data, array $actor): array
@@ -220,7 +224,12 @@ final class BookingService
         }
         $timezone = new DateTimeZone('Europe/Berlin');
 
-        return array_map(static function (array $row) use ($timezone): array {
+        $typesByCode = array_column($this->bookingTypes->all(), null, 'code');
+        return array_map(static function (array $row) use ($timezone, $typesByCode): array {
+            $type = $typesByCode[$row['event_type']] ?? null;
+            $row['event_type_name'] = $type['name'] ?? ($row['event_type'] === 'bus' ? 'Fahrzeug' : $row['event_type']);
+            $row['event_type_color'] = $type['color_hex'] ?? BookingTypeService::palette()['violet-medium']['hex'];
+            $row['event_type_text_color'] = $type['text_hex'] ?? '#ffffff';
             $row['start'] = Recurrence::fromDatabase($row['starts_at'])->setTimezone($timezone)->format(DATE_ATOM);
             $row['end'] = Recurrence::fromDatabase($row['ends_at'])->setTimezone($timezone)->format(DATE_ATOM);
             unset($row['starts_at'], $row['ends_at']);
@@ -836,7 +845,7 @@ final class BookingService
             throw new RuntimeException('Der bestätigte Termin wurde nicht gefunden.');
         }
 
-        $input = $this->validateBookingInput($data, $actor);
+        $input = $this->validateBookingInput($data, $actor, (string) $target['event_type']);
         if ($requestEdit && $input['cabin_ids'] !== []) {
             throw new RuntimeException('Buchungsanfragen können keine Kabinen belegen.');
         }
@@ -991,19 +1000,19 @@ final class BookingService
         ];
     }
 
-    private function validateBookingInput(array $data, array $actor): array
+    private function validateBookingInput(array $data, array $actor, ?string $allowArchivedType = null): array
     {
         $eventType = (string) ($data['event_type'] ?? '');
         $isBus = $eventType === 'bus';
         $resourceMode = $isBus ? 'bus' : (string) ($data['resource_mode'] ?? '');
-        if (!in_array($eventType, ['training', 'match', 'external', 'bus'], true)) {
+        if (!$isBus && !$this->bookingTypes->isActive($eventType) && $eventType !== $allowArchivedType) {
             throw new RuntimeException('Terminart ungültig.');
         }
         if (!$isBus && $resourceMode !== 'pitch') {
             throw new RuntimeException('Kabinen können nur zusammen mit einem Platz gebucht werden.');
         }
-        if ($eventType === 'external' && !in_array($actor['role'], ['admin', 'manager'], true)) {
-            throw new RuntimeException('Trainer dürfen keine externen Belegungen anlegen.');
+        if (!$isBus && $actor['role'] === 'trainer' && !$this->bookingTypes->isTrainerRequestable($eventType)) {
+            throw new RuntimeException('Trainer dürfen für diese Buchungsart keine Anfragen stellen.');
         }
         if (!is_array($data['resource_ids'] ?? null)) {
             throw new RuntimeException('Bitte wähle die zu buchenden Ressourcen aus.');

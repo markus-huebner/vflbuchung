@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App;
 
 use PDO;
+use PDOException;
 use RuntimeException;
 
 final class DatabaseSetup
@@ -15,6 +16,7 @@ final class DatabaseSetup
         'resource_categories',
         'resources',
         'booking_groups',
+        'booking_types',
         'booking_occurrences',
         'booking_resource_assignments',
         'booking_cabin_assignments',
@@ -26,6 +28,7 @@ final class DatabaseSetup
         'booking_overrides',
         'booking_cabin_assignments',
         'booking_resource_assignments',
+        'booking_types',
         'booking_occurrences',
         'booking_groups',
         'password_resets',
@@ -78,6 +81,32 @@ final class DatabaseSetup
         return $statement->fetchColumn() !== false;
     }
 
+    public function migrate(): void
+    {
+        if (!$this->hasTable('booking_types') || $this->hasColumn('booking_types', 'trainer_requestable')) {
+            return;
+        }
+
+        $addedColumn = false;
+        try {
+            $this->pdo->exec(
+                'ALTER TABLE booking_types
+                 ADD COLUMN trainer_requestable TINYINT(1) NOT NULL DEFAULT 1'
+            );
+            $addedColumn = true;
+        } catch (PDOException $exception) {
+            if (($exception->errorInfo[1] ?? null) !== 1060
+                || !$this->hasColumn('booking_types', 'trainer_requestable')) {
+                throw $exception;
+            }
+        }
+        if ($addedColumn) {
+            $this->pdo->exec(
+                "UPDATE booking_types SET trainer_requestable = 0 WHERE code = 'external'"
+            );
+        }
+    }
+
     public function initialize(bool $recreate): void
     {
         if ($recreate) {
@@ -91,8 +120,21 @@ final class DatabaseSetup
             }
         }
 
+        $this->migrate();
         $this->executeSqlFile($this->databaseDirectory . '/install.sql');
         $this->executeSqlFile($this->databaseDirectory . '/seed_resources.sql');
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT 1 FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name
+             AND COLUMN_NAME = :column_name'
+        );
+        $statement->execute(['table_name' => $table, 'column_name' => $column]);
+
+        return $statement->fetchColumn() !== false;
     }
 
     private function executeSqlFile(string $path): void

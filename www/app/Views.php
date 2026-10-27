@@ -27,7 +27,8 @@ final class Views
                 . '<div class="user-actions-menu-items"><a href="/?page=profile">Mein Profil</a>';
             if ($user['role'] === 'admin') {
                 $nav .= '<a href="/?page=resources">Ressourcenverwaltung</a>'
-                    . '<a href="/?page=users">Benutzerverwaltung</a>';
+                    . '<a href="/?page=users">Benutzerverwaltung</a>'
+                    . '<a href="/?page=booking-types">Buchungsarten</a>';
             }
             $nav .= '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
                 . '</div></details></div>';
@@ -94,16 +95,30 @@ final class Views
         int $requestTotal = 0,
         int $requestPageCount = 1,
         int $requestPageSize = 10,
-        string $requestBaseUrl = '/'
+        string $requestBaseUrl = '/',
+        array $bookingTypes = []
     ): string
     {
-        $eventTypes = '<option value="training">Training</option><option value="match">Spiel</option>';
-        if (in_array($user['role'] ?? '', ['manager', 'admin'], true)) {
-            $eventTypes .= '<option value="external">Externe Belegung</option>';
-        }
         $role = $user['role'] ?? '';
         $staff = in_array($role, ['admin', 'manager'], true);
         $isTrainer = $role === 'trainer';
+        $bookingTypes = $bookingTypes === [] ? BookingTypeService::defaults() : $bookingTypes;
+        $eventTypes = '';
+        $activeTypes = [];
+        foreach ($bookingTypes as $type) {
+            if (!($type['is_active'] ?? true)) {
+                continue;
+            }
+            $activeTypes[] = $type;
+            if ($isTrainer && !($type['trainer_requestable'] ?? false)) {
+                continue;
+            }
+            if (($type['code'] ?? '') === 'external' && !$staff && !$isTrainer) {
+                continue;
+            }
+            $eventTypes .= '<option value="' . Security::escape((string) $type['code']) . '">'
+                . Security::escape((string) $type['name']) . '</option>';
+        }
         $createButton = $user !== null
             ? self::bookingCreateMenu(
                 $staff ? 'Buchung anlegen' : 'Buchungsanfrage stellen',
@@ -113,6 +128,19 @@ final class Views
 
         $bookingDialog = $user === null ? '' : self::bookingDialog($user, $csrf, $eventTypes);
         $detailsDialog = self::eventDialog($user, $csrf);
+        $legendTypes = $activeTypes;
+        $legendTypes[] = [
+            'name' => 'Fahrzeug',
+            'color_hex' => BookingTypeService::palette()['violet-medium']['hex'],
+        ];
+        $bookingLegend = '';
+        $pendingLegend = '';
+        foreach ($legendTypes as $type) {
+            $color = Security::escape((string) ($type['color_hex'] ?? BookingTypeService::palette()['black-light']['hex']));
+            $bookingLegend .= '<span class="legend-item" style="--legend-color:' . $color . '">'
+                . Security::escape((string) $type['name']) . '</span>';
+            $pendingLegend .= '<span style="--legend-color:' . $color . '"></span>';
+        }
         $dashboardAvailable = in_array($user['role'] ?? '', ['admin', 'manager', 'trainer'], true);
         $dashboard = $dashboardAvailable
             ? self::dashboard(
@@ -192,12 +220,9 @@ final class Views
     <div id="bus-week" class="resource-week-scroll" hidden></div>
   </div>
   <div class="calendar-legend">
-    <span class="legend-item" style="--legend-color:var(--booking-training)">Training</span>
-    <span class="legend-item" style="--legend-color:var(--booking-match)">Spiel</span>
-    <span class="legend-item" style="--legend-color:var(--booking-external)">Externe Belegung</span>
-    <span class="legend-item" style="--legend-color:var(--booking-bus)">Fahrzeug</span>
+    ' . $bookingLegend . '
     <span class="legend-item legend-recurring"><span aria-hidden="true">↻</span> Regeltermin</span>
-    <span class="legend-item legend-pending"><span class="legend-pending-colors" aria-hidden="true"><span style="--legend-color:var(--booking-training)"></span><span style="--legend-color:var(--booking-match)"></span><span style="--legend-color:var(--booking-external)"></span><span style="--legend-color:var(--booking-bus)"></span></span>Anfrage</span>
+    <span class="legend-item legend-pending"><span class="legend-pending-colors" aria-hidden="true">' . $pendingLegend . '</span>Anfrage</span>
   </div>
 </section>
 </div>
@@ -803,7 +828,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     ): string
     {
         $existingTableCount = max(0, (int) ($databaseStatus['existing_table_count'] ?? 0));
-        $tableCount = max(1, (int) ($databaseStatus['table_count'] ?? 11));
+        $tableCount = max(1, (int) ($databaseStatus['table_count'] ?? 12));
         $schemaComplete = (bool) ($databaseStatus['schema_complete'] ?? false);
         $databaseStatusHtml = !$allowAdminCreation
             ? '<div class="alert alert-info">Ein Administratorkonto ist bereits vorhanden. Fehlende Anwendungstabellen werden ergänzt; vorhandene Daten bleiben erhalten.</div>'
@@ -863,6 +888,122 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     {
         return '<section class="panel-card mx-auto p-4" style="max-width:480px"><h1 class="h3">Neues Passwort</h1>' . self::inlineError($error) . '
 <form method="post" action="/?action=password-reset"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="token" value="' . Security::escape($token) . '"><label class="form-label" for="new-password">Passwort (mindestens 12 Zeichen)</label><input id="new-password" class="form-control mb-3" type="password" name="password" minlength="12" autocomplete="new-password" required><button class="btn btn-primary" type="submit">Passwort speichern</button></form></section>';
+    }
+
+    public static function bookingTypes(array $types, string $csrf): string
+    {
+        $palette = BookingTypeService::palette();
+        $renderColorPicker = static function (string $id, string $selected, string $formId) use ($palette): string {
+            $selected = isset($palette[$selected]) ? $selected : 'black-light';
+            $currentColor = $palette[$selected];
+            $options = '';
+            foreach ($palette as $code => $color) {
+                $isSelected = $code === $selected ? 'true' : 'false';
+                $escapedCode = Security::escape($code);
+                $escapedLabel = Security::escape($color['label']);
+                $escapedHex = Security::escape($color['hex']);
+                $options .= '<button class="booking-type-color-option" type="button" data-booking-color-option'
+                    . ' data-color-code="' . $escapedCode . '" data-color-label="' . $escapedLabel
+                    . '" data-color-hex="' . $escapedHex . '" aria-label="' . $escapedLabel
+                    . '" aria-pressed="' . $isSelected
+                    . '"><span aria-hidden="true" style="--booking-type-color:' . $escapedHex . '"></span></button>';
+            }
+            $escapedId = Security::escape($id);
+            $escapedFormId = Security::escape($formId);
+            $escapedCurrentLabel = Security::escape($currentColor['label']);
+            $escapedCurrentHex = Security::escape($currentColor['hex']);
+            return '<div class="booking-type-color-picker" data-booking-color-picker>'
+                . '<input type="hidden" id="' . $escapedId . '" name="color" form="' . $escapedFormId
+                . '" value="' . Security::escape($selected) . '" data-booking-color-value>'
+                . '<details class="booking-type-color-dropdown"><summary class="booking-type-color-current"'
+                . ' data-booking-color-current aria-label="Kalenderfarbe: ' . $escapedCurrentLabel
+                . '"><span aria-hidden="true" style="--booking-type-color:'
+                . $escapedCurrentHex . '"></span></summary><div class="booking-type-color-options" role="group"'
+                . ' aria-label="Verfügbare Kalenderfarben">' . $options . '</div></details></div>';
+        };
+
+        $rows = '';
+        foreach ($types as $type) {
+            $code = (string) $type['code'];
+            $active = (bool) $type['is_active'];
+            $escapedCode = Security::escape($code);
+            $name = (string) $type['name'];
+            $color = isset($palette[$type['color']]) ? (string) $type['color'] : 'black-light';
+            $trainerRequestable = (bool) ($type['trainer_requestable'] ?? false);
+            $colorHex = Security::escape($palette[$color]['hex']);
+            $colorLabel = Security::escape($palette[$color]['label']);
+            $rows .= '<tr><td>' . Security::escape($name) . '</td><td><span class="booking-type-color-preview"'
+                . ' role="img" aria-label="Kalenderfarbe: ' . $colorLabel . '" title="' . $colorLabel
+                . '" style="--booking-type-color:' . $colorHex . '"></span></td><td><span class="booking-type-status'
+                . ($active ? ' is-active' : ' is-archived') . '">' . ($active ? 'Aktiv' : 'Archiviert')
+                . '</span></td><td data-trainer-requestable="' . ($trainerRequestable ? '1' : '0') . '"><span class="booking-type-status'
+                . ($trainerRequestable ? ' is-active' : ' is-archived') . '">'
+                . ($trainerRequestable ? 'Erlaubt' : 'Nicht erlaubt')
+                . '</span></td><td class="booking-type-actions-cell"><div class="booking-type-actions">'
+                . '<button type="button" class="btn btn-sm btn-outline-primary" data-booking-type-edit'
+                . ' data-booking-type-code="' . $escapedCode . '" data-booking-type-name="'
+                . Security::escape($name) . '" data-booking-type-color="' . Security::escape($color)
+                . '" data-booking-type-trainer-requestable="' . ($trainerRequestable ? '1' : '0')
+                . '">Bearbeiten</button>'
+                . '<form method="post" action="/?action=booking-type-status"><input type="hidden" name="_csrf" value="'
+                . Security::escape($csrf) . '"><input type="hidden" name="code" value="' . $escapedCode
+                . '"><input type="hidden" name="active" value="' . ($active ? '0' : '1')
+                . '"><button class="btn btn-sm btn-outline-secondary" type="submit">'
+                . ($active ? 'Archivieren' : 'Wieder aktivieren') . '</button></form>'
+                . '<form method="post" action="/?action=booking-type-remove" data-confirm-action="delete"'
+                . ' data-confirm-item-name="' . Security::escape((string) $type['name']) . '">'
+                . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf)
+                . '"><input type="hidden" name="code" value="' . $escapedCode
+                . '"><button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form></div></td></tr>';
+        }
+
+        if ($rows === '') {
+            $rows = '<tr><td colspan="5" class="text-center text-secondary py-4">'
+                . 'Es sind noch keine Buchungsarten angelegt.</td></tr>';
+        }
+
+        $newFormId = 'booking-type-create-form';
+        return '<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">'
+            . '<h1 class="h3 mb-0">Buchungsarten</h1></div>'
+            . '<p class="text-secondary">Buchungsarten erscheinen als Kategorien in der Platzbelegung. Archivierte '
+            . 'Arten können nicht mehr neu gebucht werden, bleiben aber bei vorhandenen Terminen sichtbar. Je Art lässt '
+            . 'sich festlegen, ob Trainer Anfragen stellen dürfen. Beim Löschen '
+            . 'werden ungenutzte Arten endgültig entfernt; bei bestehenden Terminen werden sie archiviert.</p>'
+            . '<section class="panel-card p-3"><h2 class="h5">Alle Buchungsarten</h2><div class="table-responsive">'
+            . '<table class="table align-middle mb-0 booking-type-table"><thead><tr><th scope="col">Name</th>'
+            . '<th scope="col">Kalenderfarbe</th><th scope="col">Status</th>'
+            . '<th scope="col">Traineranfragen</th>'
+            . '<th scope="col" class="text-end">Aktionen</th></tr></thead><tbody>'
+            . $rows . '</tbody></table></div></section>'
+            . '<dialog id="booking-type-edit-dialog" aria-labelledby="booking-type-edit-title">'
+            . '<form method="post" action="/?action=booking-type-save" id="booking-type-edit-form">'
+            . '<div class="dialog-header"><h2 id="booking-type-edit-title" class="h5 mb-0">Buchungsart bearbeiten</h2>'
+            . '<button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>'
+            . '<div class="dialog-body"><input type="hidden" name="_csrf" value="'
+            . Security::escape($csrf) . '"><input type="hidden" name="code">'
+            . '<label class="form-label" for="booking-type-edit-name">Name</label>'
+            . '<input class="form-control mb-3" id="booking-type-edit-name" name="name" maxlength="80" required>'
+            . '<span class="form-label d-block">Kalenderfarbe</span>'
+            . $renderColorPicker('booking-type-color-edit', 'green-medium', 'booking-type-edit-form')
+            . '<div class="form-check mt-3"><input class="form-check-input" id="booking-type-edit-trainer-requestable"'
+            . ' name="trainer_requestable" type="checkbox" value="1"><label class="form-check-label"'
+            . ' for="booking-type-edit-trainer-requestable">Trainer dürfen Anfragen stellen</label></div>'
+            . '</div><div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" '
+            . 'data-dialog-close>Abbrechen</button><button type="submit" class="btn btn-primary">'
+            . 'Änderungen speichern</button></div></form></dialog>'
+            . '<section class="panel-card p-3 mt-3"><h2 class="h5">Buchungsart hinzufügen</h2>'
+            . '<form id="' . $newFormId . '" method="post" action="/?action=booking-type-save">'
+            . '<input type="hidden" name="_csrf" value="'
+            . Security::escape($csrf) . '"><div class="row g-3 align-items-end">'
+            . '<div class="col-md-5"><label class="form-label" for="booking-type-name-new">Name</label>'
+            . '<input class="form-control" id="booking-type-name-new" name="name" maxlength="80" required></div>'
+            . '<div class="col-md-4"><span class="form-label d-block">Kalenderfarbe</span>'
+            . $renderColorPicker('booking-type-color-new', 'green-medium', $newFormId) . '</div>'
+            . '<div class="col-md-3"><button class="btn btn-primary" type="submit">Anlegen</button></div>'
+            . '</div><div class="form-check mt-3"><input class="form-check-input"'
+            . ' id="booking-type-new-trainer-requestable" name="trainer_requestable" type="checkbox"'
+            . ' value="1" checked><label class="form-check-label" for="booking-type-new-trainer-requestable">'
+            . 'Trainer dürfen Anfragen stellen</label></div></form></section>';
     }
 
     private static function statusLabel(string $status): string

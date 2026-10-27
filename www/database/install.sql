@@ -85,11 +85,33 @@ CREATE TABLE IF NOT EXISTS booking_groups (
         REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS booking_types (
+    code VARCHAR(40) NOT NULL,
+    name VARCHAR(80) NOT NULL,
+    color VARCHAR(20) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    trainer_requestable TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (code),
+    KEY idx_booking_types_order (is_active, sort_order, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT INTO booking_types (code, name, color, sort_order, is_active, trainer_requestable)
+SELECT default_types.code, default_types.name, default_types.color, default_types.sort_order, 1,
+    default_types.trainer_requestable
+FROM (
+    SELECT 'training' AS code, 'Training' AS name, 'green-medium' AS color, 10 AS sort_order, 1 AS trainer_requestable
+    UNION ALL SELECT 'match', 'Spiel', 'blue-medium', 20, 1
+    UNION ALL SELECT 'external', 'Externe Belegung', 'orange-medium', 30, 0
+) AS default_types
+WHERE NOT EXISTS (SELECT 1 FROM booking_types)
+ON DUPLICATE KEY UPDATE code = VALUES(code);
+
 CREATE TABLE IF NOT EXISTS booking_occurrences (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     group_id BIGINT UNSIGNED NOT NULL,
     occurrence_no INT UNSIGNED NOT NULL DEFAULT 0,
-    event_type ENUM('training', 'match', 'external', 'bus') NOT NULL,
+    event_type VARCHAR(40) NOT NULL,
     title VARCHAR(180) NOT NULL,
     team_name VARCHAR(120) NULL,
     destination VARCHAR(180) NULL,
@@ -110,6 +132,8 @@ CREATE TABLE IF NOT EXISTS booking_occurrences (
     CONSTRAINT fk_booking_occurrences_group FOREIGN KEY (group_id)
         REFERENCES booking_groups (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+ALTER TABLE booking_occurrences MODIFY event_type VARCHAR(40) NOT NULL;
 
 CREATE TABLE IF NOT EXISTS booking_resource_assignments (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

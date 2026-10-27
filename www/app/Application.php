@@ -11,6 +11,7 @@ final class Application
     private AuthService $auth;
     private UserService $users;
     private ResourceService $resources;
+    private BookingTypeService $bookingTypes;
     private BookingService $bookings;
     private DatabaseSetup $databaseSetup;
     private string $csrf;
@@ -20,11 +21,13 @@ final class Application
         private readonly \PDO $pdo
     ) {
         $this->databaseSetup = new DatabaseSetup($pdo);
+        $this->databaseSetup->migrate();
         $mailer = new Mailer($config);
         $this->auth = new AuthService($pdo);
         $this->users = new UserService($pdo, $mailer, $config);
         $this->resources = new ResourceService($pdo);
-        $this->bookings = new BookingService($pdo, $mailer, $config);
+        $this->bookingTypes = new BookingTypeService($pdo);
+        $this->bookings = new BookingService($pdo, $mailer, $config, $this->bookingTypes);
         $this->csrf = Security::csrfToken();
     }
 
@@ -115,6 +118,7 @@ final class Application
                     ? '/?page=resources&form=create'
                     : '/?page=resources',
                 'resource-active', 'resource-delete' => '/?page=resources',
+                'booking-type-save', 'booking-type-status', 'booking-type-remove' => '/?page=booking-types',
                 'booking-approve', 'booking-reject', 'booking-delete', 'request-edit' => '/?page=dashboard',
                 default => '/',
             };
@@ -418,6 +422,54 @@ final class Application
                 ];
                 $this->redirect('/?page=resources');
 
+            case 'booking-type-save':
+                $this->requireRole(['admin']);
+                $code = trim((string) ($_POST['code'] ?? ''));
+                $trainerRequestable = $_POST['trainer_requestable'] ?? '0';
+                if (!is_string($trainerRequestable) || !in_array($trainerRequestable, ['0', '1'], true)) {
+                    throw new RuntimeException('Die Trainerfreigabe ist ungültig.');
+                }
+                $this->bookingTypes->save(
+                    (string) ($_POST['name'] ?? ''),
+                    (string) ($_POST['color'] ?? ''),
+                    $code === '' ? null : $code,
+                    $trainerRequestable === '1'
+                );
+                $_SESSION['_flash'] = [
+                    'type' => 'success',
+                    'message' => $code === '' ? 'Die Buchungsart wurde angelegt.' : 'Die Buchungsart wurde gespeichert.',
+                ];
+                $this->redirect('/?page=booking-types');
+
+            case 'booking-type-status':
+                $this->requireRole(['admin']);
+                $active = (string) ($_POST['active'] ?? '');
+                if (!in_array($active, ['0', '1'], true)) {
+                    throw new RuntimeException('Der Buchungsartenstatus ist ungültig.');
+                }
+                $this->bookingTypes->setActive(
+                    (string) ($_POST['code'] ?? ''),
+                    $active === '1'
+                );
+                $_SESSION['_flash'] = [
+                    'type' => 'success',
+                    'message' => $active === '1'
+                        ? 'Die Buchungsart wurde aktiviert.'
+                        : 'Die Buchungsart wurde archiviert.',
+                ];
+                $this->redirect('/?page=booking-types');
+
+            case 'booking-type-remove':
+                $this->requireRole(['admin']);
+                $deleted = $this->bookingTypes->remove((string) ($_POST['code'] ?? ''));
+                $_SESSION['_flash'] = [
+                    'type' => 'success',
+                    'message' => $deleted
+                        ? 'Die Buchungsart wurde gelöscht.'
+                        : 'Die Buchungsart wird für bestehende Termine archiviert.',
+                ];
+                $this->redirect('/?page=booking-types');
+
             case 'resource-active':
                 $this->requireRole(['admin']);
                 $active = (string) ($_POST['active'] ?? '');
@@ -547,6 +599,7 @@ final class Application
                     $user = $this->requireRole(['admin', 'manager', 'trainer']);
                 }
                 $resources = $this->resources->all();
+                $bookingTypes = $this->bookingTypes->all();
                 $includeClosedRequests = ($_GET['requests'] ?? '') === 'all';
                 $requestPage = filter_var($_GET['requests_page'] ?? 1, FILTER_VALIDATE_INT);
                 $requestPage = $requestPage === false || $requestPage < 1 ? 1 : $requestPage;
@@ -564,10 +617,12 @@ final class Application
                     $requestListing['total'],
                     $requestListing['page_count'],
                     $requestListing['page_size'],
-                    $requestBaseUrl
+                    $requestBaseUrl,
+                    $bookingTypes
                 );
                 $clientData = [
                     'showAllRequests' => $includeClosedRequests,
+                    'bookingTypes' => $bookingTypes,
                     'resources' => array_values(array_map(
                         static fn(array $resource): array => [
                             'id' => (int) $resource['id'],
@@ -632,6 +687,11 @@ final class Application
                     '',
                     (string) ($_GET['form'] ?? '')
                 );
+                break;
+
+            case 'booking-types':
+                $this->requireRole(['admin']);
+                $content = Views::bookingTypes($this->bookingTypes->all(), $this->csrf);
                 break;
 
             default:
@@ -740,6 +800,7 @@ final class Application
             'dashboard' => 'Belegungsplan',
             'users' => 'Benutzerverwaltung',
             'resources' => 'Ressourcen',
+            'booking-types' => 'Buchungsarten',
             default => 'Belegungsplan',
         };
     }

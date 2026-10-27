@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+use App\BookingTypeService;
 use App\Config;
 use App\Database;
 use App\DatabaseSetup;
@@ -36,6 +37,40 @@ $auth->createInitialAdmin(
     'SetupTestPassword123!'
 );
 
+$pdo->exec("UPDATE booking_types SET name = 'Training angepasst', color = 'purple' WHERE code = 'training'");
+$pdo->exec('ALTER TABLE booking_types DROP COLUMN trainer_requestable');
+$setup->initialize(false);
+$migratedTraining = $pdo->query(
+    "SELECT name, color, trainer_requestable FROM booking_types WHERE code = 'training'"
+)->fetch();
+$migratedExternalPermission = $pdo->query(
+    "SELECT trainer_requestable FROM booking_types WHERE code = 'external'"
+)->fetchColumn();
+if ($migratedTraining['name'] !== 'Training angepasst'
+    || $migratedTraining['color'] !== 'purple'
+    || (int) $migratedTraining['trainer_requestable'] !== 1
+    || (int) $migratedExternalPermission !== 0) {
+    throw new RuntimeException('The schema migration must preserve booking types and apply compatible trainer defaults.');
+}
+
+$bookingTypeService = new BookingTypeService($pdo);
+$loadedTraining = array_values(array_filter(
+    $bookingTypeService->all(),
+    static fn(array $type): bool => $type['code'] === 'training'
+))[0];
+if (!isset(BookingTypeService::palette()[$loadedTraining['color']])) {
+    throw new RuntimeException('Legacy booking colors must resolve to a color from the new palette.');
+}
+$restrictedTypeCode = $bookingTypeService->save('Nur für Admins', 'red', null, false);
+$setup->initialize(false);
+$restrictedTypePermission = $pdo->prepare(
+    'SELECT trainer_requestable FROM booking_types WHERE code = :code'
+);
+$restrictedTypePermission->execute(['code' => $restrictedTypeCode]);
+if ((int) $restrictedTypePermission->fetchColumn() !== 0) {
+    throw new RuntimeException('The setup must preserve custom trainer permissions.');
+}
+
 $pdo->exec(
     "INSERT INTO users (username, first_name, role, status)
      VALUES ('setup-retain-test', 'Setup', 'trainer', 'active')"
@@ -51,7 +86,13 @@ if ($retainedUserCount !== 1) {
 $setup->initialize(true);
 $resetUserCount = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
 $resourceCount = (int) $pdo->query('SELECT COUNT(*) FROM resources')->fetchColumn();
-if ($resetUserCount !== 0 || $resourceCount === 0 || !$setup->status()['schema_complete']) {
+$defaultTrainerPermissions = array_map('intval', $pdo->query(
+    "SELECT code, trainer_requestable FROM booking_types ORDER BY code"
+)->fetchAll(PDO::FETCH_KEY_PAIR));
+if ($resetUserCount !== 0
+    || $resourceCount === 0
+    || !$setup->status()['schema_complete']
+    || $defaultTrainerPermissions !== ['external' => 0, 'match' => 1, 'training' => 1]) {
     throw new RuntimeException('The recreate operation did not reset and rebuild the application schema.');
 }
 

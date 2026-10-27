@@ -33,6 +33,21 @@ if (savedResourceType === 'pitch' || savedResourceType === 'bus') {
 }
 
 const app = window.VereinApp || {};
+const bookingTypesByCode = new Map((app.bookingTypes || []).map((type) => [type.code, type]));
+
+function bookingTypeInfo(code) {
+  return bookingTypesByCode.get(code) || null;
+}
+
+function ensureBookingTypeOption(code, name) {
+  const select = bookingForm?.elements.event_type;
+  if (!select || [...select.options].some((option) => option.value === code)) return;
+  const option = document.createElement('option');
+  option.value = code;
+  option.textContent = `${name || code} (archiviert)`;
+  option.dataset.archived = 'true';
+  select.add(option);
+}
 const messageBox = document.querySelector('#app-message');
 const dialog = document.querySelector('#booking-dialog');
 const bookingForm = document.querySelector('#booking-form');
@@ -249,8 +264,17 @@ function renderCalendar() {
 
 function eventCard(event, compact = false, visibleRange = null) {
   const wrapper = document.createElement('button');
+  const typeInfo = bookingTypeInfo(event.event_type);
   wrapper.type = 'button';
   wrapper.className = `booking-card booking-${event.event_type || 'training'}${compact ? ' booking-card-compact' : ''}`;
+  wrapper.style.setProperty(
+    '--event-color',
+    event.event_type_color || typeInfo?.color_hex || '#7350a0',
+  );
+  wrapper.style.setProperty(
+    '--event-text-color',
+    event.event_type_text_color || typeInfo?.text_hex || '#ffffff',
+  );
   wrapper.dataset.assignmentId = event.assignment_id;
   wrapper.dataset.occurrenceId = event.occurrence_id;
   wrapper.classList.toggle('booking-card-recurring', isRecurring(event));
@@ -266,7 +290,7 @@ function isRecurring(event) {
 
 function fillBookingCard(wrapper, event, visibleRange = null) {
   const kind = event.event_type || 'training';
-  const typeLabels = { training: 'Training', match: 'Spiel', external: 'Externe Belegung', bus: 'Fahrzeug' };
+  const typeLabel = event.event_type_name || bookingTypeInfo(kind)?.name || (kind === 'bus' ? 'Fahrzeug' : kind);
   const formatTime = (value) => new Intl.DateTimeFormat('de-DE', {
     timeZone: 'Europe/Berlin',
     hour: '2-digit',
@@ -284,7 +308,7 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
   wrapper.append(recurrenceMarker);
   const category = wrapper.querySelector('.booking-category');
   category.textContent = [
-    kind === 'bus' ? '' : typeLabels[kind] || kind,
+    kind === 'bus' ? '' : typeLabel,
     event.status === 'pending' ? 'Anfrage' : '',
   ].filter(Boolean).join(' · ');
   category.hidden = !category.textContent;
@@ -508,8 +532,10 @@ function showEvent(event) {
   set('[data-event-date]', startDate === endDate ? startDate : `${startDate} – ${endDate}`);
   set('[data-event-time]', `${timeFormatter.format(start)}–${timeFormatter.format(end)} Uhr`);
   set('[data-event-cabins]', event.cabins || 'Keine Kabine');
-  const typeLabels = { training: 'Training', match: 'Spiel', external: 'Externe Belegung', bus: 'Fahrzeug' };
-  set('[data-event-type]', typeLabels[event.event_type] || event.event_type);
+  set(
+    '[data-event-type]',
+    event.event_type_name || bookingTypeInfo(event.event_type)?.name || event.event_type,
+  );
   const eventType = detailsDialog.querySelector('[data-event-type]');
   if (eventType) eventType.hidden = isBus;
   const pending = event.status === 'pending';
@@ -1076,8 +1102,109 @@ function initUserMenu() {
   });
 }
 
+function selectBookingTypeColor(picker, colorCode) {
+  if (!picker) return false;
+  const colorInput = picker.querySelector('[data-booking-color-value]');
+  const currentColor = picker.querySelector('[data-booking-color-current]');
+  const currentSwatch = currentColor?.querySelector('span');
+  const option = [...picker.querySelectorAll('[data-booking-color-option]')]
+    .find((item) => item.dataset.colorCode === colorCode);
+  if (!colorInput || !currentColor || !currentSwatch || !option) return false;
+
+  colorInput.value = option.dataset.colorCode;
+  currentSwatch.style.setProperty('--booking-type-color', option.dataset.colorHex);
+  currentColor.setAttribute('aria-label', `Kalenderfarbe: ${option.dataset.colorLabel}`);
+  picker.querySelectorAll('[data-booking-color-option]').forEach((item) => {
+    item.setAttribute('aria-pressed', item === option ? 'true' : 'false');
+  });
+  return true;
+}
+
+function initBookingTypeColorPickers() {
+  document.querySelectorAll('[data-booking-color-picker]').forEach((picker) => {
+    const currentColor = picker.querySelector('[data-booking-color-current]');
+    const dropdown = picker.querySelector('details');
+    const optionsPanel = picker.querySelector('.booking-type-color-options');
+    const options = [...picker.querySelectorAll('[data-booking-color-option]')];
+
+    const positionOptions = () => {
+      if (!dropdown?.open || !currentColor || !optionsPanel) return;
+
+      const triggerRect = currentColor.getBoundingClientRect();
+      const panelWidth = optionsPanel.offsetWidth;
+      const panelHeight = optionsPanel.offsetHeight;
+      const left = Math.max(8, Math.min(triggerRect.left, window.innerWidth - panelWidth - 8));
+      let top = triggerRect.bottom + 4;
+      if (top + panelHeight > window.innerHeight - 8) {
+        top = Math.max(8, triggerRect.top - panelHeight - 4);
+      }
+
+      optionsPanel.style.left = `${left}px`;
+      optionsPanel.style.top = `${top}px`;
+    };
+
+    dropdown?.addEventListener('toggle', () => {
+      if (dropdown.open) {
+        optionsPanel.style.visibility = 'hidden';
+        requestAnimationFrame(() => {
+          positionOptions();
+          optionsPanel.style.visibility = 'visible';
+        });
+      } else {
+        optionsPanel.style.visibility = 'hidden';
+      }
+    });
+    picker.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && dropdown?.open) {
+        dropdown.open = false;
+        currentColor?.focus();
+      }
+    });
+    document.addEventListener('pointerdown', (event) => {
+      if (dropdown?.open && !picker.contains(event.target)) dropdown.open = false;
+    });
+    window.addEventListener('resize', () => {
+      if (dropdown?.open) dropdown.open = false;
+    });
+    window.addEventListener('scroll', () => {
+      if (dropdown?.open) dropdown.open = false;
+    }, true);
+
+    options.forEach((option) => {
+      option.addEventListener('click', () => {
+        if (!selectBookingTypeColor(picker, option.dataset.colorCode)) return;
+        if (dropdown) dropdown.open = false;
+        currentColor.focus();
+      });
+    });
+  });
+}
+
+function initBookingTypeEditor() {
+  const dialog = document.querySelector('#booking-type-edit-dialog');
+  const form = document.querySelector('#booking-type-edit-form');
+  document.querySelectorAll('[data-booking-type-edit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const codeField = form?.querySelector('[name="code"]');
+      const nameField = form?.querySelector('[name="name"]');
+      const trainerRequestableField = form?.querySelector('[name="trainer_requestable"]');
+      const colorPicker = form?.querySelector('[data-booking-color-picker]');
+      if (!dialog || !codeField || !nameField || !trainerRequestableField || !colorPicker) return;
+
+      codeField.value = button.dataset.bookingTypeCode;
+      nameField.value = button.dataset.bookingTypeName;
+      trainerRequestableField.checked = button.dataset.bookingTypeTrainerRequestable === '1';
+      if (!selectBookingTypeColor(colorPicker, button.dataset.bookingTypeColor)) return;
+      dialog.showModal();
+      nameField.focus();
+    });
+  });
+}
+
 function initControls() {
   initUserMenu();
+  initBookingTypeColorPickers();
+  initBookingTypeEditor();
   initCalendarActionsMenu();
   initDashboardResizer();
   initCalendarSwipeNavigation(document.querySelector('.calendar-frame'), {
@@ -1216,6 +1343,7 @@ function initControls() {
       editingBooking = null;
       editingRequest = null;
       bookingError();
+      bookingForm.elements.event_type.querySelectorAll('option[data-archived]').forEach((option) => option.remove());
       bookingForm.reset();
       bookingForm.dataset.saved = '';
       bookingForm.elements.occurrence_id.value = '';
@@ -1248,6 +1376,7 @@ function initControls() {
       bookingError();
       bookingForm.reset();
       bookingForm.dataset.saved = '';
+      ensureBookingTypeOption(data.event_type, bookingTypeInfo(data.event_type)?.name);
       for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
         'destination', 'purpose', 'driver_name', 'private_notes']) {
         bookingForm.elements[name].value = data[name] ?? '';
@@ -1348,11 +1477,17 @@ function initControls() {
     const rejecting = action === 'reject';
     const cabinDeletion = form.matches('[data-cancel-cabin-form]');
     const requestDeletion = form.action.includes('booking-delete');
+    const bookingTypeRemoval = form.action.includes('booking-type-remove');
+    const bookingTypeName = form.dataset.confirmItemName || 'Buchungsart';
     const title = rejecting
       ? 'Buchungsanfrage ablehnen?'
-      : requestDeletion ? 'Buchungsanfrage löschen?' : 'Buchung löschen?';
+      : bookingTypeRemoval
+        ? `Buchungsart "${bookingTypeName}" entfernen?`
+        : requestDeletion ? 'Buchungsanfrage löschen?' : 'Buchung löschen?';
     const message = rejecting
       ? 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
+      : bookingTypeRemoval
+        ? `Möchten Sie "${bookingTypeName}" wirklich entfernen? Bei vorhandenen Terminen wird die Buchungsart archiviert.`
       : cabinDeletion
         ? 'Möchten Sie diese Kabinenbelegung wirklich löschen?'
         : requestDeletion
@@ -1361,7 +1496,7 @@ function initControls() {
     actionConfirmDialog.querySelector('[data-confirm-title]').textContent = title;
     actionConfirmDialog.querySelector('[data-confirm-message]').textContent = message;
     actionConfirmDialog.querySelector('[data-confirm-submit]').textContent = rejecting
-      ? 'Anfrage ablehnen' : 'Löschen';
+      ? 'Anfrage ablehnen' : bookingTypeRemoval ? 'Entfernen' : 'Löschen';
     pendingConfirmationForm = form;
     actionConfirmDialog.showModal();
   });
@@ -1397,6 +1532,7 @@ function initControls() {
       bookingError();
       bookingForm.reset();
       bookingForm.dataset.saved = '';
+      ensureBookingTypeOption(data.event_type, bookingTypeInfo(data.event_type)?.name || selectedEvent.event_type_name);
       for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
         'destination', 'purpose', 'driver_name', 'private_notes']) {
         bookingForm.elements[name].value = data[name] ?? '';

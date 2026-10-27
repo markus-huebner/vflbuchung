@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use App\BookingService;
+use App\BookingTypeService;
 use App\Config;
 use App\Database;
 use App\Mailer;
@@ -102,6 +103,13 @@ $requestEditData = function (int $id, array $actor, array $changes = [], string 
         'scope' => $scope,
     ], $changes);
 };
+
+$bookingTypeService = new BookingTypeService($pdo);
+$restrictedTypeCode = $bookingTypeService->save('Nur für Admins', 'red', null, false);
+fails(
+    fn() => createBooking('2031-02-01', ['event_type' => $restrictedTypeCode], $actors['trainer']),
+    'Buchungsart keine Anfragen'
+);
 
 $pendingRequestId = createBooking('2031-03-01', [
     'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],

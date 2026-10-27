@@ -8,7 +8,19 @@ const styles = readFileSync(new URL('../www/assets/css/app.css', import.meta.url
 const views = readFileSync(new URL('../www/app/Views.php', import.meta.url), 'utf8');
 const application = readFileSync(new URL('../www/app/Application.php', import.meta.url), 'utf8');
 const bookingService = readFileSync(new URL('../www/app/BookingService.php', import.meta.url), 'utf8');
+const bookingTypesService = readFileSync(new URL('../www/app/BookingTypeService.php', import.meta.url), 'utf8');
+const bookingTypeLookup = code => ({
+  training: { name: 'Training', color_hex: '#27834a', text_hex: '#ffffff' },
+  match: { name: 'Spiel', color_hex: '#2865a6', text_hex: '#ffffff' },
+  external: { name: 'Externe Belegung', color_hex: '#bf6a18', text_hex: '#ffffff' },
+  yellow: { name: 'Gelb', color_hex: '#f4d03f', text_hex: '#000000' },
+}[code] || null);
+const bookingTypeColorPickerSource = source.slice(
+  source.indexOf('function selectBookingTypeColor('),
+  source.indexOf('function initControls()'),
+);
 const showEventSource = source.slice(source.indexOf('function showEvent('), source.indexOf('function createResourceChip('));
+const eventCardSource = source.slice(source.indexOf('function eventCard('), source.indexOf('function isRecurring('));
 const bookingCardSource = source.slice(source.indexOf('function isRecurring('), source.indexOf('function showEvent('));
 const bookingTitleSource = source.slice(source.indexOf('function syncCombinedTitle('), source.indexOf('function renderResourceChoices('));
 const bookingFeedbackSource = source.slice(source.indexOf('function bookingError('), source.indexOf('async function submitBooking('));
@@ -49,7 +61,13 @@ function setup() {
     },
     showModal() { this.open = true; },
   };
-  const context = vm.createContext({ detailsDialog: dialog, selectedEvent: null, Intl, Date });
+  const context = vm.createContext({
+    detailsDialog: dialog,
+    selectedEvent: null,
+    bookingTypeInfo: bookingTypeLookup,
+    Intl,
+    Date,
+  });
   vm.runInContext(showEventSource, context);
   return {
     show: (event) => context.showEvent(event),
@@ -65,34 +83,51 @@ function setup() {
 function setupBookingCard() {
   const elements = new Map();
   const markers = [];
+  const stylesApplied = {};
   const wrapper = {
     attributes: {},
+    dataset: {},
+    classList: { toggle() {} },
+    style: { setProperty(name, value) { stylesApplied[name] = value; } },
     setAttribute(name, value) { this.attributes[name] = value; },
     querySelector(selector) {
       if (!elements.has(selector)) elements.set(selector, { textContent: '', hidden: false });
       return elements.get(selector);
     },
     append(element) { markers.push(element); },
+    addEventListener() {},
   };
   const context = vm.createContext({
     Intl,
     Date,
+    bookingTypeInfo: bookingTypeLookup,
     document: {
       createElement(tagName) {
         const attributes = {};
         return {
           tagName,
           attributes,
+          dataset: {},
+          classList: { toggle() {} },
+          style: { setProperty(name, value) { stylesApplied[name] = value; } },
           setAttribute(name, value) { attributes[name] = value; },
+          querySelector: (selector) => {
+            if (!elements.has(selector)) elements.set(selector, { textContent: '', hidden: false });
+            return elements.get(selector);
+          },
+          append(element) { markers.push(element); },
+          addEventListener() {},
         };
       },
     },
   });
-  vm.runInContext(`${bookingCardSource}; fillBookingCard`, context);
+  vm.runInContext(`${eventCardSource}; ${bookingCardSource}; eventCard; fillBookingCard`, context);
   return {
     fill: (event) => context.fillBookingCard(wrapper, event),
+    create: (event) => context.eventCard(event),
     text: (selector) => wrapper.querySelector(selector).textContent,
     hidden: (selector) => wrapper.querySelector(selector).hidden,
+    styles: () => stylesApplied,
     marker: () => markers[markers.length - 1],
     description: () => wrapper.attributes['aria-label'],
     title: () => wrapper.title,
@@ -371,14 +406,169 @@ test('pending bookings use lighter category colors and standard borders', () => 
   assert.match(styles, /\.legend-pending::before\s*\{[^}]*display:\s*none/);
   assert.match(styles, /\.legend-pending-colors > span\s*\{[^}]*border:\s*1px solid var\(--legend-color\);[^}]*color-mix\(in srgb, var\(--legend-color\) 40%, white\)/s);
 
-  const legend = views.match(/<div class="calendar-legend">([\s\S]*?)<\/div>/);
-  assert.ok(legend);
-  const pendingItems = [...legend[1].matchAll(/class="legend-item legend-pending"/g)];
-  assert.equal(pendingItems.length, 1);
-  const pendingLegend = legend[1].match(/<span class="legend-item legend-pending">([\s\S]*?)Anfrage<\/span>/);
-  assert.ok(pendingLegend);
-  const swatches = [...pendingLegend[1].matchAll(/<span style="--legend-color:var\(--booking-(training|match|external|bus)\)"><\/span>/g)];
-  assert.deepEqual(swatches.map(([, category]) => category), ['training', 'match', 'external', 'bus']);
+  assert.match(views, /foreach \(\$legendTypes as \$type\)/);
+  assert.match(views, /\$bookingLegend \.= '<span class="legend-item" style="--legend-color:' \. \$color/);
+  assert.match(views, /\$pendingLegend \.= '<span style="--legend-color:' \. \$color \. '"><\/span>'/);
+  assert.doesNotMatch(views, /--booking-(training|match|external|bus)/);
+});
+
+test('light booking colors use dark text for readability', () => {
+  const card = setupBookingCard();
+  const element = card.create({
+    ...pitch,
+    event_type: 'yellow',
+    event_type_color: '#f4d03f',
+    event_type_text_color: '#000000',
+  });
+
+  assert.equal(card.styles()['--event-color'], '#f4d03f');
+  assert.equal(card.styles()['--event-text-color'], '#000000');
+  assert.match(styles, /color:\s*var\(--event-text-color,\s*#fff\)/);
+});
+
+test('booking type color dropdown updates its selected swatch and accessible label', () => {
+  const attributes = {};
+  const swatchProperties = {};
+  let focused = false;
+  const colorInput = { value: 'green' };
+  const currentColor = {
+    setAttribute(name, value) { attributes[name] = value; },
+    querySelector: () => ({ style: { setProperty: (name, value) => { swatchProperties[name] = value; } } }),
+    getBoundingClientRect: () => ({ left: 270, top: 20, bottom: 60 }),
+    focus() { focused = true; },
+  };
+  const dropdown = {
+    open: false,
+    addEventListener(_name, listener) { this.toggle = listener; },
+  };
+  const optionsPanel = { offsetWidth: 140, offsetHeight: 80, style: {} };
+  const options = ['green', 'blue'].map((code, index) => {
+    const optionAttributes = {};
+    return {
+      dataset: {
+        colorCode: code,
+        colorLabel: index === 0 ? 'Grün' : 'Blau',
+        colorHex: index === 0 ? '#27834a' : '#2865a6',
+      },
+      setAttribute(name, value) { optionAttributes[name] = value; },
+      getAttribute(name) { return optionAttributes[name]; },
+      addEventListener(_name, listener) { this.click = listener; },
+    };
+  });
+  const picker = {
+    querySelector(selector) {
+      if (selector === '[data-booking-color-value]') return colorInput;
+      if (selector === '[data-booking-color-current]') return currentColor;
+      if (selector === '.booking-type-color-options') return optionsPanel;
+      return dropdown;
+    },
+    querySelectorAll: () => options,
+    addEventListener() {},
+    contains: () => true,
+  };
+  const context = vm.createContext({
+    document: {
+      querySelectorAll: () => [picker],
+      addEventListener() {},
+    },
+    window: {
+      innerWidth: 320,
+      innerHeight: 240,
+      addEventListener() {},
+    },
+    requestAnimationFrame: callback => callback(),
+  });
+  vm.runInContext(`${bookingTypeColorPickerSource}; initBookingTypeColorPickers()`, context);
+  dropdown.open = true;
+  dropdown.toggle();
+
+  assert.equal(optionsPanel.style.left, '172px');
+  assert.equal(optionsPanel.style.top, '64px');
+  assert.equal(optionsPanel.style.visibility, 'visible');
+  options[1].click();
+
+  assert.equal(colorInput.value, 'blue');
+  assert.equal(swatchProperties['--booking-type-color'], '#2865a6');
+  assert.equal(attributes['aria-label'], 'Kalenderfarbe: Blau');
+  assert.equal(options[0].getAttribute('aria-pressed'), 'false');
+  assert.equal(options[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(dropdown.open, false);
+  assert.equal(focused, true);
+});
+
+test('booking type edit button opens the dialog with the selected type values', () => {
+  const attributes = {};
+  const swatchProperties = {};
+  let dialogOpened = false;
+  let nameFocused = false;
+  const codeField = { value: '' };
+  const nameField = {
+    value: '',
+    focus() { nameFocused = true; },
+  };
+  const trainerRequestableField = { checked: true };
+  const colorInput = { value: 'green' };
+  const currentColor = {
+    setAttribute(name, value) { attributes[name] = value; },
+    querySelector: () => ({ style: { setProperty: (name, value) => { swatchProperties[name] = value; } } }),
+  };
+  const optionAttributes = [{}, {}];
+  const options = ['green', 'blue'].map((code, index) => ({
+    dataset: {
+      colorCode: code,
+      colorLabel: index === 0 ? 'Grün' : 'Blau',
+      colorHex: index === 0 ? '#27834a' : '#2865a6',
+    },
+    setAttribute(name, value) { optionAttributes[index][name] = value; },
+  }));
+  const picker = {
+    querySelector(selector) {
+      if (selector === '[data-booking-color-value]') return colorInput;
+      if (selector === '[data-booking-color-current]') return currentColor;
+      return null;
+    },
+    querySelectorAll: () => options,
+  };
+  const form = {
+    querySelector(selector) {
+      if (selector === '[name="code"]') return codeField;
+      if (selector === '[name="name"]') return nameField;
+      if (selector === '[name="trainer_requestable"]') return trainerRequestableField;
+      return picker;
+    },
+  };
+  const dialog = { showModal() { dialogOpened = true; } };
+  const button = {
+    dataset: {
+      bookingTypeCode: 'custom-match',
+      bookingTypeName: 'Turnier',
+      bookingTypeColor: 'blue',
+      bookingTypeTrainerRequestable: '0',
+    },
+    addEventListener(_name, listener) { this.click = listener; },
+  };
+  const context = vm.createContext({
+    document: {
+      querySelector: selector => selector === '#booking-type-edit-dialog' ? dialog : form,
+      querySelectorAll: selector => selector === '[data-booking-type-edit]' ? [button] : [],
+    },
+  });
+  vm.runInContext(`${bookingTypeColorPickerSource}; initBookingTypeEditor()`, context);
+  button.click();
+
+  assert.equal(codeField.value, 'custom-match');
+  assert.equal(nameField.value, 'Turnier');
+  assert.equal(trainerRequestableField.checked, false);
+  assert.equal(colorInput.value, 'blue');
+  assert.equal(swatchProperties['--booking-type-color'], '#2865a6');
+  assert.equal(attributes['aria-label'], 'Kalenderfarbe: Blau');
+  assert.equal(optionAttributes[0]['aria-pressed'], 'false');
+  assert.equal(optionAttributes[1]['aria-pressed'], 'true');
+  assert.equal(dialogOpened, true);
+  assert.equal(nameFocused, true);
+  button.dataset.bookingTypeTrainerRequestable = '1';
+  button.click();
+  assert.equal(trainerRequestableField.checked, true);
 });
 
 test('pitch and cabin resource choices have three columns and concise wording', () => {
@@ -603,6 +793,14 @@ test('booking removal uses deletion wording throughout the UI and feedback', () 
   for (const text of [views, application, bookingService, source]) {
     assert.doesNotMatch(text, /stornier/i);
   }
+});
+
+test('booking type removal requires confirmation and preserves types used by bookings', () => {
+  assert.match(views, /action="\/\?action=booking-type-remove" data-confirm-action="delete"/);
+  assert.match(source, /form\.action\.includes\('booking-type-remove'\)/);
+  assert.match(source, /Bei vorhandenen Terminen wird die Buchungsart archiviert/);
+  assert.match(bookingTypesService, /SELECT 1 FROM booking_occurrences WHERE event_type = :code LIMIT 1/);
+  assert.match(bookingTypesService, /UPDATE booking_types SET is_active = 0 WHERE code = :code/);
 });
 
 test('vehicle details retain the title and show destination, purpose, driver and both dates', () => {

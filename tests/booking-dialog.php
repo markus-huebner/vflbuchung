@@ -5,12 +5,49 @@ require dirname(__DIR__) . '/www/vendor/autoload.php';
 
 use App\Views;
 use App\BookingService;
+use App\BookingTypeService;
 
 function check(bool $condition, string $message): void
 {
     if (!$condition) {
         throw new RuntimeException($message);
     }
+}
+
+function colorHue(string $hex): float
+{
+    [$red, $green, $blue] = array_map(
+        static fn(int $offset): float => hexdec(substr($hex, $offset, 2)) / 255,
+        [1, 3, 5]
+    );
+    $maximum = max($red, $green, $blue);
+    $delta = $maximum - min($red, $green, $blue);
+    if ($delta === 0.0) {
+        return 0.0;
+    }
+    if ($maximum === $red) {
+        $hue = fmod(($green - $blue) / $delta, 6);
+    } elseif ($maximum === $green) {
+        $hue = ($blue - $red) / $delta + 2;
+    } else {
+        $hue = ($red - $green) / $delta + 4;
+    }
+    return fmod($hue * 60 + 360, 360);
+}
+
+function colorLuminance(string $hex): float
+{
+    [$red, $green, $blue] = array_map(
+        static fn(int $offset): float => hexdec(substr($hex, $offset, 2)) / 255,
+        [1, 3, 5]
+    );
+    $linear = array_map(
+        static fn(float $channel): float => $channel <= 0.04045
+            ? $channel / 12.92
+            : (($channel + 0.055) / 1.055) ** 2.4,
+        [$red, $green, $blue]
+    );
+    return 0.2126 * $linear[0] + 0.7152 * $linear[1] + 0.0722 * $linear[2];
 }
 
 function checkDateTimeFields(DOMXPath $xpath, string $form): void
@@ -445,9 +482,82 @@ check(
         && !str_contains($setupHtml, 'name="display_name"'),
     'The initial admin setup must collect first and last names separately.'
 );
+$bookingTypesHtml = Views::bookingTypes(BookingTypeService::defaults(), 'test-csrf');
+$bookingTypesDocument = new DOMDocument();
+$bookingTypesDocument->loadHTML(
+    '<!doctype html><html><body>' . $bookingTypesHtml . '</body></html>',
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$bookingTypesXPath = new DOMXPath($bookingTypesDocument);
+$bookingTypePalette = array_values(BookingTypeService::palette());
+$bookingTypePaletteRows = array_chunk($bookingTypePalette, 10);
+$bookingTypePaletteOrderingIsValid = count($bookingTypePaletteRows) === 4;
+$previousPaletteLuminances = array_fill(0, 10, -1.0);
+foreach ($bookingTypePaletteRows as $paletteRow) {
+    $previousHue = -1.0;
+    foreach ($paletteRow as $column => $paletteColor) {
+        $hue = colorHue($paletteColor['hex']);
+        if ($column < 9 && $hue < $previousHue) {
+            $bookingTypePaletteOrderingIsValid = false;
+        }
+        if ($column < 9) {
+            $previousHue = $hue;
+        }
+        $luminance = colorLuminance($paletteColor['hex']);
+        if ($luminance <= $previousPaletteLuminances[$column]) {
+            $bookingTypePaletteOrderingIsValid = false;
+        }
+        $previousPaletteLuminances[$column] = $luminance;
+    }
+}
+$bookingTypeForms = $bookingTypesXPath->query('//form[@action="/?action=booking-type-save"]');
+$bookingTypeColorPickers = $bookingTypesXPath->query('//div[@data-booking-color-picker]');
+$bookingTypeColorOptions = $bookingTypesXPath->query('//button[@data-booking-color-option]');
+$bookingTypeRows = $bookingTypesXPath->query('//table[contains(@class, "booking-type-table")]/tbody/tr');
+$bookingTypeColorOptionLabelsAreHidden = true;
+foreach ($bookingTypeColorOptions as $colorOption) {
+    if (trim($colorOption->textContent) !== '') {
+        $bookingTypeColorOptionLabelsAreHidden = false;
+        break;
+    }
+}
+check(
+    count(BookingTypeService::palette()) === 40
+        && $bookingTypePaletteOrderingIsValid
+        && isset(
+            BookingTypeService::palette()['black-dark'],
+            BookingTypeService::palette()['yellow-light'],
+            BookingTypeService::palette()['orange-light'],
+            BookingTypeService::palette()['green-light'],
+            BookingTypeService::palette()['blue-light']
+        )
+        && BookingTypeService::palette()['yellow-light']['text_hex'] === '#000000'
+        && BookingTypeService::palette()['black-dark']['text_hex'] === '#ffffff'
+        && $bookingTypeForms->length === 2
+        && $bookingTypeRows->length === count(BookingTypeService::defaults())
+        && $bookingTypeColorPickers->length === 2
+        && $bookingTypeColorOptions->length
+            === count(BookingTypeService::palette()) * $bookingTypeForms->length
+        && $bookingTypeColorOptionLabelsAreHidden
+        && $bookingTypesXPath->query('//table[contains(@class, "booking-type-table")]//input[@name="name" or @name="color"]')->length === 0
+        && $bookingTypesXPath->query('//table[contains(@class, "booking-type-table")]//button[@data-booking-type-edit]')->length
+            === count(BookingTypeService::defaults())
+        && $bookingTypesXPath->query('//dialog[@id="booking-type-edit-dialog"]//input[@name="name"]')->length === 1
+        && $bookingTypesXPath->query('//dialog[@id="booking-type-edit-dialog"]//input[@type="checkbox" and @name="trainer_requestable"]')->length === 1
+        && $bookingTypesXPath->query('//form[@id="booking-type-create-form"]//input[@type="checkbox" and @name="trainer_requestable" and @checked]')->length === 1
+        && $bookingTypesXPath->query('//table[contains(@class, "booking-type-table")]//td[@data-trainer-requestable]')->length
+            === count(BookingTypeService::defaults())
+        && $bookingTypesXPath->query('//table[contains(@class, "booking-type-table")]//button[@data-booking-type-edit and @data-booking-type-trainer-requestable]')->length
+            === count(BookingTypeService::defaults())
+        && $bookingTypesXPath->query('//form[@action="/?action=booking-type-status"]')->length
+            === count(BookingTypeService::defaults())
+        && $bookingTypesXPath->query('//form[@action="/?action=booking-type-remove" and @data-confirm-action="delete"]')->length
+            === count(BookingTypeService::defaults()),
+    'The booking-type admin page must render read-only rows and a dialog editor with an expanded text-free palette.'
+);
 $emptyDatabaseSetupHtml = Views::setup('test-csrf', '', [
     'existing_table_count' => 0,
-    'table_count' => 11,
+    'table_count' => 12,
 ]);
 check(
     str_contains($emptyDatabaseSetupHtml, 'name="schema_action" value="keep"')
@@ -455,9 +565,33 @@ check(
         && str_contains($emptyDatabaseSetupHtml, 'Datenbankschema und die Standardressourcen angelegt'),
     'An empty database must be prepared by the web setup without offering a destructive reset.'
 );
+$trainerBookingTypes = array_map(static function (array $type): array {
+    $type['trainer_requestable'] = in_array($type['code'], ['match', 'external'], true);
+    return $type;
+}, BookingTypeService::defaults());
+$trainerCalendar = Views::calendar(
+    ['role' => 'trainer'],
+    'test-csrf',
+    [],
+    bookingTypes: $trainerBookingTypes
+);
+$trainerCalendarDocument = new DOMDocument();
+$trainerCalendarDocument->loadHTML(
+    '<?xml encoding="UTF-8">' . $trainerCalendar,
+    LIBXML_NOERROR | LIBXML_NOWARNING
+);
+$trainerCalendarXPath = new DOMXPath($trainerCalendarDocument);
+$trainerCategoryOptions = [];
+foreach ($trainerCalendarXPath->query('//*[@id="booking-form"]//select[@name="event_type"]/option[not(@hidden)]') as $option) {
+    $trainerCategoryOptions[] = $option->getAttribute('value');
+}
+check(
+    $trainerCategoryOptions === ['match', 'external'],
+    'Trainer categories must follow each booking type setting, including external bookings.'
+);
 $existingDatabaseSetupHtml = Views::setup('test-csrf', '', [
     'existing_table_count' => 5,
-    'table_count' => 11,
+    'table_count' => 12,
 ]);
 check(
     str_contains($existingDatabaseSetupHtml, 'id="setup-keep"')
@@ -468,7 +602,7 @@ check(
 );
 $schemaRepairHtml = Views::setup('test-csrf', '', [
     'existing_table_count' => 5,
-    'table_count' => 11,
+    'table_count' => 12,
 ], false);
 check(
     str_contains($schemaRepairHtml, 'Datenbankschema vervollständigen')
