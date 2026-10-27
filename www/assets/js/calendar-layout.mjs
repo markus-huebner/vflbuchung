@@ -33,8 +33,8 @@ export function eventDaySegment(event, date) {
   };
 }
 
-export function layoutDayEvents(events, firstHour, lastHour) {
-  const laneHeight = (lastHour - firstHour) * DAY_HOUR_HEIGHT;
+export function layoutDayEvents(events, firstHour, lastHour, hourHeight = DAY_HOUR_HEIGHT) {
+  const laneHeight = (lastHour - firstHour) * hourHeight;
   const entries = events.flatMap(event => {
     const firstMinute = firstHour * 60;
     const laneMinutes = (lastHour - firstHour) * 60;
@@ -43,8 +43,8 @@ export function layoutDayEvents(events, firstHour, lastHour) {
     if (eventEnd === 0 && new Date(event.end) > new Date(event.start)) eventEnd = 24 * 60;
     const end = Math.min(laneMinutes, Math.max(0, eventEnd - firstMinute));
     if (end <= start) return [];
-    const top = start / 60 * DAY_HOUR_HEIGHT;
-    const height = Math.min(Math.max((end - start) / 60 * DAY_HOUR_HEIGHT - 3, DAY_HOUR_HEIGHT / 2), laneHeight - top);
+    const top = start / 60 * hourHeight;
+    const height = Math.min(Math.max((end - start) / 60 * hourHeight - 3, hourHeight / 2), laneHeight - top);
     return [{ event, top, height, column: 0, columns: 1 }];
   }).sort((a, b) => a.top - b.top || b.height - a.height
     || Number(a.event.assignment_id) - Number(b.event.assignment_id));

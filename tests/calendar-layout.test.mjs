@@ -42,8 +42,26 @@ test('calendar scroll surfaces reserve horizontal touch gestures for swipe navig
   assert.ok(rule, 'day and week scroll surfaces need a shared touch-action rule');
   assert.match(rule[1], /touch-action:\s*pan-y\s*;/);
   assert.match(rule[1], /overflow:\s*auto\s*;/);
-  assert.match(rule[1], /max-height:\s*calc\(100dvh\s*-\s*9rem\)/);
+  assert.match(rule[1], /height:\s*max\(8rem,\s*calc\(100dvh\s*-\s*12rem\)\)/);
   assert.match(rule[1], /overscroll-behavior-y:\s*auto/);
+
+  const mobileRule = calendarCss.match(/@media \(max-width:\s*700px\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(mobileRule);
+  assert.match(mobileRule[1], /height:\s*max\(8rem,\s*calc\(100dvh\s*-\s*13rem\)\)/);
+  assert.match(views, /<\/div>\s*<div class="calendar-legend">/);
+  assert.match(calendarCss, /\.calendar-legend\s*\{[^}]*flex-wrap:\s*wrap/s);
+});
+
+test('calendar rows expand to use available viewport height', () => {
+  assert.match(calendarJs, /target\.clientHeight - headingHeight - 4/);
+  assert.match(calendarJs, /renderResourceDay\(fittedHourHeight\)/);
+  assert.match(calendarJs, /target\.clientHeight - head\.offsetHeight - 4/);
+  assert.match(calendarJs, /--resource-week-row-height/);
+  assert.match(calendarJs, /window\.addEventListener\('resize'/);
+
+  const weekCellRule = calendarCss.match(/\.resource-week-table td\s*\{([^}]+)\}/);
+  assert.ok(weekCellRule);
+  assert.match(weekCellRule[1], /height:\s*var\(--resource-week-row-height,\s*90px\)/);
 });
 
 test('calendar controls fit in one compact toolbar above the scrollable calendar', () => {
@@ -96,6 +114,8 @@ test('day calendar keeps the time axis narrow and wraps resource headings withou
   assert.match(headingRule[1], /white-space:\s*normal/);
   assert.match(headingRule[1], /overflow-wrap:\s*anywhere/);
   assert.match(headingRule[1], /height:\s*var\(--resource-heading-height,\s*auto\)/);
+  assert.match(headingRule[1], /align-items:\s*flex-start/);
+  assert.match(calendarCss, /\.resource-week-table\.table > thead > tr > th\s*\{[^}]*vertical-align:\s*top/s);
   assert.match(calendarCss, /\.resource-time-axis\s*\{[^}]*padding-top:\s*var\(--resource-heading-height,\s*24px\)/s);
   assert.match(calendarJs, /const headingHeight = Math\.max\(/);
   assert.match(calendarJs, /\[\.\.\.grid\.querySelectorAll\('\.resource-column-heading'\)\]\.map\(heading => heading\.offsetHeight\)/);
@@ -103,6 +123,24 @@ test('day calendar keeps the time axis narrow and wraps resource headings withou
   assert.match(calendarJs, /grid\.style\.removeProperty\('--resource-heading-height'\)/);
   assert.match(calendarJs, /resourceHeadingObserver = new ResizeObserver\(updateHeadingHeight\)/);
   assert.match(calendarJs, /resourceHeadingObserver\.observe\(grid\)/);
+});
+
+test('calendar date briefly highlights after the displayed range changes', () => {
+  assert.match(calendarJs, /await loadCalendar\(\);\s*highlightCalendarDate\(\);/);
+  assert.match(calendarJs, /dateButton\.classList\.add\('calendar-date-changed'\)/);
+  assert.match(calendarJs, /calendarDateHighlightTimer = window\.setTimeout\([\s\S]*?900\)/);
+  assert.match(calendarCss, /\.calendar-date-button\.calendar-date-changed\s*\{[^}]*animation:\s*calendar-date-highlight\s+850ms/);
+  assert.match(calendarCss, /@keyframes calendar-date-highlight/);
+  assert.match(calendarJs, /#calendar-today[\s\S]*?await loadCalendar\(\);\s*highlightCalendarDate\(\);/);
+  assert.doesNotMatch(calendarJs, /(?:calendar-prev|calendar-next|calendar-today)[\s\S]{0,100}classList\.add\('calendar-date-changed'\)/);
+});
+
+test('calendar navigation buttons do not retain hover fill on touch devices', () => {
+  const touchHoverRule = calendarCss.match(/@media \(hover:\s*none\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(touchHoverRule);
+  assert.match(touchHoverRule[1], /\.calendar-navigation > \.btn:hover/);
+  assert.match(touchHoverRule[1], /background-color:\s*var\(--bs-btn-bg\)/);
+  assert.match(touchHoverRule[1], /color:\s*var\(--bs-btn-color\)/);
 });
 
 test('positive success messages are not rendered', () => {
@@ -133,7 +171,7 @@ test('week calendar narrows its resource label column on small screens', () => {
 
 test('vehicle calendar uses the shared resource day and week layouts', () => {
   assert.match(views, /<div data-calendar-view="bus" hidden>\s*<div id="bus-day" class="resource-day-scroll"><\/div>\s*<div id="bus-week" class="resource-week-scroll" hidden><\/div>\s*<\/div>/);
-  assert.match(calendarJs, /function renderResourceDay\(\)/);
+  assert.match(calendarJs, /function renderResourceDay\(hourHeight = DAY_HOUR_HEIGHT\)/);
   assert.match(calendarJs, /function renderResourceWeek\(\)/);
   assert.match(calendarJs, /eventDaySegment\(event,\s*date\)/);
 });
@@ -156,10 +194,10 @@ test('resource calendars default to 09:00–21:00 and can show the full day', ()
   assert.ok(entries.every(entry => entry.top + entry.height <= 12 * DAY_HOUR_HEIGHT));
 });
 
-test('hour rows and event positions use exactly twenty percent less height', () => {
+test('hour rows and event positions use a compact minimum height', () => {
   assert.equal(DAY_HOUR_HEIGHT, 64 * 0.8);
-  assert.match(calendarJs, /grid\.style\.setProperty\('--calendar-hour-height', `\$\{DAY_HOUR_HEIGHT\}px`\)/);
-  assert.match(calendarJs, /hourCount \* DAY_HOUR_HEIGHT/);
+  assert.match(calendarJs, /grid\.style\.setProperty\('--calendar-hour-height', `\$\{hourHeight\}px`\)/);
+  assert.match(calendarJs, /hourCount \* hourHeight/);
   for (const selector of ['resource-hour', 'resource-hour-line']) {
     const rule = calendarCss.match(new RegExp(`\\.${selector}\\s*\\{([^}]+)\\}`));
     assert.match(rule[1], /height:\s*var\(--calendar-hour-height\)/);
@@ -319,6 +357,13 @@ test('positions use Berlin wall time regardless of timestamp offset or browser t
   }], 8, 20);
   assert.equal(entries[0].top, 2 * DAY_HOUR_HEIGHT);
   assert.equal(entries[0].height, DAY_HOUR_HEIGHT - 3);
+});
+
+test('expanded day hour height scales event position and lane height consistently', () => {
+  const hourHeight = 72;
+  const entries = layoutDayEvents([event(1, '10:00', '11:00')], 8, 20, hourHeight);
+  assert.equal(entries[0].top, 2 * hourHeight);
+  assert.equal(entries[0].height, hourHeight - 3);
 });
 
 test('layout is deterministic and does not mutate the incoming calendar data', () => {

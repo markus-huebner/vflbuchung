@@ -45,6 +45,8 @@ let editingRequest = null;
 let pendingConfirmationForm = null;
 let pendingScopeAction = null;
 let resourceHeadingObserver = null;
+let calendarDateHighlightTimer = null;
+let calendarResizeFrame = null;
 
 function announce(message, kind = 'info') {
   if (!messageBox || kind === 'success') return;
@@ -54,6 +56,19 @@ function announce(message, kind = 'info') {
   window.setTimeout(() => {
     messageBox.hidden = true;
   }, 7000);
+}
+
+function highlightCalendarDate() {
+  const dateButton = document.querySelector('#calendar-date-picker');
+  if (!dateButton) return;
+
+  clearTimeout(calendarDateHighlightTimer);
+  dateButton.classList.remove('calendar-date-changed');
+  void dateButton.offsetWidth;
+  dateButton.classList.add('calendar-date-changed');
+  calendarDateHighlightTimer = window.setTimeout(() => {
+    dateButton.classList.remove('calendar-date-changed');
+  }, 900);
 }
 
 function localDate(date) {
@@ -103,6 +118,7 @@ async function navigateCalendar(direction) {
   state.date = shiftCalendarDate(state.date, state.view, direction);
   try {
     await loadCalendar();
+    highlightCalendarDate();
   } catch (error) {
     announce(error.message, 'danger');
   }
@@ -266,8 +282,12 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
   recurrenceMarker.setAttribute('aria-label', 'Regeltermin');
   recurrenceMarker.hidden = !isRecurring(event);
   wrapper.append(recurrenceMarker);
-  wrapper.querySelector('.booking-category').textContent =
-    `${typeLabels[kind] || kind}${event.status === 'pending' ? ' · Anfrage' : ''}`;
+  const category = wrapper.querySelector('.booking-category');
+  category.textContent = [
+    kind === 'bus' ? '' : typeLabels[kind] || kind,
+    event.status === 'pending' ? 'Anfrage' : '',
+  ].filter(Boolean).join(' · ');
+  category.hidden = !category.textContent;
   wrapper.querySelector('strong').textContent = [event.team_name, event.title || event.display_title].filter(Boolean).join(' – ');
   wrapper.querySelector('.booking-time').textContent = visibleRange?.allDay
     ? 'Ganztägig'
@@ -285,16 +305,17 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
   wrapper.setAttribute('aria-label', wrapper.title);
 }
 
-function renderResourceDay() {
+function renderResourceDay(hourHeight = DAY_HOUR_HEIGHT) {
   const target = document.querySelector(`#${state.resourceType}-day`);
   if (!target) return;
+  resourceHeadingObserver?.disconnect();
   target.replaceChildren();
 
   const resources = state.resources.filter((resource) => resource.type === state.resourceType);
   const grid = document.createElement('div');
   grid.className = 'resource-day-grid';
   grid.style.setProperty('--resource-count', Math.max(resources.length, 1));
-  grid.style.setProperty('--calendar-hour-height', `${DAY_HOUR_HEIGHT}px`);
+  grid.style.setProperty('--calendar-hour-height', `${hourHeight}px`);
   grid.style.width = '100%';
   const axis = document.createElement('div');
   axis.className = 'resource-time-axis';
@@ -311,7 +332,7 @@ function renderResourceDay() {
           ? [{ ...event, ...visibleRange, originalEvent: event, visibleRange }]
           : [];
       });
-    return layoutDayEvents(events, firstHour, lastHour);
+    return layoutDayEvents(events, firstHour, lastHour, hourHeight);
   });
   grid.style.gridTemplateColumns =
     `var(--axis-width) repeat(${Math.max(1, resources.length)}, minmax(0, 1fr))`;
@@ -333,7 +354,7 @@ function renderResourceDay() {
     column.append(heading);
     const lane = document.createElement('div');
     lane.className = 'resource-lane';
-    lane.style.height = `${hourCount * DAY_HOUR_HEIGHT}px`;
+    lane.style.height = `${hourCount * hourHeight}px`;
     for (let hour = firstHour; hour < lastHour; hour += 1) {
       const line = document.createElement('div');
       line.className = 'resource-hour-line';
@@ -365,7 +386,16 @@ function renderResourceDay() {
     grid.style.setProperty('--resource-heading-height', `${headingHeight}px`);
   };
   updateHeadingHeight();
-  resourceHeadingObserver?.disconnect();
+  const headingHeight = Number.parseFloat(grid.style.getPropertyValue('--resource-heading-height'));
+  const fittedHourHeight = Math.max(
+    DAY_HOUR_HEIGHT,
+    (target.clientHeight - headingHeight - 4) / hourCount,
+  );
+  if (Math.abs(fittedHourHeight - hourHeight) > 0.5) {
+    renderResourceDay(fittedHourHeight);
+    return;
+  }
+
   resourceHeadingObserver = new ResizeObserver(updateHeadingHeight);
   resourceHeadingObserver.observe(grid);
 }
@@ -421,6 +451,25 @@ function renderResourceWeek() {
   });
   table.append(body);
   target.append(table);
+  const rowHeight = resources.length > 0
+    ? Math.max(90, (target.clientHeight - head.offsetHeight - 4) / resources.length)
+    : 90;
+  table.style.setProperty('--resource-week-row-height', `${rowHeight}px`);
+}
+
+function initCalendarViewportResize() {
+  window.addEventListener('resize', () => {
+    if (calendarResizeFrame !== null) window.cancelAnimationFrame(calendarResizeFrame);
+    calendarResizeFrame = window.requestAnimationFrame(() => {
+      calendarResizeFrame = null;
+      const target = document.querySelector(`#${state.resourceType}-${state.view}`);
+      const scrollTop = target?.scrollTop ?? 0;
+      if (state.view === 'day') renderResourceDay();
+      else renderResourceWeek();
+      const updatedTarget = document.querySelector(`#${state.resourceType}-${state.view}`);
+      if (updatedTarget) updatedTarget.scrollTop = scrollTop;
+    });
+  });
 }
 
 function showEvent(event) {
@@ -431,18 +480,38 @@ function showEvent(event) {
     const element = detailsDialog.querySelector(selector);
     if (element) element.textContent = value || '—';
   };
+  const isBus = event.event_type === 'bus';
+  const setFieldsVisible = (selector, visible) => {
+    detailsDialog.querySelectorAll(selector).forEach((element) => {
+      element.hidden = !visible;
+    });
+  };
+  const hasValue = value => Boolean(String(value || '').trim());
   set('[data-event-title]', [event.team_name, event.title || event.display_title].filter(Boolean).join(' – '));
   set('[data-event-resources]', event.resource_names || event.resource_name);
-  const formatDateTime = (value) => new Intl.DateTimeFormat('de-DE', {
+  const resourceLabel = detailsDialog.querySelector('[data-event-resource-label]');
+  if (resourceLabel) resourceLabel.textContent = isBus ? 'Fahrzeug' : 'Plätze';
+  const dateFormatter = new Intl.DateTimeFormat('de-DE', {
     timeZone: 'Europe/Berlin',
     dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
-  set('[data-event-start]', formatDateTime(event.start));
-  set('[data-event-end]', formatDateTime(event.end));
+  });
+  const timeFormatter = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+  const startDate = dateFormatter.format(start);
+  const endDate = dateFormatter.format(end);
+  set('[data-event-date]', startDate === endDate ? startDate : `${startDate} – ${endDate}`);
+  set('[data-event-time]', `${timeFormatter.format(start)}–${timeFormatter.format(end)} Uhr`);
   set('[data-event-cabins]', event.cabins || 'Keine Kabine');
   const typeLabels = { training: 'Training', match: 'Spiel', external: 'Externe Belegung', bus: 'Fahrzeug' };
   set('[data-event-type]', typeLabels[event.event_type] || event.event_type);
+  const eventType = detailsDialog.querySelector('[data-event-type]');
+  if (eventType) eventType.hidden = isBus;
   const pending = event.status === 'pending';
   set('[data-event-status]', pending ? 'Anfrage (offen)' : 'Bestätigt');
   const editButton = detailsDialog.querySelector('[data-edit-event]');
@@ -459,11 +528,15 @@ function showEvent(event) {
   set('[data-event-driver]', event.driver_name);
   set('[data-event-notes]', event.private_notes);
   detailsDialog.querySelectorAll('[data-event-bus-field]').forEach((element) => {
-    element.hidden = event.event_type !== 'bus';
+    element.hidden = !isBus;
   });
   detailsDialog.querySelectorAll('[data-event-pitch-field]').forEach((element) => {
-    element.hidden = event.event_type === 'bus';
+    element.hidden = isBus;
   });
+  setFieldsVisible('[data-event-destination-field]', isBus && hasValue(event.destination));
+  setFieldsVisible('[data-event-purpose-field]', isBus && hasValue(event.purpose));
+  setFieldsVisible('[data-event-driver-field]', isBus && hasValue(event.driver_name));
+  setFieldsVisible('[data-event-notes-field]', hasValue(event.private_notes));
   const rule = event.recurrence_rule;
   let recurrence = 'Keine';
   if (rule && rule.frequency !== 'none') {
@@ -681,10 +754,15 @@ function updateBookingFields() {
     element.hidden = !editing;
   });
   if (bookingForm) {
-    const labels = { pitch: 'Platzbelegung', bus: 'Fahrzeugbuchung' };
+    const isTrainer = bookingForm.dataset.userRole === 'trainer';
+    const labels = {
+      pitch: 'Platzbelegung',
+      bus: isTrainer ? 'Fahrzeug' : 'Fahrzeugbuchung',
+    };
+    const action = editing ? 'ändern' : (isTrainer ? 'anfragen' : 'anlegen');
     bookingForm.dataset.mode = requestEdit ? 'request-edit' : editingBooking ? 'edit' : 'create';
     bookingForm.querySelector('#booking-dialog-title').textContent =
-      `${labels[resourceMode]} ${editing ? 'ändern' : 'anlegen'}`;
+      `${labels[resourceMode]} ${action}`;
     const submit = bookingForm.querySelector('[data-booking-submit]');
     const saved = bookingForm.dataset.saved === 'true';
     const approve = bookingForm.querySelector('[data-request-approve]');
@@ -1120,7 +1198,12 @@ function initControls() {
   });
   document.querySelector('#calendar-today')?.addEventListener('click', async () => {
     state.date = new Date();
-    await loadCalendar();
+    try {
+      await loadCalendar();
+      highlightCalendarDate();
+    } catch (error) {
+      announce(error.message, 'danger');
+    }
   });
   document.querySelector('#full-day-toggle')?.addEventListener('change', async (event) => {
     state.showFullDay = event.target.checked;
@@ -1387,6 +1470,7 @@ function initControls() {
 }
 
 initControls();
+initCalendarViewportResize();
 loadResources()
   .then(async () => {
     await loadCalendar();

@@ -92,10 +92,26 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
     $xpath = new DOMXPath($document);
     $form = '//*[@id="booking-form"]';
+    $trainer = $role === 'trainer';
 
     check(
-        $xpath->evaluate('string(' . $form . '//*[@id="booking-dialog-title"])') === 'Platzbelegung anlegen',
+        $xpath->evaluate('string(' . $form . '//*[@id="booking-dialog-title"])')
+            === ($trainer ? 'Platzbelegung anfragen' : 'Platzbelegung anlegen'),
         "$role: Incorrect pitch booking dialog title."
+    );
+    check(
+        $xpath->evaluate('string(' . $form . '/@data-user-role)') === $role,
+        "$role: The booking form must expose the current role for role-specific labels."
+    );
+    $bookingChoices = [];
+    foreach ($xpath->query('//*[@id="booking-create-menu"]//*[@data-booking-option]') as $option) {
+        $bookingChoices[] = trim($option->textContent);
+    }
+    check(
+        $bookingChoices === ($trainer
+            ? ['Platzbelegung anfragen', 'Fahrzeug anfragen']
+            : ['Platzbelegung', 'Fahrzeug']),
+        "$role: Incorrect booking menu option labels."
     );
     check(
         $xpath->query($form . '//*[@id="booking-selection"]')->length === 0,
@@ -269,6 +285,7 @@ $trainerCalendar = Views::calendar(['role' => 'trainer'], 'test-csrf', []);
 check(str_contains($trainerCalendar, 'data-allow-cabins="false"'), 'Trainers must not be offered cabin choices.');
 $staffCalendar = Views::calendar(['role' => 'manager'], 'test-csrf', []);
 check(str_contains($staffCalendar, 'data-request-approve hidden'), 'The dialog must offer approval while reviewing a request.');
+check(str_contains($staffCalendar, '>Freigeben</button>'), 'The request approval action must be labeled Freigeben.');
 
 $staffDashboard = Views::dashboard(['role' => 'manager'], [$request], 'test-csrf');
 $document->loadHTML('<?xml encoding="UTF-8">' . $staffDashboard, LIBXML_NOERROR | LIBXML_NOWARNING);
@@ -325,7 +342,7 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
             && $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="calendar-view-controls"]')->length === 1,
         'The burger menu must contain only view settings on every screen size.'
     );
-    foreach (['resources', 'start', 'end', 'cabins', 'type', 'status', 'destination', 'purpose', 'recurrence'] as $field) {
+    foreach (['resources', 'date', 'time', 'cabins', 'type', 'status', 'destination', 'purpose', 'recurrence'] as $field) {
         check(
             $xpath->query('//*[@id="event-dialog"]//*[@data-event-' . $field . ']')->length === 1,
             "Event details must include $field."
@@ -333,7 +350,7 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
     }
     check(
         $xpath->query('//*[@id="event-dialog"]//*[@data-event-resource]')->length === 0
-            && $xpath->query('//*[@id="event-dialog"]//dt[normalize-space()="Gebuchte Plätze"]/following-sibling::dd[1][@data-event-resources]')->length === 1,
+            && $xpath->query('//*[@id="event-dialog"]//dt[normalize-space()="Plätze"]/following-sibling::dd[1][@data-event-resources]')->length === 1,
         'Show booked places once under the renamed label, without a separate resource field.'
     );
     $staff = in_array($user['role'] ?? '', ['admin', 'manager'], true);

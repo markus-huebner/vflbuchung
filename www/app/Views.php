@@ -101,9 +101,14 @@ final class Views
         if (in_array($user['role'] ?? '', ['manager', 'admin'], true)) {
             $eventTypes .= '<option value="external">Externe Belegung</option>';
         }
-        $staff = in_array($user['role'] ?? '', ['admin', 'manager'], true);
+        $role = $user['role'] ?? '';
+        $staff = in_array($role, ['admin', 'manager'], true);
+        $isTrainer = $role === 'trainer';
         $createButton = $user !== null
-            ? self::bookingCreateMenu($staff ? 'Buchung anlegen' : 'Buchungsanfrage stellen')
+            ? self::bookingCreateMenu(
+                $staff ? 'Buchung anlegen' : 'Buchungsanfrage stellen',
+                $isTrainer,
+            )
             : '';
 
         $bookingDialog = $user === null ? '' : self::bookingDialog($user, $csrf, $eventTypes);
@@ -201,12 +206,20 @@ final class Views
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
     }
 
-    private static function bookingCreateMenu(string $label): string
+    private static function bookingCreateMenu(string $label, bool $isTrainer): string
     {
 $bookingChoices = '';
 foreach ([
-    ['event_type' => 'training', 'resource_mode' => 'pitch', 'label' => 'Platzbelegung'],
-    ['event_type' => 'bus', 'resource_mode' => 'bus', 'label' => 'Fahrzeug'],
+    [
+        'event_type' => 'training',
+        'resource_mode' => 'pitch',
+        'label' => $isTrainer ? 'Platzbelegung anfragen' : 'Platzbelegung',
+    ],
+    [
+        'event_type' => 'bus',
+        'resource_mode' => 'bus',
+        'label' => $isTrainer ? 'Fahrzeug anfragen' : 'Fahrzeug',
+    ],
 ] as $option) {
     $bookingChoices .= '<button type="button" class="booking-create-option" data-booking-option'
         . ' data-event-type="' . Security::escape($option['event_type']) . '"'
@@ -224,10 +237,12 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     private static function bookingDialog(array $user, string $csrf, string $eventTypes): string
     {
         $allowCabins = in_array($user['role'] ?? '', ['admin', 'manager'], true);
+        $isTrainer = ($user['role'] ?? '') === 'trainer';
+        $dialogTitle = $isTrainer ? 'Platzbelegung anfragen' : 'Platzbelegung anlegen';
 
         return '<dialog id="booking-dialog" aria-labelledby="booking-dialog-title">
-<form id="booking-form" method="post" data-allow-cabins="' . ($allowCabins ? 'true' : 'false') . '">
-  <div class="dialog-header"><h2 id="booking-dialog-title" class="h5 mb-0">Platzbelegung anlegen</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
+<form id="booking-form" method="post" data-allow-cabins="' . ($allowCabins ? 'true' : 'false') . '" data-user-role="' . Security::escape($user['role'] ?? '') . '">
+  <div class="dialog-header"><h2 id="booking-dialog-title" class="h5 mb-0">' . $dialogTitle . '</h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
   <div class="dialog-body">
     <div class="alert alert-danger mb-0" data-booking-error role="alert" aria-live="assertive" hidden></div>
     <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
@@ -322,30 +337,29 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             ? '<form method="post" action="/?action=booking-approve" data-event-approve hidden>'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
                 . '<input type="hidden" name="assignment_id" value="">'
-                . '<button class="btn btn-success" type="submit">Anfrage annehmen</button></form>'
+                . '<button class="btn btn-success" type="submit">Freigeben</button></form>'
                 . '<form method="post" action="/?action=booking-reject" data-event-reject data-confirm-action="reject" hidden>'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
                 . '<input type="hidden" name="assignment_id" value="">'
                 . '<button class="btn btn-outline-danger" type="submit">Ablehnen</button></form>'
             : '';
         $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<dt class="col-sm-4" data-event-bus-field>Fahrer (intern)</dt><dd class="col-sm-8" data-event-bus-field data-event-driver></dd>
-      <dt class="col-sm-4">Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes></dd>'
+            ? '<dt class="col-sm-4" data-event-bus-field data-event-driver-field>Fahrer (intern)</dt><dd class="col-sm-8" data-event-bus-field data-event-driver-field data-event-driver></dd>
+      <dt class="col-sm-4" data-event-notes-field>Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes-field data-event-notes></dd>'
             : '';
 
-        return '<dialog id="event-dialog" aria-labelledby="event-dialog-title">
-  <div class="dialog-header"><h2 class="h5 mb-0 booking-title" id="event-dialog-title" data-event-title></h2><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
-  <div class="dialog-body">
-    <p class="alert alert-danger" data-event-error role="alert" hidden></p>
-    <dl class="row mb-0">
-      <dt class="col-sm-4">Gebuchte Plätze</dt><dd class="col-sm-8" data-event-resources></dd>
-      <dt class="col-sm-4">Beginn</dt><dd class="col-sm-8" data-event-start></dd>
-      <dt class="col-sm-4">Ende</dt><dd class="col-sm-8" data-event-end></dd>
-      <dt class="col-sm-4" data-event-pitch-field>Kabinen</dt><dd class="col-sm-8" data-event-pitch-field data-event-cabins></dd>
-      <dt class="col-sm-4">Kategorie</dt><dd class="col-sm-8" data-event-type></dd>
-      <dt class="col-sm-4">Status</dt><dd class="col-sm-8" data-event-status></dd>
-      <dt class="col-sm-4" data-event-bus-field>Ziel</dt><dd class="col-sm-8" data-event-bus-field data-event-destination></dd>
-      <dt class="col-sm-4" data-event-bus-field>Zweck</dt><dd class="col-sm-8" data-event-bus-field data-event-purpose></dd>
+        return '        <dialog id="event-dialog" aria-labelledby="event-dialog-title">
+          <div class="dialog-header"><div class="event-dialog-heading"><p class="event-dialog-category" data-event-type></p><h2 class="h5 mb-0 booking-title" id="event-dialog-title" data-event-title></h2></div><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
+          <div class="dialog-body">
+            <p class="alert alert-danger" data-event-error role="alert" hidden></p>
+            <dl class="row mb-0">
+              <dt class="col-sm-4">Datum</dt><dd class="col-sm-8" data-event-date></dd>
+              <dt class="col-sm-4">Uhrzeit</dt><dd class="col-sm-8" data-event-time></dd>
+              <dt class="col-sm-4" data-event-resource-label>Plätze</dt><dd class="col-sm-8" data-event-resources></dd>
+              <dt class="col-sm-4" data-event-pitch-field>Kabinen</dt><dd class="col-sm-8" data-event-pitch-field data-event-cabins></dd>
+              <dt class="col-sm-4">Status</dt><dd class="col-sm-8" data-event-status></dd>
+              <dt class="col-sm-4" data-event-bus-field data-event-destination-field>Ziel</dt><dd class="col-sm-8" data-event-bus-field data-event-destination-field data-event-destination></dd>
+              <dt class="col-sm-4" data-event-bus-field data-event-purpose-field>Zweck</dt><dd class="col-sm-8" data-event-bus-field data-event-purpose-field data-event-purpose></dd>
       <dt class="col-sm-4" data-event-pitch-field>Wiederholung</dt><dd class="col-sm-8" data-event-pitch-field data-event-recurrence></dd>
       ' . $privateDetails . '
     </dl>
@@ -401,7 +415,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
 
         $staff = in_array($user['role'], ['admin', 'manager'], true);
         $requestCreateButton = $user['role'] === 'trainer' && !$embedded
-            ? self::bookingCreateMenu('Buchungsanfrage stellen')
+            ? self::bookingCreateMenu('Buchungsanfrage stellen', true)
             : '';
         $rows = '';
         foreach ($requests as $request) {

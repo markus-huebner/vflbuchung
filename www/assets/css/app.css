@@ -348,6 +348,14 @@ body {
   white-space: nowrap;
 }
 
+@media (hover: none) {
+  .calendar-navigation > .btn:hover {
+    color: var(--bs-btn-color);
+    background-color: var(--bs-btn-bg);
+    border-color: var(--bs-btn-border-color);
+  }
+}
+
 .booking-create-menu {
   position: relative;
 }
@@ -377,8 +385,9 @@ body {
 .resource-day-scroll,
 .resource-week-scroll {
   overflow: auto;
-  max-height: calc(100vh - 9rem);
-  max-height: calc(100dvh - 9rem);
+  height: max(8rem, calc(100vh - 12rem));
+  height: max(8rem, calc(100dvh - 12rem));
+  box-sizing: border-box;
   overscroll-behavior-y: auto;
   touch-action: pan-y;
 }
@@ -416,7 +425,7 @@ body {
   z-index: 2;
   height: var(--resource-heading-height, auto);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   margin: 0;
   padding: .15rem .25rem;
@@ -589,11 +598,12 @@ body {
   width: 150px;
 }
 
-.resource-week-table thead th {
+.resource-week-table.table > thead > tr > th {
   position: sticky;
   top: 0;
   z-index: 1;
   padding: .2rem .15rem;
+  vertical-align: top;
   background: #edf3f8;
   color: var(--club-navy);
   overflow-wrap: anywhere;
@@ -608,7 +618,7 @@ body {
 
 .resource-week-table td {
   min-width: 0;
-  height: 90px;
+  height: var(--resource-week-row-height, 90px);
   vertical-align: top;
 }
 
@@ -623,6 +633,17 @@ body {
   padding: .75rem 1rem;
   color: #4f6070;
   font-size: .8rem;
+}
+
+.event-dialog-heading {
+  min-width: 0;
+}
+
+.event-dialog-category {
+  margin: 0 0 .2rem;
+  color: #58697a;
+  font-size: .75rem;
+  font-weight: 700;
 }
 
 .legend-item::before {
@@ -711,6 +732,25 @@ dialog::backdrop {
   background: #fff;
   color: var(--club-navy);
   text-align: left;
+}
+
+.calendar-date-button.calendar-date-changed {
+  animation: calendar-date-highlight 850ms ease-out;
+}
+
+@keyframes calendar-date-highlight {
+  0%,
+  30% {
+    border-color: var(--club-blue);
+    background: #dcecff;
+    box-shadow: 0 0 0 .2rem rgb(45 91 132 / 18%);
+  }
+
+  100% {
+    border-color: #d9e1e8;
+    background: #fff;
+    box-shadow: 0 0 0 0 rgb(45 91 132 / 0%);
+  }
 }
 
 .calendar-date-label {
@@ -1012,9 +1052,12 @@ dialog::backdrop {
 }
 
 .pitch-choice-group,
-.cabin-choice-group,
-.bus-choice-group {
+.cabin-choice-group {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bus-choice-group {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .resource-choice-group > legend,
@@ -1351,8 +1394,8 @@ dialog::backdrop {
 
   .resource-day-scroll,
   .resource-week-scroll {
-    max-height: calc(100vh - 8rem);
-    max-height: calc(100dvh - 8rem);
+    height: max(8rem, calc(100vh - 13rem));
+    height: max(8rem, calc(100dvh - 13rem));
   }
 
 }

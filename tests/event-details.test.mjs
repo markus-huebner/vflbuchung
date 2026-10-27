@@ -28,6 +28,7 @@ const bookingEditorSource = source.slice(
 
 function setup() {
   const fields = new Map();
+  const groupedFields = new Map();
   const busFields = [{ hidden: false }, { hidden: false }];
   const pitchFields = [{ hidden: false }, { hidden: false }];
   const dialog = {
@@ -41,7 +42,10 @@ function setup() {
       return fields.get(selector);
     },
     querySelectorAll(selector) {
-      return selector === '[data-event-bus-field]' ? busFields : pitchFields;
+      if (selector === '[data-event-bus-field]') return busFields;
+      if (selector === '[data-event-pitch-field]') return pitchFields;
+      if (!groupedFields.has(selector)) groupedFields.set(selector, [{ hidden: false }, { hidden: false }]);
+      return groupedFields.get(selector);
     },
     showModal() { this.open = true; },
   };
@@ -50,6 +54,10 @@ function setup() {
   return {
     show: (event) => context.showEvent(event),
     text: (name) => dialog.querySelector(`[data-event-${name}]`).textContent,
+    hidden: (name) => (
+      groupedFields.get(`[data-event-${name}]`)?.[0]
+      || dialog.querySelector(`[data-event-${name}]`)
+    ).hidden,
     dialog, busFields, pitchFields,
   };
 }
@@ -84,6 +92,7 @@ function setupBookingCard() {
   return {
     fill: (event) => context.fillBookingCard(wrapper, event),
     text: (selector) => wrapper.querySelector(selector).textContent,
+    hidden: (selector) => wrapper.querySelector(selector).hidden,
     marker: () => markers[markers.length - 1],
     description: () => wrapper.attributes['aria-label'],
     title: () => wrapper.title,
@@ -307,6 +316,19 @@ test('recurring bookings include a repeat marker for space-aware display', () =>
   assert.equal(singleCard.marker().hidden, true);
 });
 
+test('vehicle calendar cards omit the redundant category but retain request status', () => {
+  const confirmedCard = setupBookingCard();
+  confirmedCard.fill({ ...pitch, event_type: 'bus', resource_type: 'bus', resource_name: 'Bus 1' });
+  assert.equal(confirmedCard.text('.booking-category'), '');
+  assert.equal(confirmedCard.hidden('.booking-category'), true);
+  assert.doesNotMatch(confirmedCard.description(), /Fahrzeug/);
+
+  const pendingCard = setupBookingCard();
+  pendingCard.fill({ ...pitch, event_type: 'bus', status: 'pending' });
+  assert.equal(pendingCard.text('.booking-category'), 'Anfrage');
+  assert.doesNotMatch(pendingCard.description(), /Fahrzeug/);
+});
+
 test('compact cards retain category and recurrence information in accessible descriptions', () => {
   const card = setupBookingCard();
   card.fill({ ...pitch, recurrence_rule: { frequency: 'weekly' } });
@@ -369,10 +391,10 @@ test('pitch and cabin resource choices have three columns and concise wording', 
   assert.match(choicesSource, /'Plätze \(mindestens einer\)'/);
   assert.doesNotMatch(choicesSource, /Plätze \(mindestens einen auswählen\)/);
   assert.doesNotMatch(choicesSource, /Eine Platzbuchung braucht mindestens einen Platz/);
-  assert.match(styles, /\.pitch-choice-group,\s*\.cabin-choice-group,\s*\.bus-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(styles, /\.pitch-choice-group,\s*\.cabin-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
 });
 
-test('vehicle resource choices use the same three-column chip layout with single selection', () => {
+test('vehicle resource choices use two columns with single selection', () => {
   const choicesSource = source.slice(
     source.indexOf('function renderResourceChoices('),
     source.indexOf('function updateBookingFields('),
@@ -380,8 +402,27 @@ test('vehicle resource choices use the same three-column chip layout with single
   assert.match(choicesSource, /group\.classList\.add\('bus-choice-group'\)/);
   assert.match(choicesSource, /createResourceChip\([\s\S]*?isBus,\s*\)/);
   assert.match(choicesSource, /const initiallySelected = editingBooking \|\| editingRequest\s*\?\s*selectedIds\.has\(Number\(resource\.id\)\)\s*:\s*resources\.length === 1;/);
-  assert.match(styles, /\.pitch-choice-group,\s*\.cabin-choice-group,\s*\.bus-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(styles, /\.bus-choice-group\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s);
   assert.match(source, /function createResourceChip\(resource, fieldName, initiallySelected = false, singleSelect = false\)/);
+});
+
+test('trainers see request wording for vehicle and pitch booking dialog titles', () => {
+  assert.match(source, /const isTrainer = bookingForm\.dataset\.userRole === 'trainer'/);
+  assert.match(source, /bus:\s*isTrainer \? 'Fahrzeug' : 'Fahrzeugbuchung'/);
+  assert.match(source, /const action = editing \? 'ändern' : \(isTrainer \? 'anfragen' : 'anlegen'\)/);
+});
+
+test('pitch detail dialog puts category and hint first, followed by date, time, resources and cabins', () => {
+  const eventDialog = views.slice(
+    views.indexOf('private static function eventDialog'),
+    views.indexOf('private static function statusLabel'),
+  );
+  assert.match(eventDialog, /<p class="event-dialog-category" data-event-type><\/p><h2[^>]*data-event-title/);
+  const fieldOrder = [
+    'data-event-date', 'data-event-time', 'data-event-resources', 'data-event-cabins',
+    'data-event-status', 'data-event-destination',
+  ].map(field => eventDialog.indexOf(field));
+  assert.ok(fieldOrder.every((position, index) => position >= 0 && (index === 0 || position > fieldOrder[index - 1])));
 });
 
 test('clicking a pitch shows all booking details as text in Berlin time', () => {
@@ -391,9 +432,10 @@ test('clicking a pitch shows all booking details as text in Berlin time', () => 
   assert.equal(ui.text('title'), 'U19 – Training');
   assert.equal(ui.text('resources'), 'Platz 1, Platz 2');
   assert.equal(ui.text('cabins'), pitch.cabins);
+  assert.equal(ui.text('resource-label'), 'Plätze');
   assert.equal(ui.text('type'), 'Training');
-  assert.equal(ui.text('start'), '24.10.2026, 15:00');
-  assert.equal(ui.text('end'), '24.10.2026, 16:30');
+  assert.equal(ui.text('date'), '24.10.2026');
+  assert.equal(ui.text('time'), '15:00–16:30 Uhr');
   assert.equal(ui.text('notes'), pitch.private_notes);
   assert.equal(ui.text('recurrence'), 'Keine');
   assert.ok(ui.busFields.every(field => field.hidden));
@@ -574,12 +616,19 @@ test('vehicle details retain the title and show destination, purpose, driver and
   assert.equal(ui.text('destination'), 'Berlin');
   assert.equal(ui.text('purpose'), 'Turnier');
   assert.equal(ui.text('driver'), 'Max');
-  assert.equal(ui.text('end'), '26.10.2026, 10:00');
+  assert.equal(ui.text('date'), '24.10.2026 – 26.10.2026');
+  assert.equal(ui.text('time'), '15:00–10:00 Uhr');
+  assert.equal(ui.text('resource-label'), 'Fahrzeug');
+  assert.equal(ui.hidden('type'), true);
   assert.ok(ui.busFields.every(field => !field.hidden));
   assert.ok(ui.pitchFields.every(field => field.hidden));
-  ui.show({ ...pitch, private_notes: null });
-  assert.equal(ui.text('driver'), '—');
-  assert.equal(ui.text('notes'), '—');
+  assert.ok(['destination-field', 'purpose-field', 'driver-field', 'notes-field']
+    .every(field => !ui.hidden(field)));
+  ui.show({
+    ...pitch, destination: '', purpose: null, driver_name: '  ', private_notes: null,
+  });
+  assert.ok(['destination-field', 'purpose-field', 'driver-field', 'notes-field']
+    .every(field => ui.hidden(field)));
   assert.ok(ui.busFields.every(field => field.hidden));
 });
 
