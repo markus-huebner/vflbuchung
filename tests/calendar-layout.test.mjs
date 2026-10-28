@@ -35,6 +35,14 @@ test('resource booking cards remain absolutely positioned in the time grid', () 
   const rule = calendarCss.match(/\.resource-event\.booking-card\s*\{([^}]+)\}/);
   assert.ok(rule, 'resource booking cards need a selector specific enough to override booking-card positioning');
   assert.match(rule[1], /position:\s*absolute/);
+  assert.match(rule[1], /color:\s*var\(--event-text-color,\s*#fff\)/);
+});
+
+test('vehicle bookings use a lighter violet with readable dark text in cards and legends', () => {
+  assert.match(calendarCss, /--booking-bus:\s*#9e66d6/);
+  assert.match(calendarCss, /\.booking-bus\s*\{[^}]*--event-text-color:\s*#000000/);
+  assert.match(calendarJs, /event\.event_type_color \|\| typeInfo\?\.color_hex \|\| '#9e66d6'/);
+  assert.match(views, /'name' => 'Fahrzeug',\s*'color_hex' => BookingTypeService::palette\(\)\['violet-light'\]\['hex'\]/);
 });
 
 test('calendar scroll surfaces reserve horizontal touch gestures for swipe navigation', () => {

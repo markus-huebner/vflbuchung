@@ -269,11 +269,11 @@ function eventCard(event, compact = false, visibleRange = null) {
   wrapper.className = `booking-card booking-${event.event_type || 'training'}${compact ? ' booking-card-compact' : ''}`;
   wrapper.style.setProperty(
     '--event-color',
-    event.event_type_color || typeInfo?.color_hex || '#7350a0',
+    event.event_type_color || typeInfo?.color_hex || '#9e66d6',
   );
   wrapper.style.setProperty(
     '--event-text-color',
-    event.event_type_text_color || typeInfo?.text_hex || '#ffffff',
+    event.event_type_text_color || typeInfo?.text_hex || '#000000',
   );
   wrapper.dataset.assignmentId = event.assignment_id;
   wrapper.dataset.occurrenceId = event.occurrence_id;

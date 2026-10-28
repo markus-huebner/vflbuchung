@@ -15,6 +15,41 @@ final class Mailer
 
     public function send(string $recipient, string $subject, string $html, string $text): void
     {
+        $mail = $this->configuredMailer();
+        try {
+            $mail->addAddress($recipient);
+            $mail->isHTML(true);
+            $mail->Subject = $subject;
+            $mail->Body = $html;
+            $mail->AltBody = $text;
+            $mail->send();
+        } catch (Exception $exception) {
+            error_log('Mailversand fehlgeschlagen: ' . $exception->getMessage());
+            throw new RuntimeException('Die E-Mail konnte nicht versendet werden.', 0, $exception);
+        }
+    }
+
+    public function testConnection(): void
+    {
+        $mail = $this->configuredMailer();
+        $mail->Timeout = 10;
+        $mail->getSMTPInstance()->Timelimit = 10;
+        try {
+            $mail->smtpConnect();
+        } catch (Exception $exception) {
+            error_log('SMTP connection setup validation failed: ' . $exception->getMessage());
+            throw new RuntimeException(
+                'Die Verbindung zum Mail-Server ist fehlgeschlagen. Prüfe SMTP-Host, Port, Verschlüsselung, Benutzer und Passwort.',
+                0,
+                $exception
+            );
+        } finally {
+            $mail->smtpClose();
+        }
+    }
+
+    private function configuredMailer(): PHPMailer
+    {
         $host = $this->config->get('MAIL_HOST');
         $from = $this->config->get('MAIL_FROM');
         if ($host === '' || $from === '') {
@@ -41,15 +76,11 @@ final class Mailer
 
             $mail->CharSet = 'UTF-8';
             $mail->setFrom($from, $this->config->get('MAIL_FROM_NAME'));
-            $mail->addAddress($recipient);
-            $mail->isHTML(true);
-            $mail->Subject = $subject;
-            $mail->Body = $html;
-            $mail->AltBody = $text;
-            $mail->send();
         } catch (Exception $exception) {
             error_log('Mailversand fehlgeschlagen: ' . $exception->getMessage());
             throw new RuntimeException('Die E-Mail konnte nicht versendet werden.', 0, $exception);
         }
+
+        return $mail;
     }
 }

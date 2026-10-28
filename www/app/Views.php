@@ -139,7 +139,7 @@ final class Views
         $legendTypes = $activeTypes;
         $legendTypes[] = [
             'name' => 'Fahrzeug',
-            'color_hex' => BookingTypeService::palette()['violet-medium']['hex'],
+            'color_hex' => BookingTypeService::palette()['violet-light']['hex'],
         ];
         $bookingLegend = '';
         $pendingLegend = '';

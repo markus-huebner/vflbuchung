@@ -14,6 +14,7 @@ final class DatabaseConnectionWizard
     private const VERIFIED_KEY = '_database_connection_verified';
 
     private string $csrf;
+    private string $errorStep = 'database';
 
     public function __construct(
         private readonly Config $config,
@@ -25,6 +26,7 @@ final class DatabaseConnectionWizard
 
     public function run(): void
     {
+        $this->errorStep = 'database';
         header('X-Content-Type-Options: nosniff');
         header('X-Frame-Options: DENY');
         header('Referrer-Policy: no-referrer');
@@ -39,7 +41,7 @@ final class DatabaseConnectionWizard
             http_response_code(400);
             $step = (string) ($_GET['action'] ?? '') === 'database-connection-app'
                 ? 'application'
-                : 'database';
+                : $this->errorStep;
             $content = $this->form($exception->getMessage(), $step);
         } catch (Throwable $exception) {
             error_log('Database connection setup failed: ' . $exception->getMessage());
@@ -84,6 +86,7 @@ final class DatabaseConnectionWizard
 
     private function verifyApplicationDetails(): string
     {
+        unset($_SESSION[self::AUTHORIZED_KEY], $_SESSION[self::VERIFIED_KEY]);
         $submittedValues = [
             'APP_ENV' => trim((string) ($_POST['APP_ENV'] ?? '')),
             'APP_URL' => trim((string) ($_POST['APP_URL'] ?? '')),
@@ -106,12 +109,14 @@ final class DatabaseConnectionWizard
         );
         $values = $this->validateApplicationValues($submittedValues);
         $_SESSION[self::DRAFT_KEY] = array_merge($_SESSION[self::DRAFT_KEY], $values);
+        $this->testMailConnection($values);
         $_SESSION[self::AUTHORIZED_KEY] = true;
         $this->redirect('/?page=database-connection&step=database');
     }
 
     private function verifyConnection(): string
     {
+        unset($_SESSION[self::VERIFIED_KEY]);
         if (($_SESSION[self::AUTHORIZED_KEY] ?? false) !== true) {
             throw new RuntimeException('Die Sitzung ist abgelaufen. Bitte beginne die Einrichtung erneut.');
         }
@@ -140,7 +145,9 @@ final class DatabaseConnectionWizard
             throw new RuntimeException('Die geprüften Angaben sind abgelaufen. Bitte starte die Prüfung erneut.');
         }
 
+        unset($_SESSION[self::VERIFIED_KEY]);
         $this->testConnection($values);
+        $this->testMailConnection($values);
         (new RuntimeConfiguration())->save($values);
         unset(
             $_SESSION[self::DRAFT_KEY],
@@ -271,6 +278,17 @@ final class DatabaseConnectionWizard
         }
     }
 
+    private function testMailConnection(array $values): void
+    {
+        if ($values['MAIL_HOST'] === '') {
+            return;
+        }
+
+        $this->errorStep = 'application';
+        (new Mailer($this->config->withOverrides($values)))->testConnection();
+        $this->errorStep = 'database';
+    }
+
     private function form(string $error = '', string $step = 'application'): string
     {
         $draft = $_SESSION[self::DRAFT_KEY] ?? [];
@@ -299,7 +317,8 @@ final class DatabaseConnectionWizard
   <div class="mb-3"><label class="form-label" for="setup-mail-encryption">SMTP-Verschlüsselung</label><select class="form-select" id="setup-mail-encryption" name="MAIL_ENCRYPTION"><option value="">Keine</option><option value="tls"' . ($value('MAIL_ENCRYPTION') === 'tls' ? ' selected' : '') . '>TLS</option><option value="ssl"' . ($value('MAIL_ENCRYPTION') === 'ssl' ? ' selected' : '') . '>SSL</option></select></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-user">SMTP-Benutzer</label><input class="form-control" id="setup-mail-user" name="MAIL_USERNAME" value="' . Security::escape($value('MAIL_USERNAME')) . '"></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-password">SMTP-Passwort</label><input class="form-control" id="setup-mail-password" type="password" name="MAIL_PASSWORD" autocomplete="new-password"><div class="form-text">' . ($value('MAIL_PASSWORD') !== '' ? 'Leer lassen, um das bisher eingegebene Kennwort weiterzuverwenden.' : 'Nur bei SMTP-Authentifizierung erforderlich.') . '</div></div>
-  <button class="btn btn-primary" type="submit">Weiter zu den Datenbankangaben</button>
+  <p>Der konfigurierte Mail-Server wird einschließlich Anmeldung geprüft, ohne eine E-Mail zu versenden. Bei Fehlern bleiben die Eingaben erhalten; gespeicherte Einstellungen werden nicht verändert.</p>
+  <button class="btn btn-primary" type="submit">Mail-Server prüfen und weiter</button>
 </form></section>';
         }
 
@@ -353,7 +372,11 @@ final class DatabaseConnectionWizard
         }
 
         return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">Angaben prüfen</h1>
-<div class="alert alert-success" role="status">Die Eingaben sind gültig und die Verbindung zur vorhandenen Datenbank wurde erfolgreich getestet.</div>
+<div class="alert alert-success" role="status">Die Verbindung zur vorhandenen Datenbank wurde erfolgreich getestet. '
+            . ($values['MAIL_HOST'] === ''
+                ? 'Der E-Mail-Versand ist nicht konfiguriert; die Mail-Server-Prüfung wurde übersprungen.'
+                : 'Die Verbindung zum Mail-Server einschließlich Anmeldung wurde erfolgreich getestet.')
+            . '</div>
 <dl class="row">' . $reviewRows . '</dl>
 <p>Prüfe die Angaben. Du kannst sie vor dem Speichern noch ändern.</p>
 <div class="d-flex flex-wrap gap-2">

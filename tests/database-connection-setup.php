@@ -212,6 +212,63 @@ try {
     expect(str_contains($reviewHtml, 'smtp.example.test'), 'The review omitted SMTP configuration.');
     expect(!str_contains($reviewHtml, 'smtp-secret'), 'The review exposed the SMTP password.');
     expect(!str_contains($reviewHtml, 'runtime-password'), 'The review exposed the database password.');
+    expect(str_contains($reviewHtml, 'Mail-Server einschließlich Anmeldung wurde erfolgreich getestet'), 'The review omitted the SMTP test result.');
+    $_SESSION['_database_connection_setup'] = $values;
+    expect(str_contains($review->invoke($wizard), 'Mail-Server-Prüfung wurde übersprungen'), 'Disabled mail must not be reported as tested.');
+
+    $_SESSION['_database_connection_setup'] = $values;
+    $_SESSION['_database_connection_authorized'] = true;
+    $_SESSION['_database_connection_verified'] = true;
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $_GET = ['action' => 'database-connection-app'];
+    $_POST = array_replace($smtpValues, [
+        '_csrf' => Security::csrfToken(),
+        'MAIL_HOST' => '127.0.0.1',
+        'MAIL_PORT' => '1',
+    ]);
+    $savedContents = file_get_contents($configPath);
+    ob_start();
+    $wizard->run();
+    $mailErrorHtml = (string) ob_get_clean();
+    expect(str_contains($mailErrorHtml, 'Verbindung zum Mail-Server ist fehlgeschlagen'), 'An unreachable SMTP server must fail setup.');
+    expect(str_contains($mailErrorHtml, 'name="MAIL_HOST" value="127.0.0.1"'), 'Failed SMTP settings were lost.');
+    expect(str_contains($mailErrorHtml, 'name="MAIL_PORT" value="1"'), 'Failed SMTP port was lost.');
+    expect($_SESSION['_database_connection_setup']['MAIL_PASSWORD'] === 'smtp-secret', 'Failed SMTP password was lost.');
+    expect(!isset($_SESSION['_database_connection_authorized']) && !isset($_SESSION['_database_connection_verified']), 'Changed SMTP settings retained stale verification.');
+    expect(file_get_contents($configPath) === $savedContents, 'Failed SMTP verification changed saved settings.');
+
+    $_POST['MAIL_PASSWORD'] = '';
+    ob_start();
+    $wizard->run();
+    ob_end_clean();
+    expect($_SESSION['_database_connection_setup']['MAIL_PASSWORD'] === 'smtp-secret', 'Retrying SMTP verification lost the password.');
+
+    $_SESSION['_database_connection_authorized'] = true;
+    $_SESSION['_database_connection_verified'] = true;
+    $_GET = ['action' => 'database-connection-verify'];
+    $_POST = [
+        '_csrf' => Security::csrfToken(),
+        'DB_HOST' => '127.0.0.1',
+        'DB_PORT' => '1',
+        'DB_NAME' => 'retry_database',
+        'DB_USER' => 'retry_user',
+        'DB_PASSWORD' => 'retry-password',
+    ];
+    ob_start();
+    $wizard->run();
+    $databaseErrorHtml = (string) ob_get_clean();
+    expect(str_contains($databaseErrorHtml, 'Die Datenbankverbindung ist fehlgeschlagen'), 'An unreachable database must fail setup.');
+    expect(str_contains($databaseErrorHtml, 'name="DB_NAME" value="retry_database"'), 'Failed database settings were lost.');
+    expect($_SESSION['_database_connection_setup']['DB_PASSWORD'] === 'retry-password', 'Failed database password was lost.');
+    expect($_SESSION['_database_connection_setup']['MAIL_PASSWORD'] === 'smtp-secret', 'Database failure lost SMTP settings.');
+    expect(!isset($_SESSION['_database_connection_verified']), 'Changed database settings retained stale verification.');
+    expect(file_get_contents($configPath) === $savedContents, 'Failed database verification changed saved settings.');
+
+    $_POST['DB_PASSWORD'] = '';
+    ob_start();
+    $wizard->run();
+    ob_end_clean();
+    expect($_SESSION['_database_connection_setup']['DB_PASSWORD'] === 'retry-password', 'Retrying database verification lost the password.');
 
     echo "Database connection setup test passed.\n";
 } finally {

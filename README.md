@@ -36,7 +36,7 @@ Die 8200-Kopie enthält nur Laufzeitdateien und die nötige Docker-Konfiguration
 
 MySQL führt Dateien in `/docker-entrypoint-initdb.d` nur aus, wenn das Datenverzeichnis erstmals initialisiert wird. Bei einem bestehenden Docker-Volume werden `install.sql` und `seed_resources.sql` nicht automatisch erneut ausgeführt. **Das Volume nicht mit `docker compose down -v` löschen**, wenn vorhandene Daten erhalten bleiben sollen.
 
-Die Datenbank-Verbindungseinstellungen werden nur nach erfolgreicher Prüfung und Bestätigung in `www/config/.env` gespeichert. Das Root-Passwort wird nicht gespeichert. In der lokalen Docker-Umgebung bleibt die Datei im separaten Volume `setup_config` erhalten; wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
+Die Einstellungen werden nur nach erfolgreicher Prüfung von Datenbank und konfiguriertem Mail-Server sowie ausdrücklicher Bestätigung in `www/config/.env` gespeichert. Die SMTP-Prüfung verwendet die angegebene Verschlüsselung und Anmeldung, versendet aber keine Test-E-Mail; ohne SMTP-Host wird sie ausdrücklich übersprungen. Vor dem Speichern werden beide Verbindungen erneut geprüft. Bei ungültigen Angaben oder Verbindungsfehlern bleiben die bisherigen gespeicherten Einstellungen unverändert und die eingegebenen Werte einschließlich der Kennwörter für die Korrektur in der Sitzung erhalten. Kennwörter werden nicht im Formular ausgegeben; ein leeres Kennwortfeld verwendet den bisherigen Wert weiter. Das Root-Passwort wird nicht gespeichert. In der lokalen Docker-Umgebung bleibt die Datei im separaten Volume `setup_config` erhalten; wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
 
 ## Rollen und Funktionen
 
@@ -143,6 +143,15 @@ Die Ersteinrichtung und beide Datenbankoptionen in einer eigens angelegten Testd
 ```
 
 Der Test löscht ausschließlich die Datenbank `vflbuchung_setup_test` und entfernt sie danach wieder. Die Anwendungsdatenbank bleibt unverändert.
+
+Fehlgeschlagene Verbindungsprüfungen, erhaltene Setup-Eingaben und die SMTP-Anmeldung prüfen:
+
+```powershell
+php .\tests\database-connection-setup.php
+php .\tests\mail-setup.php
+```
+
+Der Mail-Test benötigt eine erreichbare konfigurierte Datenbank (nur Verbindungsprüfung, keine Datenänderungen) und startet einen temporären lokalen SMTP-Testserver. Er prüft Anmeldung, falsche Zugangsdaten, Verschlüsselung und die erneute SMTP-Prüfung vor dem Speichern, ohne E-Mails zu versenden oder Einstellungen zu überschreiben.
 
 Den Buchungsdialog und die rollenabhängigen Kategorien prüfen:
 

@@ -228,8 +228,8 @@ final class BookingService
         return array_map(static function (array $row) use ($timezone, $typesByCode): array {
             $type = $typesByCode[$row['event_type']] ?? null;
             $row['event_type_name'] = $type['name'] ?? ($row['event_type'] === 'bus' ? 'Fahrzeug' : $row['event_type']);
-            $row['event_type_color'] = $type['color_hex'] ?? BookingTypeService::palette()['violet-medium']['hex'];
-            $row['event_type_text_color'] = $type['text_hex'] ?? '#ffffff';
+            $row['event_type_color'] = $type['color_hex'] ?? BookingTypeService::palette()['violet-light']['hex'];
+            $row['event_type_text_color'] = $type['text_hex'] ?? BookingTypeService::palette()['violet-light']['text_hex'];
             $row['start'] = Recurrence::fromDatabase($row['starts_at'])->setTimezone($timezone)->format(DATE_ATOM);
             $row['end'] = Recurrence::fromDatabase($row['ends_at'])->setTimezone($timezone)->format(DATE_ATOM);
             unset($row['starts_at'], $row['ends_at']);
