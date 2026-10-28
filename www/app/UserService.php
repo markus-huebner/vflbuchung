@@ -118,7 +118,7 @@ final class UserService
         }
     }
 
-    public function acceptInvitation(string $token, string $password): void
+    public function acceptInvitation(string $token, string $password): int
     {
         AuthService::validatePassword($password);
         $this->pdo->beginTransaction();
@@ -153,6 +153,7 @@ final class UserService
             }
             throw $exception;
         }
+        return (int) $id;
     }
 
     public function requestPasswordReset(string $email): void
@@ -189,15 +190,16 @@ final class UserService
         );
     }
 
-    public function resetPassword(string $token, string $password): void
+    public function resetPassword(string $token, string $password): int
     {
         AuthService::validatePassword($password);
         $this->pdo->beginTransaction();
         try {
             $statement = $this->pdo->prepare(
-                'SELECT id, user_id FROM password_resets
-                 WHERE token_hash = :token_hash AND expires_at > UTC_TIMESTAMP()
-                 LIMIT 1 FOR UPDATE'
+                "SELECT r.id, r.user_id FROM password_resets r
+                 JOIN users u ON u.id = r.user_id AND u.status = 'active'
+                 WHERE r.token_hash = :token_hash AND r.expires_at > UTC_TIMESTAMP()
+                 LIMIT 1 FOR UPDATE"
             );
             $statement->execute(['token_hash' => Security::tokenHash($token)]);
             $reset = $statement->fetch();
@@ -220,6 +222,7 @@ final class UserService
             }
             throw $exception;
         }
+        return (int) $reset['user_id'];
     }
 
     public function all(): array

@@ -160,6 +160,8 @@ Admins öffnen über das **Kopfsymbol neben ihrem Namen** das Benutzermenü und 
 
 Der letzte aktive Admin kann nicht gelöscht werden.
 
+Links in Buchungsbenachrichtigungen melden dich mit dem Konto an, an das die E-Mail geschickt wurde – auch wenn im Browser gerade ein anderes Konto aktiv ist. Diese Links sind 48 Stunden gültig und dürfen nicht weitergeleitet werden. Bei einem gültigen Einladungs- oder Passwort-Reset-Link wird das bisherige Konto zuerst abgemeldet. Sobald du das neue Passwort erfolgreich gespeichert hast, bist du automatisch im zugehörigen Empfängerkonto angemeldet. Ungültige oder abgelaufene Links wechseln das Konto nicht.
+
 Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachnamen sowie die E-Mail-Adresse bearbeiten. Der Nachname ist optional. Der Benutzername wird dort angezeigt, kann aber nicht selbst geändert werden. **Abbrechen** führt ohne Speichern zurück zum Belegungsplan.
 
 ### Ressourcenverwaltung

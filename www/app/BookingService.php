@@ -707,9 +707,10 @@ final class BookingService
         return [
             'cancelled' => count($assignments),
             'mail_errors' => $this->notifyRequester(
-            $details['requester_email'] ?? null,
-            $details['requester_name'] ?? null,
-            'gelöscht'
+                isset($details['requested_by']) ? (int) $details['requested_by'] : null,
+                $details['requester_email'] ?? null,
+                $details['requester_name'] ?? null,
+                'gelöscht'
             ),
         ];
     }
@@ -755,6 +756,7 @@ final class BookingService
         }
 
         return ['cancelled' => $deleted, 'mail_errors' => $this->notifyRequester(
+            isset($details['requested_by']) ? (int) $details['requested_by'] : null,
             $details['requester_email'] ?? null,
             $details['requester_name'] ?? null,
             'Kabinenbelegung gelöscht'
@@ -1538,6 +1540,7 @@ final class BookingService
                     o.driver_name, o.starts_at, o.ends_at,
                     COALESCE(bt.name, 'Buchung') AS type_name,
                     TRIM(CONCAT(requester.first_name, ' ', requester.last_name)) AS requester_name,
+                    requester.id AS requester_id,
                     requester.email AS requester_email,
                     GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names
              FROM booking_occurrences o
@@ -1548,7 +1551,7 @@ final class BookingService
              LEFT JOIN resources r ON r.id = a.resource_id
              WHERE o.id = :id
              GROUP BY o.id, o.event_type, o.title, o.team_name, o.destination, o.purpose,
-                      o.driver_name, o.starts_at, o.ends_at, bt.name, requester.first_name,
+                      o.driver_name, o.starts_at, o.ends_at, bt.name, requester.id, requester.first_name,
                       requester.last_name, requester.email"
         );
         $statement->execute(['id' => $occurrenceId]);
@@ -1592,6 +1595,12 @@ final class BookingService
         ];
     }
 
+    private function bookingAccessUrl(int $userId, ?int $targetOccurrenceId = null): string
+    {
+        $token = (new AuthService($this->pdo))->createBookingAccessToken($userId, $targetOccurrenceId);
+        return rtrim($this->config->get('APP_URL'), '/') . '/?page=booking-access&token=' . rawurlencode($token);
+    }
+
     private function notifyApprovers(
         string $action,
         ?int $targetOccurrenceId,
@@ -1632,22 +1641,9 @@ final class BookingService
         $ctaLabel = $action === 'deleted' && $targetOccurrenceId === null
             ? 'Zu den Buchungsanfragen'
             : 'Anfrage direkt öffnen';
-        $appUrl = rtrim($this->config->get('APP_URL'), '/');
-        $this->pdo->exec('DELETE FROM booking_access_tokens WHERE expires_at <= UTC_TIMESTAMP()');
         foreach ($recipients as $recipient) {
             try {
-                $token = Security::randomToken();
-                $this->pdo->prepare(
-                    'INSERT INTO booking_access_tokens
-                        (user_id, target_occurrence_id, token_hash, expires_at)
-                     VALUES (:user_id, :target_occurrence_id, :token_hash,
-                                DATE_ADD(UTC_TIMESTAMP(), INTERVAL 48 HOUR))'
-                )->execute([
-                    'user_id' => (int) $recipient['id'],
-                    'target_occurrence_id' => $targetOccurrenceId,
-                    'token_hash' => Security::tokenHash($token),
-                ]);
-                $url = $appUrl . '/?page=booking-access&token=' . rawurlencode($token);
+                $url = $this->bookingAccessUrl((int) $recipient['id'], $targetOccurrenceId);
                 $html = '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
                     . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
                     . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
@@ -1741,9 +1737,9 @@ final class BookingService
             : '<p style="margin:18px 0 0"><strong>Begründung:</strong> '
                 . Security::escape($reason) . '</p>';
         $reasonText = $reason === '' ? '' : "\nBegründung: {$reason}";
-        $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=dashboard';
         $label = $stateLabels[$state];
         try {
+            $url = $this->bookingAccessUrl((int) $details['requester_id']);
             $this->mailer->send(
                 $email,
                 'Buchungsanfrage ' . $state,
@@ -1767,11 +1763,14 @@ final class BookingService
                     . '<div style="text-align:center;padding:26px 0 8px"><a href="'
                     . Security::escape($url) . '" style="display:inline-block;padding:13px 24px;background:'
                     . $label['button_color'] . ';color:#fff;text-decoration:none;font-weight:bold;border-radius:8px">'
-                    . 'Zum Dashboard</a></div></td></tr><tr><td style="padding:18px 32px;background:#f8faf8;'
+                    . 'Zum Dashboard</a></div><p style="font-size:12px;line-height:1.6;color:#738078;text-align:center">'
+                    . 'Der Anmeldelink ist 48 Stunden gültig und meldet dich mit deinem Empfängerkonto an.'
+                    . '</p></td></tr><tr><td style="padding:18px 32px;background:#f8faf8;'
                     . 'color:#738078;font-size:12px">Automatische Benachrichtigung des Vereins-Buchungssystems'
                     . '</td></tr></table></td></tr></table></body></html>',
                 "{$plainGreeting}\n\n{$label['message']}\n{$emailDetails['title']}\n"
-                    . "{$emailDetails['text']}{$reasonText}\n{$url}"
+                    . "{$emailDetails['text']}{$reasonText}\n\n"
+                    . "Mit deinem Empfängerkonto anmelden (48 Stunden gültig):\n{$url}"
             );
         } catch (RuntimeException $exception) {
             return [$email . ': ' . $exception->getMessage()];
@@ -1780,19 +1779,20 @@ final class BookingService
         return [];
     }
 
-    private function notifyRequester(?string $email, ?string $name, string $state): array
+    private function notifyRequester(?int $userId, ?string $email, ?string $name, string $state): array
     {
-        if ($email === null || $name === null) {
+        if ($email === null || $name === null || $userId === null) {
             return [];
         }
 
-        $url = $this->config->get('APP_URL') . '/?page=dashboard';
         try {
+            $url = $this->bookingAccessUrl($userId);
             $this->mailer->send(
                 $email,
                 'Buchungsanfrage ' . $state,
-                '<p>Hallo ' . Security::escape($name) . ',</p><p>Deine Anfrage wurde ' . Security::escape($state) . '.</p><p><a href="' . Security::escape($url) . '">Zum Dashboard</a></p>',
-                "Hallo {$name},\n\nDeine Anfrage wurde {$state}.\n{$url}"
+                '<p>Hallo ' . Security::escape($name) . ',</p><p>Deine Anfrage wurde ' . Security::escape($state) . '.</p><p><a href="' . Security::escape($url) . '">Zum Dashboard</a></p>'
+                    . '<p>Der Anmeldelink ist 48 Stunden gültig und meldet dich mit deinem Empfängerkonto an.</p>',
+                "Hallo {$name},\n\nDeine Anfrage wurde {$state}.\n\nMit deinem Empfängerkonto anmelden (48 Stunden gültig):\n{$url}"
             );
         } catch (RuntimeException $exception) {
             return [$email . ': ' . $exception->getMessage()];

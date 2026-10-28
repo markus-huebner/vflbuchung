@@ -107,6 +107,15 @@ final class Application
                 $this->redirect($target);
             }
 
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+                && in_array((string) ($_GET['page'] ?? ''), ['invite', 'reset'], true)) {
+                $this->auth->prepareEmailAction(
+                    (string) $_GET['page'],
+                    (string) ($_GET['token'] ?? '')
+                );
+                $this->csrf = Security::csrfToken();
+            }
+
             if (isset($_GET['api'])) {
                 $this->handleApi((string) $_GET['api']);
                 return;
@@ -125,13 +134,13 @@ final class Application
             }
 
             if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-                if ((string) ($_GET['page'] ?? '') === 'booking-access') {
+                if (in_array((string) ($_GET['page'] ?? ''), ['booking-access', 'invite', 'reset'], true)) {
                     if (!$exception instanceof RuntimeException) {
                         error_log('Booking access link failed: ' . $exception->getMessage());
                     }
                     $_SESSION['_flash'] = [
                         'type' => 'danger',
-                        'message' => 'Der Anmeldelink ist ungültig oder abgelaufen. Bitte fordere eine neue Benachrichtigung an.',
+                        'message' => 'Der Link ist ungültig oder abgelaufen.',
                     ];
                     $this->redirect('/?page=login');
                 }
@@ -402,9 +411,10 @@ final class Application
                 $this->redirect('/');
 
             case 'invite-accept':
-                $this->users->acceptInvitation((string) ($_POST['token'] ?? ''), (string) ($_POST['password'] ?? ''));
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Dein Konto ist eingerichtet. Du kannst dich jetzt anmelden.'];
-                $this->redirect('/?page=login');
+                $recipientId = $this->users->acceptInvitation((string) ($_POST['token'] ?? ''), (string) ($_POST['password'] ?? ''));
+                $this->auth->loginAfterEmailVerification($recipientId);
+                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Dein Konto ist eingerichtet. Du bist jetzt angemeldet.'];
+                $this->redirect('/?page=dashboard');
 
             case 'password-request':
                 $this->users->requestPasswordReset((string) ($_POST['email'] ?? ''));
@@ -412,9 +422,10 @@ final class Application
                 $this->redirect('/?page=forgot');
 
             case 'password-reset':
-                $this->users->resetPassword((string) ($_POST['token'] ?? ''), (string) ($_POST['password'] ?? ''));
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Passwort wurde geändert. Bitte melde dich an.'];
-                $this->redirect('/?page=login');
+                $recipientId = $this->users->resetPassword((string) ($_POST['token'] ?? ''), (string) ($_POST['password'] ?? ''));
+                $this->auth->loginAfterEmailVerification($recipientId);
+                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Passwort wurde geändert. Du bist jetzt angemeldet.'];
+                $this->redirect('/?page=dashboard');
 
             case 'user-invite':
                 $this->requireRole(['admin']);

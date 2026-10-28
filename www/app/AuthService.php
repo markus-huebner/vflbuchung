@@ -68,6 +68,27 @@ final class AuthService
         return true;
     }
 
+    public function createBookingAccessToken(int $userId, ?int $targetOccurrenceId = null): string
+    {
+        $token = Security::randomToken();
+        $this->pdo->exec('DELETE FROM booking_access_tokens WHERE expires_at <= UTC_TIMESTAMP()');
+        $statement = $this->pdo->prepare(
+            "INSERT INTO booking_access_tokens (user_id, target_occurrence_id, token_hash, expires_at)
+             SELECT id, :target_occurrence_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
+             FROM users WHERE id = :user_id AND status = 'active'"
+        );
+        $statement->execute([
+            'user_id' => $userId,
+            'target_occurrence_id' => $targetOccurrenceId,
+            'token_hash' => Security::tokenHash($token),
+        ]);
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException('Für das Empfängerkonto konnte kein Anmeldelink erstellt werden.');
+        }
+
+        return $token;
+    }
+
     public function authenticateBookingAccessToken(string $token): ?int
     {
         if (!preg_match('/\A[a-f0-9]{64}\z/', $token)) {
@@ -83,7 +104,6 @@ final class AuthService
                  WHERE t.token_hash = :token_hash
                    AND t.expires_at > UTC_TIMESTAMP()
                    AND u.status = 'active'
-                   AND u.role IN ('admin', 'manager')
                  LIMIT 1 FOR UPDATE"
             );
             $statement->execute(['token_hash' => Security::tokenHash($token)]);
@@ -100,15 +120,55 @@ final class AuthService
             throw $exception;
         }
 
-        $_SESSION = [];
-        session_regenerate_id(true);
-        $_SESSION['user_id'] = (int) $access['user_id'];
-        $_SESSION['created_at'] = time();
-        Security::rotateCsrfToken();
+        $this->loginAfterEmailVerification((int) $access['user_id']);
 
         return $access['target_occurrence_id'] === null
             ? null
             : (int) $access['target_occurrence_id'];
+    }
+
+    public function prepareEmailAction(string $page, string $token): void
+    {
+        if (!preg_match('/\A[a-f0-9]{64}\z/', $token)) {
+            throw new RuntimeException('Der Link ist ungültig oder abgelaufen.');
+        }
+        $sql = match ($page) {
+            'invite' => "SELECT id FROM users
+                         WHERE invite_token_hash = :token_hash AND status = 'invited'
+                           AND invite_expires_at > UTC_TIMESTAMP()",
+            'reset' => "SELECT r.user_id FROM password_resets r
+                        JOIN users u ON u.id = r.user_id AND u.status = 'active'
+                        WHERE r.token_hash = :token_hash AND r.expires_at > UTC_TIMESTAMP()",
+        };
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute(['token_hash' => Security::tokenHash($token)]);
+        if ($statement->fetchColumn() === false) {
+            throw new RuntimeException('Der Link ist ungültig oder abgelaufen.');
+        }
+        if (isset($_SESSION['user_id'])) {
+            $this->replaceEmailSession(null);
+        }
+    }
+
+    public function loginAfterEmailVerification(int $userId): void
+    {
+        $statement = $this->pdo->prepare("SELECT id FROM users WHERE id = :id AND status = 'active'");
+        $statement->execute(['id' => $userId]);
+        if ($statement->fetchColumn() === false) {
+            throw new RuntimeException('Das Empfängerkonto ist nicht mehr aktiv.');
+        }
+        $this->replaceEmailSession($userId);
+    }
+
+    private function replaceEmailSession(?int $userId): void
+    {
+        $_SESSION = [];
+        session_regenerate_id(true);
+        if ($userId !== null) {
+            $_SESSION['user_id'] = $userId;
+        }
+        $_SESSION['created_at'] = time();
+        Security::rotateCsrfToken();
     }
 
     public function logout(): void

@@ -739,7 +739,7 @@ test('booking requests are grouped and review opens the editable dialog', () => 
 });
 
 test('booking-access links select the latest request state and preserve deleted targets', () => {
-  assert.match(bookingService, /INTERVAL 48 HOUR/);
+  assert.match(authService, /INTERVAL 48 HOUR/);
   assert.match(bookingService, /Der Anmeldelink ist 48 Stunden gültig/);
   assert.match(bookingService, /48 Stunden gültig und mehrfach verwendbar/);
   assert.match(bookingService, /public function requestLinkDetails\(int \$occurrenceId\): \?array/);
@@ -809,7 +809,8 @@ test('booking-access authentication replaces an existing session with the email 
     authService.indexOf('public function authenticateBookingAccessToken('),
     authService.indexOf('public function logout('),
   );
-  assert.match(tokenAuthentication, /\$_SESSION = \[\];\s*session_regenerate_id\(true\);\s*\$_SESSION\['user_id'\] = \(int\) \$access\['user_id'\]/);
+  assert.match(tokenAuthentication, /loginAfterEmailVerification\(\(int\) \$access\['user_id'\]\)/);
+  assert.match(authService, /private function replaceEmailSession\(\?int \$userId\): void\s*\{\s*\$_SESSION = \[\];\s*session_regenerate_id\(true\)/);
   assert.doesNotMatch(tokenAuthentication, /DELETE FROM booking_access_tokens WHERE token_hash/);
   assert.match(application, /'message' => 'Du bist als ' \. \$user\['email'\]/);
 });
