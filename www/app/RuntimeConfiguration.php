@@ -61,11 +61,14 @@ final class RuntimeConfiguration
     public function save(array $values): void
     {
         foreach (self::KEYS as $key) {
+            if (in_array($key, EnvironmentFile::OPTIONAL_KEYS, true) && !array_key_exists($key, $values)) {
+                continue;
+            }
             if (!isset($values[$key]) || !is_string($values[$key])) {
                 throw new RuntimeException('Die Anwendungskonfiguration ist unvollständig.');
             }
         }
-        if (count($values) !== count(self::KEYS) || array_diff(array_keys($values), self::KEYS) !== []) {
+        if (array_diff(array_keys($values), self::KEYS) !== []) {
             throw new RuntimeException('Die Anwendungskonfiguration enthält nicht erlaubte Werte.');
         }
 

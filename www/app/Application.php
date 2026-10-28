@@ -369,6 +369,9 @@ final class Application
                 AuthService::normalizeUsername((string) ($_POST['username'] ?? ''));
                 AuthService::validateFirstName((string) ($_POST['first_name'] ?? ''));
                 AuthService::validateLastName((string) ($_POST['last_name'] ?? ''));
+                if ((string) ($_POST['password'] ?? '') !== (string) ($_POST['password_confirmation'] ?? '')) {
+                    throw new RuntimeException('Die beiden Passwörter stimmen nicht überein.');
+                }
                 AuthService::validatePassword((string) ($_POST['password'] ?? ''));
 
                 $schemaAction = (string) ($_POST['schema_action'] ?? '');

@@ -75,30 +75,25 @@ final class Config
     public function isSetupRequired(): bool
     {
         foreach (EnvironmentFile::KEYS as $key) {
-            if (!$this->has($key)) {
+            if (!in_array($key, EnvironmentFile::OPTIONAL_KEYS, true) && !$this->has($key)) {
                 return true;
             }
+        }
+        if ($this->has('MAIL_REPLY_TO') && $this->get('MAIL_REPLY_TO') !== ''
+            && (strlen($this->get('MAIL_REPLY_TO')) > 254
+                || !filter_var($this->get('MAIL_REPLY_TO'), FILTER_VALIDATE_EMAIL))) {
+            return true;
         }
         foreach (['APP_ENV', 'APP_URL', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'MAIL_FROM', 'MAIL_FROM_NAME'] as $key) {
             if (trim($this->get($key)) === '') {
                 return true;
             }
         }
-        if (!in_array($this->get('APP_ENV'), ['local', 'production'], true)
-            || !in_array($this->get('MAIL_ENCRYPTION'), ['', 'tls', 'ssl'], true)) {
+        if (!in_array($this->get('APP_ENV'), ['local', 'production'], true)) {
             return true;
         }
-        $portKeys = ['DB_PORT'];
-        if ($this->get('MAIL_HOST') !== '' || $this->get('MAIL_PORT') !== '') {
-            $portKeys[] = 'MAIL_PORT';
-        }
-        foreach ($portKeys as $key) {
-            $port = filter_var($this->get($key), FILTER_VALIDATE_INT);
-            if ($port === false || $port < 1 || $port > 65535) {
-                return true;
-            }
-        }
-        if ($this->get('MAIL_USERNAME') !== '' && $this->get('MAIL_PASSWORD') === '') {
+        $port = filter_var($this->get('DB_PORT'), FILTER_VALIDATE_INT);
+        if ($port === false || $port < 1 || $port > 65535) {
             return true;
         }
 

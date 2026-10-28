@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use App\Config;
-use App\DatabaseConnectionWizard;
+use App\SetupWizard;
 use App\EnvironmentFile;
 use App\RuntimeConfiguration;
 use App\Security;
@@ -37,13 +37,9 @@ $values = [
     'DB_NAME' => 'runtime_database',
     'DB_USER' => 'runtime_user',
     'DB_PASSWORD' => 'runtime-password',
-    'MAIL_HOST' => '',
-    'MAIL_PORT' => '',
-    'MAIL_USERNAME' => '',
-    'MAIL_PASSWORD' => '',
-    'MAIL_ENCRYPTION' => '',
     'MAIL_FROM' => 'buchung@example.test',
     'MAIL_FROM_NAME' => 'VfL Buchung',
+    'MAIL_REPLY_TO' => '',
 ];
 $originalEnvironment = [];
 foreach (EnvironmentFile::KEYS as $key) {
@@ -72,6 +68,12 @@ try {
     }
     $runtimeConfiguration->save($values);
     expect($runtimeConfiguration->load() === $values, 'Runtime settings did not round-trip.');
+    $runtimeConfiguration->save(array_replace($values, ['MAIL_REPLY_TO' => 'antwort@example.test']));
+    expect($runtimeConfiguration->load()['MAIL_REPLY_TO'] === 'antwort@example.test', 'Reply-To was not persisted.');
+    $runtimeConfiguration->save(array_diff_key($values, ['MAIL_REPLY_TO' => true]));
+    expect($runtimeConfiguration->load()['MAIL_REPLY_TO'] === 'antwort@example.test', 'Saving legacy settings must retain an existing Reply-To.');
+    $runtimeConfiguration->save($values);
+    expect($runtimeConfiguration->load()['MAIL_REPLY_TO'] === '', 'Reply-To could not be cleared.');
     expect(
         str_contains((string) file_get_contents($configPath), 'APP_ENV='),
         'Saving runtime settings did not persist the application environment.'
@@ -103,8 +105,9 @@ try {
     foreach (EnvironmentFile::KEYS as $key) {
         EnvironmentFile::write($environmentFilePath, array_diff_key($values, [$key => true]));
         expect(
-            Config::fromEnvironment($directory . '/missing-runtime.env', $environmentFilePath)->isSetupRequired(),
-            'A missing setting must require setup, including optional settings: ' . $key
+            Config::fromEnvironment($directory . '/missing-runtime.env', $environmentFilePath)->isSetupRequired()
+                === !in_array($key, EnvironmentFile::OPTIONAL_KEYS, true),
+            'Only optional or obsolete settings may be absent from an existing configuration: ' . $key
         );
     }
     foreach (['APP_ENV', 'APP_URL', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'MAIL_FROM', 'MAIL_FROM_NAME'] as $key) {
@@ -118,10 +121,7 @@ try {
         ['APP_ENV' => 'invalid'],
         ['DB_PORT' => '0'],
         ['DB_PORT' => 'invalid'],
-        ['MAIL_HOST' => 'smtp.example.test', 'MAIL_PORT' => ''],
-        ['MAIL_PORT' => '65536'],
-        ['MAIL_ENCRYPTION' => 'invalid'],
-        ['MAIL_USERNAME' => 'mailer', 'MAIL_PASSWORD' => ''],
+        ['MAIL_REPLY_TO' => 'not-an-email'],
     ] as $invalidValues) {
         EnvironmentFile::write($environmentFilePath, array_replace($values, $invalidValues));
         expect(
@@ -130,6 +130,11 @@ try {
         );
     }
     EnvironmentFile::write($environmentFilePath, $values);
+    file_put_contents($environmentFilePath, "MAIL_HOST=old-smtp\nMAIL_PORT=invalid\nMAIL_ENCRYPTION=obsolete\n", FILE_APPEND);
+    expect(
+        !Config::fromEnvironment($directory . '/missing-runtime.env', $environmentFilePath)->isSetupRequired(),
+        'Obsolete SMTP settings must not require setup.'
+    );
     $missingProductionConfig = Config::fromEnvironment(
         $directory . '/missing-runtime.env',
         $directory . '/missing-production.env'
@@ -147,26 +152,26 @@ try {
     );
 
     Security::startSession();
-    $wizard = new DatabaseConnectionWizard($emptyConfig, null, true);
-    $validate = new ReflectionMethod(DatabaseConnectionWizard::class, 'validateApplicationValues');
+    $wizard = new SetupWizard($emptyConfig, null, true);
+    $validate = new ReflectionMethod(SetupWizard::class, 'validateApplicationValues');
     $applicationValues = array_diff_key($values, array_flip(['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']));
-    expect($validate->invoke($wizard, $applicationValues) === $applicationValues, 'Explicit empty SMTP settings were changed.');
-    $smtpValues = array_replace($applicationValues, [
+    expect($validate->invoke($wizard, $applicationValues) === $applicationValues, 'Mail settings were changed.');
+    $mailValues = array_replace($applicationValues, [
         'APP_ENV' => 'local',
-        'MAIL_HOST' => 'smtp.example.test',
-        'MAIL_PORT' => '2525',
-        'MAIL_USERNAME' => 'mailer',
-        'MAIL_PASSWORD' => 'smtp-secret',
-        'MAIL_ENCRYPTION' => 'tls',
+        'MAIL_REPLY_TO' => 'antwort@example.test',
     ]);
-    expect($validate->invoke($wizard, $smtpValues) === $smtpValues, 'Explicit SMTP settings were changed.');
+    expect($validate->invoke($wizard, $mailValues) === $mailValues, 'Explicit mail settings were changed.');
+    expect(
+        $validate->invoke($wizard, array_replace($mailValues, ['MAIL_REPLY_TO' => '  ANTWORT@example.test  ']))['MAIL_REPLY_TO']
+            === 'antwort@example.test',
+        'Reply-To must be trimmed and normalized like the sender address.'
+    );
     foreach ([
         ['APP_ENV' => ''],
         ['APP_ENV' => 'invalid'],
-        ['MAIL_HOST' => 'smtp.example.test', 'MAIL_PORT' => ''],
-        ['MAIL_PORT' => '65536'],
-        ['MAIL_ENCRYPTION' => 'invalid'],
-        ['MAIL_USERNAME' => 'mailer', 'MAIL_PASSWORD' => ''],
+        ['MAIL_REPLY_TO' => 'not-an-email'],
+        ['MAIL_REPLY_TO' => "reply@example.test\r\nBcc: other@example.test"],
+        ['MAIL_REPLY_TO' => str_repeat('a', 250) . '@example.test'],
     ] as $invalidValues) {
         try {
             $validate->invoke($wizard, array_replace($applicationValues, $invalidValues));
@@ -179,12 +184,32 @@ try {
     $_GET = [];
     ob_start();
     $wizard->run();
+    $initialHtml = (string) ob_get_clean();
+    expect(str_contains($initialHtml, 'Schritt 1 von 3: Datenbankverbindung'), 'Setup must start with the database connection.');
+    foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER'] as $key) {
+        expect(str_contains($initialHtml, 'name="' . $key . '" value=""'), 'The first setup step must show empty database fields.');
+    }
+    expect(!str_contains($initialHtml, 'name="MAIL_TEST_RECIPIENT"'), 'Mail configuration must not precede the database connection.');
+    $_SESSION['_setup_database_verified'] = true;
+    $_GET['step'] = 'mail';
+    ob_start();
+    $wizard->run();
     $emptyHtml = (string) ob_get_clean();
-    foreach (['APP_ENV', 'APP_URL', 'MAIL_HOST', 'MAIL_PORT', 'MAIL_USERNAME', 'MAIL_PASSWORD', 'MAIL_ENCRYPTION', 'MAIL_FROM', 'MAIL_FROM_NAME'] as $key) {
+    expect(str_contains($emptyHtml, 'Schritt 2 von 3: Mail-Konfiguration'), 'Mail configuration must be the second step.');
+    foreach (['APP_ENV', 'APP_URL', 'MAIL_FROM', 'MAIL_FROM_NAME', 'MAIL_REPLY_TO', 'MAIL_TEST_RECIPIENT'] as $key) {
         expect(str_contains($emptyHtml, 'name="' . $key . '"'), 'The setup form is missing ' . $key);
     }
+    foreach (['MAIL_HOST', 'MAIL_PORT', 'MAIL_USERNAME', 'MAIL_PASSWORD', 'MAIL_ENCRYPTION'] as $key) {
+        expect(!str_contains($emptyHtml, 'name="' . $key . '"'), 'Obsolete SMTP fields must not appear in setup.');
+    }
+    expect(
+        preg_match('/<input[^>]*name="MAIL_REPLY_TO"[^>]*>/', $emptyHtml, $replyToInput) === 1
+            && !str_contains($replyToInput[0], 'required'),
+        'Reply-To must be an optional input.'
+    );
     expect(!str_contains($emptyHtml, ' selected'), 'The empty setup form selected a default.');
-    $_SESSION['_database_connection_authorized'] = true;
+    $_SESSION['_setup_database_verified'] = true;
+    $_SESSION['_database_connection_mail_recipient'] = 'test@example.test';
     $_GET['step'] = 'database';
     ob_start();
     $wizard->run();
@@ -193,57 +218,50 @@ try {
         expect(str_contains($databaseHtml, 'name="' . $key . '" value=""'), 'The empty database form supplied a default: ' . $key);
     }
     $_GET = [];
-    unset($_SESSION['_database_connection_authorized']);
+    unset($_SESSION['_setup_database_verified']);
     ob_start();
-    (new DatabaseConnectionWizard($missingProductionConfig, null, true))->run();
+    (new SetupWizard($missingProductionConfig, null, true))->run();
     $setupHtml = (string) ob_get_clean();
     expect(str_contains($setupHtml, 'System einrichten'), 'A missing production .env did not render the setup wizard.');
 
     ob_start();
-    (new DatabaseConnectionWizard($config, new PDOException('simulated database outage')))->run();
+    (new SetupWizard($config, new PDOException('simulated database outage')))->run();
     $html = (string) ob_get_clean();
     expect(str_contains($html, 'Datenbankverbindung einrichten'), 'Database outage did not render the connection wizard.');
-    expect(str_contains($html, 'Schritt 1 von 2'), 'The wizard did not start at its first step.');
+    expect(str_contains($html, 'Schritt 1 von 3'), 'The wizard did not start at its first step.');
     expect(!str_contains($html, 'Setup-Schlüssel'), 'The wizard still requires a setup token.');
-    expect(!str_contains($html, 'name="DB_PASSWORD"'), 'Database credentials appeared before the second step.');
-    $review = new ReflectionMethod(DatabaseConnectionWizard::class, 'review');
-    $_SESSION['_database_connection_setup'] = array_replace($values, $smtpValues);
+    expect(str_contains($html, 'name="DB_PASSWORD"'), 'Database credentials must appear in the first step.');
+    $review = new ReflectionMethod(SetupWizard::class, 'review');
+    $_SESSION['_database_connection_setup'] = array_replace($values, $mailValues);
     $reviewHtml = $review->invoke($wizard);
-    expect(str_contains($reviewHtml, 'smtp.example.test'), 'The review omitted SMTP configuration.');
-    expect(!str_contains($reviewHtml, 'smtp-secret'), 'The review exposed the SMTP password.');
+    expect(str_contains($reviewHtml, 'PHP mail()'), 'The review omitted the mail transport.');
+    expect(str_contains($reviewHtml, 'test@example.test'), 'The review omitted the test recipient.');
+    expect(str_contains($reviewHtml, 'antwort@example.test'), 'The review omitted Reply-To.');
     expect(!str_contains($reviewHtml, 'runtime-password'), 'The review exposed the database password.');
-    expect(str_contains($reviewHtml, 'Mail-Server einschließlich Anmeldung wurde erfolgreich getestet'), 'The review omitted the SMTP test result.');
-    $_SESSION['_database_connection_setup'] = $values;
-    expect(str_contains($review->invoke($wizard), 'Mail-Server-Prüfung wurde übersprungen'), 'Disabled mail must not be reported as tested.');
+    expect(str_contains($reviewHtml, 'Dies bestätigt noch keine Zustellung'), 'The review must distinguish handoff from delivery.');
 
     $_SESSION['_database_connection_setup'] = $values;
-    $_SESSION['_database_connection_authorized'] = true;
+    $_SESSION['_setup_database_verified'] = true;
     $_SESSION['_database_connection_verified'] = true;
     $_SERVER['REQUEST_METHOD'] = 'POST';
     $_GET = ['action' => 'database-connection-app'];
-    $_POST = array_replace($smtpValues, [
+    $_POST = array_replace($mailValues, [
         '_csrf' => Security::csrfToken(),
-        'MAIL_HOST' => '127.0.0.1',
-        'MAIL_PORT' => '1',
+        'MAIL_TEST_RECIPIENT' => 'invalid-address',
     ]);
     $savedContents = file_get_contents($configPath);
     ob_start();
     $wizard->run();
     $mailErrorHtml = (string) ob_get_clean();
-    expect(str_contains($mailErrorHtml, 'Verbindung zum Mail-Server ist fehlgeschlagen'), 'An unreachable SMTP server must fail setup.');
-    expect(str_contains($mailErrorHtml, 'name="MAIL_HOST" value="127.0.0.1"'), 'Failed SMTP settings were lost.');
-    expect(str_contains($mailErrorHtml, 'name="MAIL_PORT" value="1"'), 'Failed SMTP port was lost.');
-    expect($_SESSION['_database_connection_setup']['MAIL_PASSWORD'] === 'smtp-secret', 'Failed SMTP password was lost.');
-    expect(!isset($_SESSION['_database_connection_authorized']) && !isset($_SESSION['_database_connection_verified']), 'Changed SMTP settings retained stale verification.');
-    expect(file_get_contents($configPath) === $savedContents, 'Failed SMTP verification changed saved settings.');
+    expect(str_contains($mailErrorHtml, 'gültige E-Mail-Adresse für die Test-E-Mail'), 'An invalid test address must fail setup.');
+    expect(str_contains($mailErrorHtml, 'name="MAIL_TEST_RECIPIENT" value="invalid-address"'), 'Failed mail settings were lost.');
+    expect(str_contains($mailErrorHtml, 'name="MAIL_REPLY_TO" value="antwort@example.test"'), 'Failed mail verification lost Reply-To.');
+    expect($_SESSION['_setup_database_verified'] === true && !isset($_SESSION['_database_connection_verified']), 'Failed mail verification must retain the database step but invalidate the review.');
+    expect(file_get_contents($configPath) === $savedContents, 'Failed mail verification changed saved settings.');
+    expect(!array_key_exists('MAIL_TEST_RECIPIENT', $_SESSION['_database_connection_setup']), 'The test address must not be saved as configuration.');
 
-    $_POST['MAIL_PASSWORD'] = '';
-    ob_start();
-    $wizard->run();
-    ob_end_clean();
-    expect($_SESSION['_database_connection_setup']['MAIL_PASSWORD'] === 'smtp-secret', 'Retrying SMTP verification lost the password.');
-
-    $_SESSION['_database_connection_authorized'] = true;
+    $_SESSION['_setup_database_verified'] = true;
+    $_SESSION['_database_connection_mail_recipient'] = 'test@example.test';
     $_SESSION['_database_connection_verified'] = true;
     $_GET = ['action' => 'database-connection-verify'];
     $_POST = [
@@ -260,8 +278,10 @@ try {
     expect(str_contains($databaseErrorHtml, 'Die Datenbankverbindung ist fehlgeschlagen'), 'An unreachable database must fail setup.');
     expect(str_contains($databaseErrorHtml, 'name="DB_NAME" value="retry_database"'), 'Failed database settings were lost.');
     expect($_SESSION['_database_connection_setup']['DB_PASSWORD'] === 'retry-password', 'Failed database password was lost.');
-    expect($_SESSION['_database_connection_setup']['MAIL_PASSWORD'] === 'smtp-secret', 'Database failure lost SMTP settings.');
+    expect($_SESSION['_database_connection_setup']['MAIL_REPLY_TO'] === 'antwort@example.test', 'Database failure lost mail settings.');
+    expect($_SESSION['_database_connection_mail_recipient'] === 'test@example.test', 'Database failure lost the test recipient.');
     expect(!isset($_SESSION['_database_connection_verified']), 'Changed database settings retained stale verification.');
+    expect(!isset($_SESSION['_setup_database_verified']), 'Failed database checks must block the mail step.');
     expect(file_get_contents($configPath) === $savedContents, 'Failed database verification changed saved settings.');
 
     $_POST['DB_PASSWORD'] = '';

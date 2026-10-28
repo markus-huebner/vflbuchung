@@ -2,9 +2,12 @@
 declare(strict_types=1);
 
 use App\BookingTypeService;
+use App\Application;
 use App\Config;
 use App\Database;
 use App\DatabaseSetup;
+use App\Security;
+use App\SetupWizard;
 
 require dirname(__DIR__) . '/www/vendor/autoload.php';
 
@@ -15,6 +18,100 @@ if ($config->get('DB_NAME') !== 'vflbuchung_setup_test') {
 
 $pdo = Database::connect($config);
 $setup = new DatabaseSetup($pdo);
+$scenario = $argv[1] ?? '';
+if ($scenario !== '') {
+    Security::startSession();
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $_POST = ['_csrf' => Security::csrfToken()];
+    if ($scenario === '--wizard-database') {
+        foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'] as $key) {
+            $_POST[$key] = $config->get($key);
+        }
+        $_GET = ['action' => 'database-connection-verify'];
+        register_shutdown_function(static function (): void {
+            echo json_encode([
+                'database_verified' => $_SESSION['_setup_database_verified'] ?? false,
+                'configuration_verified' => $_SESSION['_database_connection_verified'] ?? false,
+                'mail_tested' => isset($_SESSION['_database_connection_mail_recipient']),
+            ], JSON_THROW_ON_ERROR);
+            session_destroy();
+        });
+        (new SetupWizard($config, null, true))->run();
+        throw new RuntimeException('The first database step did not redirect to mail configuration.');
+    }
+    if ($scenario !== '--create-admin') {
+        throw new RuntimeException('Unknown isolated setup test scenario.');
+    }
+    $_POST += [
+        'email' => 'setup-admin@example.test',
+        'username' => 'setup-admin',
+        'first_name' => 'Setup',
+        'last_name' => 'Admin',
+        'password' => 'SetupTestPassword123!',
+        'password_confirmation' => 'SetupTestPassword123!',
+        'schema_action' => 'keep',
+    ];
+    register_shutdown_function(static function () use ($pdo): void {
+        echo json_encode([
+            'admin_count' => (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn(),
+            'logged_in' => isset($_SESSION['user_id']),
+        ], JSON_THROW_ON_ERROR);
+        session_destroy();
+    });
+    (new ReflectionMethod(Application::class, 'handleAction'))->invoke(new Application($config, $pdo), 'setup');
+    throw new RuntimeException('Successful administrator creation did not redirect.');
+}
+
+$runScenario = static function (string $scenario): array {
+    $process = proc_open([PHP_BINARY, __FILE__, $scenario], [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('Could not start the isolated setup scenario.');
+    }
+    fclose($pipes[0]);
+    $output = stream_get_contents($pipes[1]);
+    $errors = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    if (proc_close($process) !== 0) {
+        throw new RuntimeException('Isolated setup scenario failed: ' . $errors);
+    }
+    return json_decode((string) $output, true, 512, JSON_THROW_ON_ERROR);
+};
+$connectionResult = $runScenario('--wizard-database');
+if ($connectionResult !== ['database_verified' => true, 'configuration_verified' => false, 'mail_tested' => false]) {
+    throw new RuntimeException('The database connection must be verified before any mail configuration is required.');
+}
+
+Security::startSession();
+$_POST = [
+    '_csrf' => Security::csrfToken(),
+    'email' => 'setup-admin@example.test',
+    'username' => 'setup-admin',
+    'first_name' => 'Setup',
+    'last_name' => 'Admin',
+    'password' => 'SetupTestPassword123!',
+    'schema_action' => 'keep',
+];
+$application = new Application($config, $pdo);
+$setupAction = new ReflectionMethod(Application::class, 'handleAction');
+foreach ([null, 'DifferentPassword123!', 'setuptestpassword123!', 'SetupTestPassword123! '] as $confirmation) {
+    $_POST['password_confirmation'] = $confirmation;
+    try {
+        $setupAction->invoke($application, 'setup');
+        throw new LogicException('A missing or mismatched administrator password confirmation was accepted.');
+    } catch (RuntimeException $exception) {
+        if ($exception->getMessage() !== 'Die beiden Passwörter stimmen nicht überein.') {
+            throw $exception;
+        }
+    }
+    if ($setup->status()['existing_table_count'] !== 0) {
+        throw new RuntimeException('Mismatched passwords must be rejected before creating application tables.');
+    }
+}
 $setup->initialize(false);
 
 $status = $setup->status();
@@ -28,16 +125,45 @@ if (!str_contains($setupPage, 'id="setup-recreate"')
     || str_contains($setupPage, 'Setup-Schlüssel')) {
     throw new RuntimeException('A current database must offer an explicit rebuild without a setup-key prompt.');
 }
-$auth = new App\AuthService($pdo);
-$auth->createInitialAdmin(
-    'setup-admin@example.test',
-    'setup-admin',
-    'Setup',
-    'Admin',
-    'SetupTestPassword123!'
+if (!str_contains($setupPage, 'Schritt 3 von 3: Erstes Administratorkonto')
+    || !str_contains($setupPage, 'name="password_confirmation"')) {
+    throw new RuntimeException('Administrator setup must be the third step and require password confirmation.');
+}
+foreach (['password', 'password_confirmation'] as $field) {
+    if (preg_match('/<input[^>]*name="' . $field . '"[^>]*>/', $setupPage, $input) !== 1
+        || !str_contains($input[0], 'type="password"')
+        || !str_contains($input[0], 'autocomplete="new-password"')
+        || !str_contains($input[0], 'required')
+        || str_contains($input[0], 'value=')) {
+        throw new RuntimeException('Both administrator password fields must be required and must not echo a password.');
+    }
+}
+$pdo->exec(
+    "INSERT INTO users (username, first_name, role, status)
+     VALUES ('password-mismatch-retain-test', 'Setup', 'trainer', 'active')"
 );
+$_POST['schema_action'] = 'recreate';
+$_POST['confirm_recreate'] = '1';
+$_POST['password_confirmation'] = 'DifferentPassword123!';
+try {
+    $setupAction->invoke($application, 'setup');
+    throw new LogicException('Mismatched passwords were accepted for a schema rebuild.');
+} catch (RuntimeException $exception) {
+    if ($exception->getMessage() !== 'Die beiden Passwörter stimmen nicht überein.') {
+        throw $exception;
+    }
+}
+if ((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'password-mismatch-retain-test'")->fetchColumn() !== 1) {
+    throw new RuntimeException('Mismatched passwords must be rejected before deleting existing data.');
+}
+$adminResult = $runScenario('--create-admin');
+if ($adminResult !== ['admin_count' => 1, 'logged_in' => true]) {
+    throw new RuntimeException('Matching passwords must create and sign in the first administrator.');
+}
+session_destroy();
 
 $pdo->exec("UPDATE booking_types SET name = 'Training angepasst', color = 'purple' WHERE code = 'training'");
+$pdo->exec("DELETE FROM app_settings WHERE setting_key = 'external_booking_type_renamed'");
 $pdo->exec("UPDATE booking_types SET name = 'Externe Belegung' WHERE code = 'external'");
 $pdo->exec('ALTER TABLE booking_types DROP COLUMN trainer_requestable');
 $setup->initialize(false);

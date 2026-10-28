@@ -126,29 +126,6 @@ final class DatabaseSetup
                 );
             }
         }
-
-        if ($this->hasTable('app_settings')) {
-            $migrationKey = 'external_booking_type_renamed';
-            $migration = $this->pdo->prepare(
-                'SELECT 1 FROM app_settings WHERE setting_key = :setting_key'
-            );
-            $migration->execute(['setting_key' => $migrationKey]);
-            if ($migration->fetchColumn() === false) {
-                $this->pdo->exec(
-                    "UPDATE booking_types SET name = 'Extern'
-                     WHERE code = 'external' AND name = 'Externe Belegung'"
-                );
-                $statement = $this->pdo->prepare(
-                    'INSERT INTO app_settings (setting_key, setting_value)
-                     VALUES (:setting_key, :setting_value)
-                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)'
-                );
-                $statement->execute([
-                    'setting_key' => $migrationKey,
-                    'setting_value' => '1',
-                ]);
-            }
-        }
     }
 
     public function initialize(bool $recreate): void

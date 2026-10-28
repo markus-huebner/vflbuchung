@@ -254,45 +254,17 @@ write_env DB_NAME "$DB_NAME"
 write_env DB_USER "$DB_USER"
 write_env DB_PASSWORD "$DB_PASSWORD"
 
-stage "SMTP: E-Mail-Versand (optional)"
-if confirm "Do you have an external SMTP account to configure now?"; then
-  step "Use the SMTP host, port, encryption, sender address and credentials from your mail provider."
-  note "The exact menu depends on your provider; do not use InfinityFree's MySQL or FTP password unless your mail provider explicitly requires it."
-  pause "Open your mail provider's SMTP settings in a browser, then press Enter"
-  ask MAIL_HOST "SMTP hostname:"
-  ask MAIL_PORT "SMTP port (usually 587 with TLS or 465 with SSL):"
-  ask MAIL_ENCRYPTION "Encryption (tls, ssl, or leave blank if the provider requires none):"
-  ask MAIL_FROM "Verified sender email address:"
-  ask MAIL_FROM_NAME "Sender display name:"
-  ask MAIL_USERNAME "SMTP username (leave blank if authentication is not required):"
-  if [[ -n "$MAIL_USERNAME" ]]; then
-    ask_secret MAIL_PASSWORD "SMTP password:"
-  else
-    MAIL_PASSWORD=""
-  fi
-  if [[ -z "$MAIL_HOST" || -z "$MAIL_FROM" || ! "$MAIL_PORT" =~ ^[0-9]{1,5}$ ]]; then
-    warn "SMTP host, sender address and a valid port are required."
-    return 1
-  fi
-  if [[ "$MAIL_ENCRYPTION" != "tls" && "$MAIL_ENCRYPTION" != "ssl" && -n "$MAIL_ENCRYPTION" ]]; then
-    warn "MAIL_ENCRYPTION must be tls, ssl, or empty."
-    return 1
-  fi
-else
-  MAIL_HOST=""
-  MAIL_PORT=""
-  MAIL_ENCRYPTION=""
-  MAIL_USERNAME=""
-  MAIL_PASSWORD=""
-  ask MAIL_FROM "Sender email address (for future email configuration):"
-  ask MAIL_FROM_NAME "Sender display name:"
-  warn "Email invitations and password emails will not work until external SMTP is configured."
+stage "E-Mail-Versand über PHP mail()"
+step "Check that your hosting plan supports PHP mail() and permits the sender address."
+note "SMTP credentials are no longer used by the application. If mail() is unavailable, invitations and password reset emails cannot be sent."
+ask MAIL_FROM "Sender email address permitted by your host:"
+ask MAIL_FROM_NAME "Sender display name:"
+if [[ -z "$MAIL_FROM" || -z "$MAIL_FROM_NAME" ]]; then
+  warn "Sender address and display name are required."
+  return 1
 fi
-write_env MAIL_HOST "$MAIL_HOST"
-write_env MAIL_PORT "$MAIL_PORT"
-write_env MAIL_ENCRYPTION "$MAIL_ENCRYPTION"
-write_env MAIL_USERNAME "$MAIL_USERNAME"
-write_env MAIL_PASSWORD "$MAIL_PASSWORD"
+ask MAIL_REPLY_TO "Reply-To email address (optional; leave blank to use the sender address):"
+write_env MAIL_REPLY_TO "$MAIL_REPLY_TO"
 write_env MAIL_FROM "$MAIL_FROM"
 write_env MAIL_FROM_NAME "$MAIL_FROM_NAME"
 
@@ -362,11 +334,8 @@ else
   rm -f "$CHECK_FILE"
   say "Calendar smoke check passed (HTTP 200)."
 fi
-if [[ -z "$MAIL_HOST" ]]; then
-  warn "Email delivery is not configured; add verified external SMTP settings before using invitations or password reset."
-else
-  say "SMTP values are configured. Send a test invitation to an address you control."
-fi
+say "Send a test invitation to an address you control and check its inbox and spam folder."
+warn "PHP mail() must be enabled by your host. A successful handoff does not confirm delivery."
 note "After successful verification, securely delete the local .infinityfree-deploy directory."
 
 finish

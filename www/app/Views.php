@@ -885,6 +885,18 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '</div></form></dialog>';
     }
 
+    public static function setupProgress(int $step): string
+    {
+        [$label, $width] = match ($step) {
+            1 => ['Datenbankverbindung', '33.33%'],
+            2 => ['Mail-Konfiguration', '66.67%'],
+            3 => ['Erstes Administratorkonto', '100%'],
+        };
+        return '<div class="progress mb-4" role="progressbar" aria-label="Einrichtungsschritt" aria-valuenow="'
+            . $step . '" aria-valuemin="1" aria-valuemax="3"><div class="progress-bar" style="width:' . $width . '">'
+            . 'Schritt ' . $step . ' von 3: ' . $label . '</div></div>';
+    }
+
     public static function setup(
         string $csrf,
         string $error = '',
@@ -912,12 +924,13 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
 </fieldset>';
 
         $accountForm = $allowAdminCreation
-            ? '<h2 class="h5">2. Administratorkonto</h2>
+            ? '<h2 class="h5">Erstes Administratorkonto</h2>
   <div class="mb-3"><label class="form-label" for="setup-first-name">Vorname</label><input class="form-control" id="setup-first-name" name="first_name" maxlength="120" required></div>
   <div class="mb-3"><label class="form-label" for="setup-last-name">Nachname</label><input class="form-control" id="setup-last-name" name="last_name" maxlength="120"><div class="form-text">Optional.</div></div>
   <div class="mb-3"><label class="form-label" for="setup-email">E-Mail</label><input class="form-control" id="setup-email" type="email" name="email" maxlength="254" required></div>
   <div class="mb-3"><label class="form-label" for="setup-username">Benutzername</label><input class="form-control" id="setup-username" name="username" minlength="3" maxlength="80" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}" autocomplete="username" required><div class="form-text">3–80 Zeichen: Buchstaben, Zahlen, Punkt, Bindestrich oder Unterstrich.</div></div>
-  <div class="mb-3"><label class="form-label" for="setup-password">Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="setup-password" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" required></div>'
+  <div class="mb-3"><label class="form-label" for="setup-password">Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="setup-password" type="password" name="password" minlength="12" maxlength="200" autocomplete="new-password" required></div>
+  <div class="mb-3"><label class="form-label" for="setup-password-confirmation">Passwort wiederholen</label><input class="form-control" id="setup-password-confirmation" type="password" name="password_confirmation" minlength="12" maxlength="200" autocomplete="new-password" required><div class="form-text">Beide Passwörter müssen übereinstimmen.</div></div>'
             : '';
         $heading = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
         $submitLabel = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
@@ -927,10 +940,12 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 : 'Der Assistent richtet bei Bedarf die Datenbank ein und erstellt das erste Administratorkonto.')
             : 'Der Assistent ergänzt fehlende Anwendungstabellen. Das vorhandene Administratorkonto und alle bestehenden Daten bleiben erhalten.';
 
-        return '<section class="panel-card mx-auto p-4" style="max-width:680px"><h1 class="h3">' . $heading . '</h1><p>' . $description . ' Nach erfolgreicher Einrichtung wird dieser Assistent gesperrt.</p>' . $databaseStatusHtml . self::inlineError($error) . '
+        return '<section class="panel-card mx-auto p-4" style="max-width:680px"><h1 class="h3">' . $heading . '</h1>'
+            . ($allowAdminCreation ? self::setupProgress(3) : '')
+            . '<p>' . $description . ' Nach erfolgreicher Einrichtung wird dieser Assistent gesperrt.</p>' . $databaseStatusHtml . self::inlineError($error) . '
 <form method="post" action="/?action=setup">
   <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
-  <h2 class="h5">1. Datenbank</h2>
+  <h2 class="h5">Datenbankschema</h2>
   ' . $databaseChoice . '
   ' . $accountForm . '
   <button class="btn btn-primary" type="submit">' . $submitLabel . '</button>

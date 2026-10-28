@@ -7,6 +7,16 @@ use RuntimeException;
 
 final class EnvironmentFile
 {
+    public const OPTIONAL_KEYS = [
+        'MAIL_REPLY_TO',
+        // Legacy SMTP settings remain readable but are no longer used for delivery.
+        'MAIL_HOST',
+        'MAIL_PORT',
+        'MAIL_USERNAME',
+        'MAIL_PASSWORD',
+        'MAIL_ENCRYPTION',
+    ];
+
     public const KEYS = [
         'APP_ENV',
         'APP_URL',
@@ -22,6 +32,7 @@ final class EnvironmentFile
         'MAIL_ENCRYPTION',
         'MAIL_FROM',
         'MAIL_FROM_NAME',
+        'MAIL_REPLY_TO',
     ];
 
     public static function read(string $path): array

@@ -10,6 +10,7 @@ services:
     volumes:
       - setup_config:/var/www/app/www/config
       - setup_storage:/var/www/app/www/storage
+      - ./docker/php-mail.ini:/usr/local/etc/php/conf.d/mail.ini:ro
     environment:
       APP_ENV: ${APP_ENV:-local}
       APP_URL: ${APP_URL:-http://localhost:8100}
@@ -18,13 +19,9 @@ services:
       DB_NAME: ${DB_NAME:-belegungsplan}
       DB_USER: ${DB_USER:-webuser}
       DB_PASSWORD: ${DB_PASSWORD:-userpasswort}
-      MAIL_HOST: ${MAIL_HOST:-mailpit}
-      MAIL_PORT: ${MAIL_PORT:-1025}
       MAIL_FROM: ${MAIL_FROM:-buchungssystem@example.test}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Platz- und Busbelegung}
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-      MAIL_ENCRYPTION: ${MAIL_ENCRYPTION:-}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
     depends_on:
       mailpit:
         condition: service_started

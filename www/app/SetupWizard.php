@@ -7,11 +7,12 @@ use PDOException;
 use RuntimeException;
 use Throwable;
 
-final class DatabaseConnectionWizard
+final class SetupWizard
 {
     private const DRAFT_KEY = '_database_connection_setup';
-    private const AUTHORIZED_KEY = '_database_connection_authorized';
+    private const DATABASE_VERIFIED_KEY = '_setup_database_verified';
     private const VERIFIED_KEY = '_database_connection_verified';
+    private const TEST_RECIPIENT_KEY = '_database_connection_mail_recipient';
 
     private string $csrf;
     private string $errorStep = 'database';
@@ -39,10 +40,7 @@ final class DatabaseConnectionWizard
             $content = $this->dispatch();
         } catch (RuntimeException | \InvalidArgumentException $exception) {
             http_response_code(400);
-            $step = (string) ($_GET['action'] ?? '') === 'database-connection-app'
-                ? 'application'
-                : $this->errorStep;
-            $content = $this->form($exception->getMessage(), $step);
+            $content = $this->form($exception->getMessage(), $this->errorStep);
         } catch (Throwable $exception) {
             error_log('Database connection setup failed: ' . $exception->getMessage());
             http_response_code(500);
@@ -71,14 +69,15 @@ final class DatabaseConnectionWizard
         }
 
         if ((string) ($_GET['page'] ?? '') === 'database-connection-review') {
-            if (($_SESSION[self::VERIFIED_KEY] ?? false) !== true) {
+            if (($_SESSION[self::DATABASE_VERIFIED_KEY] ?? false) !== true
+                || ($_SESSION[self::VERIFIED_KEY] ?? false) !== true || !isset($_SESSION[self::TEST_RECIPIENT_KEY])) {
                 $this->redirect('/?page=database-connection');
             }
             return $this->review();
         }
 
-        $step = (string) ($_GET['step'] ?? '') === 'database' ? 'database' : 'application';
-        if ($step === 'database' && ($_SESSION[self::AUTHORIZED_KEY] ?? false) !== true) {
+        $step = (string) ($_GET['step'] ?? '') === 'mail' ? 'application' : 'database';
+        if ($step === 'application' && ($_SESSION[self::DATABASE_VERIFIED_KEY] ?? false) !== true) {
             $this->redirect('/?page=database-connection');
         }
         return $this->form('', $step);
@@ -86,40 +85,34 @@ final class DatabaseConnectionWizard
 
     private function verifyApplicationDetails(): string
     {
-        unset($_SESSION[self::AUTHORIZED_KEY], $_SESSION[self::VERIFIED_KEY]);
+        unset($_SESSION[self::VERIFIED_KEY]);
+        if (($_SESSION[self::DATABASE_VERIFIED_KEY] ?? false) !== true) {
+            throw new RuntimeException('Bitte prüfe zuerst die Datenbankverbindung.');
+        }
+        $this->errorStep = 'application';
+        $_SESSION[self::TEST_RECIPIENT_KEY] = trim((string) ($_POST['MAIL_TEST_RECIPIENT'] ?? ''));
         $submittedValues = [
             'APP_ENV' => trim((string) ($_POST['APP_ENV'] ?? '')),
             'APP_URL' => trim((string) ($_POST['APP_URL'] ?? '')),
-            'MAIL_HOST' => trim((string) ($_POST['MAIL_HOST'] ?? '')),
-            'MAIL_PORT' => trim((string) ($_POST['MAIL_PORT'] ?? '')),
-            'MAIL_USERNAME' => trim((string) ($_POST['MAIL_USERNAME'] ?? '')),
-            'MAIL_PASSWORD' => (string) ($_POST['MAIL_PASSWORD'] ?? ''),
-            'MAIL_ENCRYPTION' => trim((string) ($_POST['MAIL_ENCRYPTION'] ?? '')),
             'MAIL_FROM' => trim((string) ($_POST['MAIL_FROM'] ?? '')),
             'MAIL_FROM_NAME' => trim((string) ($_POST['MAIL_FROM_NAME'] ?? '')),
+            'MAIL_REPLY_TO' => trim((string) ($_POST['MAIL_REPLY_TO'] ?? '')),
         ];
         $previous = $_SESSION[self::DRAFT_KEY] ?? [];
-        if ($submittedValues['MAIL_PASSWORD'] === '') {
-            $submittedValues['MAIL_PASSWORD'] = (string) ($previous['MAIL_PASSWORD']
-                ?? ($this->config->has('MAIL_PASSWORD') ? $this->config->get('MAIL_PASSWORD') : ''));
-        }
         $_SESSION[self::DRAFT_KEY] = array_merge(
             is_array($previous) ? $previous : [],
             $submittedValues
         );
         $values = $this->validateApplicationValues($submittedValues);
         $_SESSION[self::DRAFT_KEY] = array_merge($_SESSION[self::DRAFT_KEY], $values);
-        $this->testMailConnection($values);
-        $_SESSION[self::AUTHORIZED_KEY] = true;
-        $this->redirect('/?page=database-connection&step=database');
+        $this->testMailDelivery($values);
+        $_SESSION[self::VERIFIED_KEY] = true;
+        $this->redirect('/?page=database-connection-review');
     }
 
     private function verifyConnection(): string
     {
-        unset($_SESSION[self::VERIFIED_KEY]);
-        if (($_SESSION[self::AUTHORIZED_KEY] ?? false) !== true) {
-            throw new RuntimeException('Die Sitzung ist abgelaufen. Bitte beginne die Einrichtung erneut.');
-        }
+        unset($_SESSION[self::DATABASE_VERIFIED_KEY], $_SESSION[self::VERIFIED_KEY]);
 
         $previous = $_SESSION[self::DRAFT_KEY] ?? [];
         $draft = array_merge(
@@ -127,32 +120,30 @@ final class DatabaseConnectionWizard
             $this->collectValues()
         );
         $_SESSION[self::DRAFT_KEY] = $draft;
-        $values = array_merge(
-            $this->validateApplicationValues($draft),
-            $this->validateDatabaseValues($draft)
-        );
+        $values = $this->validateDatabaseValues($draft);
         $this->testConnection($values);
 
-        $_SESSION[self::DRAFT_KEY] = $values;
-        $_SESSION[self::VERIFIED_KEY] = true;
-        $this->redirect('/?page=database-connection-review');
+        $_SESSION[self::DRAFT_KEY] = array_merge($draft, $values);
+        $_SESSION[self::DATABASE_VERIFIED_KEY] = true;
+        $this->redirect('/?page=database-connection&step=mail');
     }
 
     private function saveConfiguration(): string
     {
         $values = $_SESSION[self::DRAFT_KEY] ?? null;
-        if (!is_array($values) || ($_SESSION[self::VERIFIED_KEY] ?? false) !== true) {
+        if (!is_array($values) || ($_SESSION[self::VERIFIED_KEY] ?? false) !== true
+            || ($_SESSION[self::DATABASE_VERIFIED_KEY] ?? false) !== true || !isset($_SESSION[self::TEST_RECIPIENT_KEY])) {
             throw new RuntimeException('Die geprüften Angaben sind abgelaufen. Bitte starte die Prüfung erneut.');
         }
 
-        unset($_SESSION[self::VERIFIED_KEY]);
+        unset($_SESSION[self::VERIFIED_KEY], $_SESSION[self::DATABASE_VERIFIED_KEY]);
         $this->testConnection($values);
-        $this->testMailConnection($values);
         (new RuntimeConfiguration())->save($values);
         unset(
             $_SESSION[self::DRAFT_KEY],
-            $_SESSION[self::AUTHORIZED_KEY],
-            $_SESSION[self::VERIFIED_KEY]
+            $_SESSION[self::DATABASE_VERIFIED_KEY],
+            $_SESSION[self::VERIFIED_KEY],
+            $_SESSION[self::TEST_RECIPIENT_KEY]
         );
         Security::rotateCsrfToken();
         $this->redirect('/');
@@ -181,23 +172,6 @@ final class DatabaseConnectionWizard
         if (!in_array($values['APP_ENV'], ['local', 'production'], true)) {
             throw new RuntimeException('Die Anwendungsumgebung muss local oder production sein.');
         }
-        $mailHost = $values['MAIL_HOST'];
-        if ($mailHost !== '' && (strlen($mailHost) > 255 || !preg_match('/\A[a-zA-Z0-9._:\[\]-]+\z/', $mailHost))) {
-            throw new RuntimeException('Der SMTP-Host ist ungültig.');
-        }
-        $mailPort = $values['MAIL_PORT'];
-        if ($mailHost !== '' || $mailPort !== '') {
-            $port = filter_var($mailPort, FILTER_VALIDATE_INT);
-            if ($port === false || $port < 1 || $port > 65535) {
-                throw new RuntimeException('Der SMTP-Port muss zwischen 1 und 65535 liegen.');
-            }
-        }
-        if (!in_array($values['MAIL_ENCRYPTION'], ['', 'tls', 'ssl'], true)) {
-            throw new RuntimeException('Die SMTP-Verschlüsselung muss tls, ssl oder leer sein.');
-        }
-        if ($values['MAIL_USERNAME'] !== '' && $values['MAIL_PASSWORD'] === '') {
-            throw new RuntimeException('Für den SMTP-Benutzer muss ein Passwort eingegeben werden.');
-        }
 
         $url = $values['APP_URL'];
         $urlParts = parse_url($url);
@@ -221,17 +195,17 @@ final class DatabaseConnectionWizard
         if ($fromName === '' || mb_strlen($fromName) > 120 || preg_match('/[\x00-\x1F\x7F]/', $fromName)) {
             throw new RuntimeException('Der Absendername muss zwischen 1 und 120 Zeichen lang sein.');
         }
+        $replyTo = mb_strtolower(trim($values['MAIL_REPLY_TO'] ?? ''));
+        if ($replyTo !== '' && (!filter_var($replyTo, FILTER_VALIDATE_EMAIL) || strlen($replyTo) > 254)) {
+            throw new RuntimeException('Die Reply-To-E-Mail-Adresse ist ungültig.');
+        }
 
         return [
             'APP_ENV' => $values['APP_ENV'],
             'APP_URL' => rtrim($url, '/'),
-            'MAIL_HOST' => $mailHost,
-            'MAIL_PORT' => $mailPort,
-            'MAIL_USERNAME' => $values['MAIL_USERNAME'],
-            'MAIL_PASSWORD' => $values['MAIL_PASSWORD'],
-            'MAIL_ENCRYPTION' => $values['MAIL_ENCRYPTION'],
             'MAIL_FROM' => $email,
             'MAIL_FROM_NAME' => $fromName,
+            'MAIL_REPLY_TO' => $replyTo,
         ];
     }
 
@@ -278,18 +252,66 @@ final class DatabaseConnectionWizard
         }
     }
 
-    private function testMailConnection(array $values): void
+    private function testMailDelivery(array $values): void
     {
-        if ($values['MAIL_HOST'] === '') {
-            return;
+        $recipient = mb_strtolower((string) ($_SESSION[self::TEST_RECIPIENT_KEY] ?? ''));
+        if (!filter_var($recipient, FILTER_VALIDATE_EMAIL) || strlen($recipient) > 254) {
+            throw new RuntimeException('Bitte gib eine gültige E-Mail-Adresse für die Test-E-Mail ein.');
         }
-
-        $this->errorStep = 'application';
-        (new Mailer($this->config->withOverrides($values)))->testConnection();
-        $this->errorStep = 'database';
+        $_SESSION[self::TEST_RECIPIENT_KEY] = $recipient;
+        $url = rtrim($values['APP_URL'], '/') . '/';
+        $details = [
+            'Absender' => $values['MAIL_FROM_NAME'] . ' <' . $values['MAIL_FROM'] . '>',
+            'Testempfänger' => $recipient,
+            'Antwortadresse' => ($values['MAIL_REPLY_TO'] ?? '') !== '' ? $values['MAIL_REPLY_TO'] : $values['MAIL_FROM'],
+            'Versandart' => 'PHP mail()',
+        ];
+        $htmlRows = '';
+        $textRows = '';
+        foreach ($details as $label => $value) {
+            $htmlRows .= '<tr><td style="padding-right:14px;color:#647268;vertical-align:top">'
+                . Security::escape($label) . '</td><td style="overflow-wrap:anywhere">'
+                . Security::escape($value) . '</td></tr>';
+            $textRows .= "{$label}: {$value}\n";
+        }
+        $html = '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+            . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+            . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
+            . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">'
+            . 'Vereins-Buchungssystem</div><h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
+            . 'Deine Test-E-Mail ist da!</h1></td></tr>'
+            . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo,</p>'
+            . '<p style="color:#536158;margin:0 0 24px">Diese Nachricht gehört zur Einrichtung der Platz- und Busbelegung. '
+            . 'Wenn du sie lesen kannst, ist die Test-E-Mail bei dir angekommen.</p>'
+            . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px">'
+            . '<div style="font-size:12px;color:#5d6b62;text-transform:uppercase;letter-spacing:1px">Einrichtung</div>'
+            . '<div style="font-size:20px;font-weight:bold;margin:7px 0 16px">Deine Mail-Einstellungen</div>'
+            . '<table role="presentation" cellspacing="0" cellpadding="0" style="font-size:14px;line-height:1.7;'
+            . 'color:#36443a">' . $htmlRows . '</table></div>'
+            . '<p style="font-size:14px;line-height:1.7;color:#536158;margin:20px 0 0">'
+            . 'Kehre zur Anwendung zurück und schließe die Einrichtung ab. Mit dieser Test-E-Mail wird keine Buchung angelegt.</p>'
+            . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
+            . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
+            . 'text-decoration:none;font-weight:bold;border-radius:8px">Zur Anwendung</a></div>'
+            . '</td></tr><tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
+            . 'Automatische Test-E-Mail des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>';
+        $text = "Hallo,\n\nDeine Test-E-Mail ist da!\n\n"
+            . "Diese Nachricht gehört zur Einrichtung der Platz- und Busbelegung. Wenn du sie lesen kannst, ist die Test-E-Mail bei dir angekommen.\n\n"
+            . "Deine Mail-Einstellungen\n{$textRows}\n"
+            . "Kehre zur Anwendung zurück und schließe die Einrichtung ab. Mit dieser Test-E-Mail wird keine Buchung angelegt.\n\n"
+            . "Zur Anwendung: {$url}\n\nAutomatische Test-E-Mail des Vereins-Buchungssystems";
+        (new Mailer($this->config->withOverrides($values)))->send(
+            $recipient,
+            'Test-E-Mail: Platz- und Busbelegung',
+            $html,
+            $text
+        );
     }
 
-    private function form(string $error = '', string $step = 'application'): string
+    private function form(string $error = '', string $step = 'database'): string
     {
         $draft = $_SESSION[self::DRAFT_KEY] ?? [];
         $value = fn(string $key): string => (string) ($draft[$key]
@@ -301,10 +323,10 @@ final class DatabaseConnectionWizard
         if ($step === 'application') {
             $introduction = $this->configurationMissing
                 ? 'Die Konfiguration fehlt oder ist unvollständig. Gib alle Einstellungen ausdrücklich an; es werden keine Standardwerte verwendet.'
-                : 'Die Anwendung erreicht die konfigurierte Datenbank nicht. Prüfe zuerst die Anwendungs- und E-Mail-Einstellungen. Die MySQL-Datenbank muss bereits angelegt sein.';
+                : 'Die Datenbankverbindung wurde geprüft. Richte nun den Mailversand und die Anwendungsadresse ein.';
             return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">' . $heading . '</h1>
-<p>' . $introduction . '</p>
-<div class="progress mb-4" role="progressbar" aria-label="Einrichtungsschritt" aria-valuenow="1" aria-valuemin="1" aria-valuemax="2"><div class="progress-bar" style="width:50%">Schritt 1 von 2</div></div>'
+<p>' . $introduction . '</p>'
+                . Views::setupProgress(2)
                 . $errorHtml . '
 <form method="post" action="/?action=database-connection-app">
   <input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '">
@@ -312,13 +334,10 @@ final class DatabaseConnectionWizard
   <div class="mb-3"><label class="form-label" for="setup-app-url">Anwendungs-URL</label><input class="form-control" id="setup-app-url" type="url" name="APP_URL" value="' . Security::escape($value('APP_URL')) . '" maxlength="500" required></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-from">Absender-E-Mail</label><input class="form-control" id="setup-mail-from" type="email" name="MAIL_FROM" value="' . Security::escape($value('MAIL_FROM')) . '" maxlength="254" required></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-name">Absendername</label><input class="form-control" id="setup-mail-name" name="MAIL_FROM_NAME" value="' . Security::escape($value('MAIL_FROM_NAME')) . '" maxlength="120" required></div>
-  <div class="mb-3"><label class="form-label" for="setup-mail-host">SMTP-Host</label><input class="form-control" id="setup-mail-host" name="MAIL_HOST" value="' . Security::escape($value('MAIL_HOST')) . '" maxlength="255"><div class="form-text">Leer lassen, um den E-Mail-Versand nicht zu konfigurieren.</div></div>
-  <div class="mb-3"><label class="form-label" for="setup-mail-port">SMTP-Port</label><input class="form-control" id="setup-mail-port" type="number" name="MAIL_PORT" value="' . Security::escape($value('MAIL_PORT')) . '" min="1" max="65535"><div class="form-text">Bei konfiguriertem SMTP-Host erforderlich.</div></div>
-  <div class="mb-3"><label class="form-label" for="setup-mail-encryption">SMTP-Verschlüsselung</label><select class="form-select" id="setup-mail-encryption" name="MAIL_ENCRYPTION"><option value="">Keine</option><option value="tls"' . ($value('MAIL_ENCRYPTION') === 'tls' ? ' selected' : '') . '>TLS</option><option value="ssl"' . ($value('MAIL_ENCRYPTION') === 'ssl' ? ' selected' : '') . '>SSL</option></select></div>
-  <div class="mb-3"><label class="form-label" for="setup-mail-user">SMTP-Benutzer</label><input class="form-control" id="setup-mail-user" name="MAIL_USERNAME" value="' . Security::escape($value('MAIL_USERNAME')) . '"></div>
-  <div class="mb-3"><label class="form-label" for="setup-mail-password">SMTP-Passwort</label><input class="form-control" id="setup-mail-password" type="password" name="MAIL_PASSWORD" autocomplete="new-password"><div class="form-text">' . ($value('MAIL_PASSWORD') !== '' ? 'Leer lassen, um das bisher eingegebene Kennwort weiterzuverwenden.' : 'Nur bei SMTP-Authentifizierung erforderlich.') . '</div></div>
-  <p>Der konfigurierte Mail-Server wird einschließlich Anmeldung geprüft, ohne eine E-Mail zu versenden. Bei Fehlern bleiben die Eingaben erhalten; gespeicherte Einstellungen werden nicht verändert.</p>
-  <button class="btn btn-primary" type="submit">Mail-Server prüfen und weiter</button>
+  <div class="mb-3"><label class="form-label" for="setup-mail-reply-to">Reply-To-E-Mail-Adresse (optional)</label><input class="form-control" id="setup-mail-reply-to" type="email" name="MAIL_REPLY_TO" value="' . Security::escape($value('MAIL_REPLY_TO')) . '" maxlength="254"><div class="form-text">Antworten gehen an diese Adresse. Leer lassen, um die Absenderadresse zu verwenden.</div></div>
+  <div class="mb-3"><label class="form-label" for="setup-mail-test-recipient">Empfänger der Test-E-Mail</label><input class="form-control" id="setup-mail-test-recipient" type="email" name="MAIL_TEST_RECIPIENT" value="' . Security::escape((string) ($_SESSION[self::TEST_RECIPIENT_KEY] ?? '')) . '" maxlength="254" required><div class="form-text">Nur für diesen Test; die Adresse wird nicht als Anwendungseinstellung gespeichert.</div></div>
+  <p>Beim Fortfahren wird eine Test-E-Mail über PHP mail() verschickt. Der Webserver muss den Mailversand unterstützen. Eine erfolgreiche Übergabe bestätigt noch keine Zustellung; prüfe auch den Spam-Ordner. Bei Fehlern bleiben die Eingaben erhalten und gespeicherte Einstellungen unverändert.</p>
+  <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="/?page=database-connection">Zurück zur Datenbank</a><button class="btn btn-primary" type="submit">Test-E-Mail senden und weiter</button></div>
 </form></section>';
         }
 
@@ -328,8 +347,8 @@ final class DatabaseConnectionWizard
             : '<div class="form-text">Das Passwort des Datenbankbenutzers wird benötigt; ein MySQL-Root-Passwort ist nicht erforderlich.</div>';
 
         return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">' . $heading . '</h1>
-<p>Gib die Zugangsdaten für die bereits angelegte MySQL-Datenbank ein. Anschließend wird die Verbindung geprüft.</p>
-<div class="progress mb-4" role="progressbar" aria-label="Einrichtungsschritt" aria-valuenow="2" aria-valuemin="1" aria-valuemax="2"><div class="progress-bar" style="width:100%">Schritt 2 von 2</div></div>'
+<p>Gib die Zugangsdaten für die bereits angelegte MySQL-Datenbank ein. Anschließend wird die Verbindung geprüft.</p>'
+            . Views::setupProgress(1)
             . $errorHtml . '
 <form method="post" action="/?action=database-connection-verify">
   <input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '">
@@ -338,7 +357,7 @@ final class DatabaseConnectionWizard
   <div class="mb-3"><label class="form-label" for="setup-db-name">Datenbankname</label><input class="form-control" id="setup-db-name" name="DB_NAME" value="' . Security::escape($value('DB_NAME')) . '" maxlength="64" required></div>
   <div class="mb-3"><label class="form-label" for="setup-db-user">Datenbankbenutzer</label><input class="form-control" id="setup-db-user" name="DB_USER" value="' . Security::escape($value('DB_USER')) . '" maxlength="32" required></div>
   <div class="mb-3"><label class="form-label" for="setup-db-password">Passwort des Datenbankbenutzers</label><input class="form-control" id="setup-db-password" type="password" name="DB_PASSWORD" autocomplete="new-password" maxlength="1024" ' . ($hasPassword ? '' : 'required') . '>' . $passwordHelp . '</div>
-  <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="/?page=database-connection">Zurück</a><button class="btn btn-primary" type="submit">Verbindung prüfen</button></div>
+  <button class="btn btn-primary" type="submit">Verbindung prüfen und weiter zur Mail-Konfiguration</button>
 </form></section>';
     }
 
@@ -360,29 +379,24 @@ final class DatabaseConnectionWizard
             'Datenbankpasswort' => 'Eingegeben (wird nicht angezeigt)',
             'Absender-E-Mail' => $values['MAIL_FROM'],
             'Absendername' => $values['MAIL_FROM_NAME'],
-            'SMTP-Host' => $values['MAIL_HOST'] === '' ? 'Nicht konfiguriert' : $values['MAIL_HOST'],
-            'SMTP-Port' => $values['MAIL_PORT'],
-            'SMTP-Verschlüsselung' => $values['MAIL_ENCRYPTION'] === '' ? 'Keine' : $values['MAIL_ENCRYPTION'],
-            'SMTP-Benutzer' => $values['MAIL_USERNAME'],
-            'SMTP-Passwort' => $values['MAIL_PASSWORD'] === '' ? 'Nicht gesetzt' : 'Eingegeben (wird nicht angezeigt)',
+            'Reply-To-E-Mail-Adresse' => ($values['MAIL_REPLY_TO'] ?? '') === '' ? 'Nicht gesetzt (Absenderadresse)' : $values['MAIL_REPLY_TO'],
+            'Versandart' => 'PHP mail()',
+            'Empfänger der Test-E-Mail' => $_SESSION[self::TEST_RECIPIENT_KEY] ?? '',
         ];
         $reviewRows = '';
         foreach ($rows as $label => $value) {
             $reviewRows .= '<dt class="col-sm-4">' . Security::escape($label) . '</dt><dd class="col-sm-8">' . Security::escape((string) $value) . '</dd>';
         }
 
-        return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">Angaben prüfen</h1>
-<div class="alert alert-success" role="status">Die Verbindung zur vorhandenen Datenbank wurde erfolgreich getestet. '
-            . ($values['MAIL_HOST'] === ''
-                ? 'Der E-Mail-Versand ist nicht konfiguriert; die Mail-Server-Prüfung wurde übersprungen.'
-                : 'Die Verbindung zum Mail-Server einschließlich Anmeldung wurde erfolgreich getestet.')
-            . '</div>
+        return '<section class="panel-card mx-auto p-4" style="max-width:720px"><h1 class="h3">Angaben prüfen</h1>'
+            . Views::setupProgress(2) . '
+<div class="alert alert-success" role="status">Die Verbindung zur vorhandenen Datenbank wurde erfolgreich getestet. Die Test-E-Mail wurde über PHP mail() an den Maildienst übergeben. Dies bestätigt noch keine Zustellung.</div>
 <dl class="row">' . $reviewRows . '</dl>
-<p>Prüfe die Angaben. Du kannst sie vor dem Speichern noch ändern.</p>
+<p>Prüfe die Angaben und den Eingang der Test-E-Mail. Du kannst die Angaben vor dem Speichern noch ändern. Beim Speichern wird die Datenbank erneut geprüft, aber keine weitere Test-E-Mail versendet.</p>
 <div class="d-flex flex-wrap gap-2">
-  <a class="btn btn-outline-secondary" href="/?page=database-connection">Anwendungsdaten ändern</a>
-  <a class="btn btn-outline-secondary" href="/?page=database-connection&amp;step=database">Datenbankangaben ändern</a>
-  <form method="post" action="/?action=database-connection-save" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '"><button class="btn btn-primary" type="submit">Einstellungen speichern</button></form>
+  <a class="btn btn-outline-secondary" href="/?page=database-connection&amp;step=mail">Mail-Konfiguration ändern</a>
+  <a class="btn btn-outline-secondary" href="/?page=database-connection">Datenbankangaben ändern</a>
+  <form method="post" action="/?action=database-connection-save" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '"><button class="btn btn-primary" type="submit">Einstellungen speichern und weiter</button></form>
 </div></section>';
     }
 

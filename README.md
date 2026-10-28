@@ -28,7 +28,7 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
 
 Die lokale Oberfläche läuft auf Port `8100`; phpMyAdmin ist unter `http://localhost:8101` und Mailpit unter `http://localhost:8103` erreichbar. MySQL ist auf Host-Port `8102` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
 
-Die Entwicklungsumgebung auf `8100` erhält lokale Vorgaben ausschließlich aus `docker-compose.yml`: `APP_ENV=local`, URL `http://localhost:8100`, Datenbank `db:3306` mit `belegungsplan`/`webuser` und Mailpit auf Port `1025`. Diese Werte sind nur für die lokale Entwicklung gedacht und werden nicht in das Docker-Image oder die Anwendung eingebaut.
+Die Entwicklungsumgebung auf `8100` erhält lokale Anwendungsvorgaben ausschließlich aus `docker-compose.yml`: `APP_ENV=local`, URL `http://localhost:8100` und Datenbank `db:3306` mit `belegungsplan`/`webuser`. PHP `mail()` übergibt E-Mails lokal an `msmtp`; die ausschließlich lokal eingebundene Datei `docker/php-mail.ini` leitet sie an Mailpit auf Port `1025` weiter. Nach der Umstellung muss das Web-Image mit `docker compose build web` neu gebaut werden. Beim Hoster übernimmt dessen PHP-/Mail-Konfiguration den Versand.
 
 Die separate Umgebung unter `D:\projects\vflbuchung_www` läuft auf `http://localhost:8200` als Hoster-Nachbildung: Ihr Webcontainer bekommt keine `APP_*`-, `DB_*`- oder `MAIL_*`-Variablen aus Docker Compose. Das Host-Verzeichnis `D:\projects\vflbuchung_www\www\config` ist direkt eingebunden; die Anwendung liest und der Einrichtungsassistent schreibt dort die Datei `.env`. Änderungen an dieser Datei werden beim nächsten Request eingelesen. Die Anwendung wird ansonsten aus dem Image statt über Quellcode-Bind-Mounts bereitgestellt. Codeänderungen dort erfordern `docker compose up --build -d web`. MySQL (`8202`), phpMyAdmin (`8201`) und Mailpit (`8203`) bleiben getrennte Hilfsdienste; Schema und Ressourcen werden bei neuen Datenbank-Volumes nicht automatisch importiert. Bestehende Datenbanken bleiben unverändert.
 
@@ -36,7 +36,7 @@ Die 8200-Kopie enthält nur Laufzeitdateien und die nötige Docker-Konfiguration
 
 MySQL führt Dateien in `/docker-entrypoint-initdb.d` nur aus, wenn das Datenverzeichnis erstmals initialisiert wird. Bei einem bestehenden Docker-Volume werden `install.sql` und `seed_resources.sql` nicht automatisch erneut ausgeführt. **Das Volume nicht mit `docker compose down -v` löschen**, wenn vorhandene Daten erhalten bleiben sollen.
 
-Die Einstellungen werden nur nach erfolgreicher Prüfung von Datenbank und konfiguriertem Mail-Server sowie ausdrücklicher Bestätigung in `www/config/.env` gespeichert. Die SMTP-Prüfung verwendet die angegebene Verschlüsselung und Anmeldung, versendet aber keine Test-E-Mail; ohne SMTP-Host wird sie ausdrücklich übersprungen. Vor dem Speichern werden beide Verbindungen erneut geprüft. Bei ungültigen Angaben oder Verbindungsfehlern bleiben die bisherigen gespeicherten Einstellungen unverändert und die eingegebenen Werte einschließlich der Kennwörter für die Korrektur in der Sitzung erhalten. Kennwörter werden nicht im Formular ausgegeben; ein leeres Kennwortfeld verwendet den bisherigen Wert weiter. Das Root-Passwort wird nicht gespeichert. In der lokalen Docker-Umgebung bleibt die Datei im separaten Volume `setup_config` erhalten; wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
+Der Einrichtungsassistent führt durch drei Schritte: **1. Datenbankverbindung**, **2. Mail-Konfiguration**, **3. erstes Administratorkonto**. Erst nach erfolgreichem Datenbanktest ist die Mail-Konfiguration zugänglich. Im zweiten Schritt gibst du Absender, optionale Reply-To-Adresse, Anwendungsdaten und eine separate Testadresse ein; beim Fortfahren wird dorthin tatsächlich eine E-Mail über PHP `mail()` verschickt. Diese Testadresse bleibt nur in der Sitzung und wird nicht als Anwendungseinstellung gespeichert. Eine erfolgreiche Übergabe bestätigt noch keine Zustellung: Prüfe Posteingang und Spam-Ordner. Nach der Prüfung und Bestätigung der Angaben werden die Einstellungen in `www/config/.env` gespeichert. Dabei wird die Datenbank erneut geprüft, aber keine zweite Test-E-Mail versendet. Danach richtet Schritt 3 das Schema und den ersten Administrator ein. Dessen Passwort muss zweimal identisch eingegeben werden; die Prüfung erfolgt vor dem Anlegen oder Neuaufbau von Tabellen. Ist bereits ein Administrator vorhanden, wird kein weiteres Erstkonto angelegt. Bei ungültigen Angaben oder Versand-/Verbindungsfehlern bleiben gespeicherte Einstellungen unverändert und die Konfigurationseingaben für die Korrektur in der Sitzung erhalten. Das Datenbankkennwort wird nicht im Formular ausgegeben; ein leeres Kennwortfeld verwendet den bisherigen Wert weiter. Das Root-Passwort wird nicht gespeichert. In der lokalen Docker-Umgebung bleibt die Datei im separaten Volume `setup_config` erhalten; wird die Verbindung später wieder unterbrochen, startet der Verbindungsassistent erneut.
 
 ## Rollen und Funktionen
 
@@ -91,7 +91,7 @@ Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+
 
 Der Webserver muss auf `www/` als DocumentRoot zeigen. Alle Laufzeitdateien einschließlich `app/`, `config/`, `database/` und `vendor/` liegen innerhalb von `www/`; `.htaccess` sperrt den direkten Zugriff auf diese Verzeichnisse. In der Produktion liegt die aktive `.env`-Datei unter `www/config/.env`. Die Beispiele `.env.example` und `.env.production.example` liegen im Projektstamm und gehören nicht nach `www/config/`.
 
-Die Anwendung liest die aktive `.env` aus `www/config/.env`. Es gibt keine automatischen Konfigurationsvorgaben: Fehlen Werte oder erforderliche Angaben, startet der Einrichtungsassistent. Er erfasst Anwendungsumgebung (`APP_ENV`), URL, sämtliche SMTP- und Absenderangaben sowie die Datenbankverbindung und speichert die geprüften Einstellungen dort. Das Verzeichnis `www/config/` muss dafür vom PHP-Prozess beschreibbar sein. Ohne SMTP können `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` und `MAIL_ENCRYPTION` ausdrücklich leer gespeichert werden. Mit SMTP muss der Port angegeben werden; es wird weder ein Port noch eine Verschlüsselung automatisch ergänzt.
+Die Anwendung liest die aktive `.env` aus `www/config/.env`. Es gibt keine automatischen Anwendungsvorgaben: Fehlen erforderliche Angaben, startet der Einrichtungsassistent. Er erfasst Anwendungsumgebung (`APP_ENV`), URL, Absender, optionale Reply-To-Adresse sowie die Datenbankverbindung und speichert die geprüften Einstellungen dort. Das Verzeichnis `www/config/` muss dafür vom PHP-Prozess beschreibbar sein. Der Versand erfolgt mit PHP `mail()`; PHPMailer erzeugt weiterhin sichere Header sowie HTML- und Text-Versionen der Nachrichten. Der Hoster muss `mail()` und einen funktionierenden Maildienst bereitstellen. Bisherige Werte für `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` und `MAIL_ENCRYPTION` bleiben lesbar, werden aber nicht mehr verwendet und sind nicht mehr erforderlich.
 
 Nur die lokale Entwicklungsumgebung auf `8100` ergänzt fehlende Werte durch Docker-Compose-Vorgaben; die `.env` im Projektstamm kann diese überschreiben (Vorlage: `.env.example`). Die Anwendung selbst und das Dockerfile enthalten keine Konfigurationsvorgaben. Auf `8200` und beim Webhoster werden alle Anwendungseinstellungen ausdrücklich im Assistenten oder in `www/config/.env` gesetzt. Gespeicherte Assistenten-Einstellungen haben Vorrang vor Prozessvariablen, danach folgen `www/config/.env` und die optionale `www/config/hosting.php`. Eine Produktionsumgebung ohne `www/config/.env` startet ebenfalls den Assistenten.
 
@@ -102,10 +102,8 @@ Nur die lokale Entwicklungsumgebung auf `8100` ergänzt fehlende Werte durch Doc
 | `DB_HOST`, `DB_PORT` | Datenbankserver und Port |
 | `DB_NAME` | Explizit festzulegender Datenbankname |
 | `DB_USER`, `DB_PASSWORD` | Zugangsdaten eines eingeschränkten Datenbankbenutzers |
-| `MAIL_HOST`, `MAIL_PORT` | SMTP-Server und Port |
-| `MAIL_USERNAME`, `MAIL_PASSWORD` | SMTP-Zugangsdaten, falls erforderlich |
-| `MAIL_ENCRYPTION` | `tls`, `ssl` oder leer |
 | `MAIL_FROM`, `MAIL_FROM_NAME` | Absenderadresse und Anzeigename |
+| `MAIL_REPLY_TO` | Optionale Antwortadresse (Reply-To); leer oder nicht gesetzt: Antworten gehen an die Absenderadresse |
 
 Vor dem Upload der Anwendung können Frontend-Dateien lokal erzeugt werden:
 
@@ -126,13 +124,13 @@ bash scripts/deploy-infinityfree.sh
 
 Er führt durch Datenbankeinrichtung, Upload und phpMyAdmin-Import. Zugangsdaten werden lokal erfasst; FTP-Zugangsdaten gehören ausschließlich in FileZilla. Teile sie nicht im Chat und lade die lokale Datei `.infinityfree-deploy/.deploy-state` niemals hoch.
 
-Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose Hosting-Datenbank lässt keine Verbindungen von deinem lokalen Rechner zu; importiere `www/database/install.sql` und danach `www/database/seed_resources.sql` über phpMyAdmin. E-Mails benötigen einen externen SMTP-Anbieter; ohne SMTP-Konfiguration funktionieren Einladungen und Passwort-Reset nicht.
+Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose Hosting-Datenbank lässt keine Verbindungen von deinem lokalen Rechner zu; importiere `www/database/install.sql` und danach `www/database/seed_resources.sql` über phpMyAdmin. Prüfe vorab, ob dein Hosting-Tarif PHP `mail()` und die gewählte Absenderadresse erlaubt. Ohne funktionierenden PHP-Mailversand stehen Einladungen und Passwort-Reset per E-Mail nicht zur Verfügung.
 
 ## Datenbankinstallation
 
 `www/database/install.sql` enthält das vollständige Schema einschließlich der Ressourcenkategorien-Tabelle mit den Kategorien „Platz“, „Fahrzeug“ und „Kabine“. `www/database/seed_resources.sql` fügt anschließend die Startressourcen ein. Der Web-Assistent kann diese Skripte beim ersten Einrichten ausführen. Bei vorhandenen Tabellen ergänzt die Option „Daten behalten“ fehlende Tabellen und Standardressourcen und aktualisiert das Buchungskategorieschema additiv, ohne Anwendungstabellen zu löschen. Die Option „Anwendungstabellen neu anlegen“ löscht alle Benutzer, Buchungen und Ressourcen in den Anwendungstabellen und ist nur mit einer zusätzlichen Bestätigung verfügbar; andere, nicht zur Anwendung gehörende Datenbanktabellen werden nicht gelöscht.
 
-Alternativ zum Web-Assistenten können für eine neue lokale oder gehostete Datenbank zuerst `www/database/install.sql` und danach `www/database/seed_resources.sql` manuell ausgeführt werden. Beim Start wird ein unvollständiges Anwendungsschema erkannt und nicht automatisch verändert. Im Einrichtungsassistenten ergänzt „Daten behalten“ fehlende Tabellen und Schemaänderungen; nach ausdrücklicher Bestätigung können stattdessen alle Anwendungstabellen gelöscht und mit dem aktuellen Schema neu angelegt werden. Eine separate Sammlung von Migrationsskripten gibt es nicht; additive Schemaänderungen sind im Installationsskript enthalten.
+Alternativ zum Web-Assistenten können für eine neue lokale oder gehostete Datenbank zuerst `www/database/install.sql` und danach `www/database/seed_resources.sql` manuell ausgeführt werden. Die Buchungskategorie „Extern“ wird bereits im Installationsskript mit diesem Namen angelegt; bestehende Kategorienamen werden nicht nachträglich umbenannt. Beim Start wird ein unvollständiges Anwendungsschema erkannt und nicht automatisch verändert. Im Einrichtungsassistenten ergänzt „Daten behalten“ fehlende Tabellen und Schemaänderungen; nach ausdrücklicher Bestätigung können stattdessen alle Anwendungstabellen gelöscht und mit dem aktuellen Schema neu angelegt werden. Eine separate Sammlung von Migrationsskripten gibt es nicht; additive Schemaänderungen sind im Installationsskript enthalten.
 
 ## Checks
 
@@ -144,14 +142,14 @@ Die Ersteinrichtung und beide Datenbankoptionen in einer eigens angelegten Testd
 
 Der Test löscht ausschließlich die Datenbank `vflbuchung_setup_test` und entfernt sie danach wieder. Die Anwendungsdatenbank bleibt unverändert.
 
-Fehlgeschlagene Verbindungsprüfungen, erhaltene Setup-Eingaben und die SMTP-Anmeldung prüfen:
+Fehlgeschlagene Verbindungsprüfungen, erhaltene Setup-Eingaben und den PHP-Mailversand prüfen:
 
 ```powershell
 php .\tests\database-connection-setup.php
 php .\tests\mail-setup.php
 ```
 
-Der Mail-Test benötigt eine erreichbare konfigurierte Datenbank (nur Verbindungsprüfung, keine Datenänderungen) und startet einen temporären lokalen SMTP-Testserver. Er prüft Anmeldung, falsche Zugangsdaten, Verschlüsselung und die erneute SMTP-Prüfung vor dem Speichern, ohne E-Mails zu versenden oder Einstellungen zu überschreiben.
+Der Mail-Test läuft unter Linux (z. B. im Webcontainer) und verwendet einen temporären `sendmail_path` für echte PHP-`mail()`-Aufrufe. Er prüft MIME-Inhalte, Reply-To, Versandfehler, deaktiviertes `mail()` und den Testversand im Setup, ohne E-Mails an externe Empfänger zu versenden oder Einstellungen zu überschreiben.
 
 Den Buchungsdialog und die rollenabhängigen Kategorien prüfen:
 

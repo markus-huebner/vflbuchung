@@ -6,7 +6,7 @@ RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoload
 
 FROM php:8.2-apache
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libonig-dev \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libonig-dev msmtp \
     && docker-php-ext-install mbstring mysqli pdo_mysql \
     && apt-get purge -y --auto-remove libonig-dev \
     && rm -rf /var/lib/apt/lists/* \
