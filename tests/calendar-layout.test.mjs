@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import {
   DEFAULT_DAY_END_HOUR,
   DEFAULT_DAY_START_HOUR,
@@ -42,7 +43,20 @@ test('vehicle bookings use a lighter violet with readable dark text in cards and
   assert.match(calendarCss, /--booking-bus:\s*#9e66d6/);
   assert.match(calendarCss, /\.booking-bus\s*\{[^}]*--event-text-color:\s*#000000/);
   assert.match(calendarJs, /event\.event_type_color \|\| typeInfo\?\.color_hex \|\| '#9e66d6'/);
-  assert.match(views, /'name' => 'Fahrzeug',\s*'color_hex' => BookingTypeService::palette\(\)\['violet-light'\]\['hex'\]/);
+  assert.match(views, /foreach \(\$resources as \$resource\)[\s\S]*?\(\$resource\['type'\] \?\? ''\) !== 'bus'/);
+  assert.match(views, /Security::escape\(\(string\) \$resource\['name'\]\)/);
+  assert.match(views, /data-calendar-legend="bus" hidden/);
+  assert.match(calendarJs, /legend\.hidden = legend\.dataset\.calendarLegend !== state\.resourceType/);
+});
+
+test('both calendar legends explain recurring bookings without a request entry', () => {
+  const legend = views.slice(views.indexOf('<div class="calendar-legend">'), views.indexOf("' . $dashboardResizer"));
+  assert.match(legend, /data-calendar-legend="pitch"/);
+  assert.match(legend, /data-calendar-legend="bus"/);
+  assert.match(legend, /<span class="legend-recurring"><span aria-hidden="true">↻<\/span> Regeltermin<\/span>/);
+  assert.doesNotMatch(legend, /Anfrage|pending/);
+  assert.match(calendarCss, /\.calendar-legend\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(calendarCss, /\.legend-recurring\s*\{[^}]*white-space:\s*nowrap/s);
 });
 
 test('calendar scroll surfaces reserve horizontal touch gestures for swipe navigation', () => {
@@ -50,17 +64,56 @@ test('calendar scroll surfaces reserve horizontal touch gestures for swipe navig
   assert.ok(rule, 'day and week scroll surfaces need a shared touch-action rule');
   assert.match(rule[1], /touch-action:\s*pan-y\s*;/);
   assert.match(rule[1], /overflow:\s*auto\s*;/);
-  assert.match(rule[1], /height:\s*max\(8rem,\s*calc\(100dvh\s*-\s*12rem\)\)/);
+  assert.match(rule[1], /height:\s*var\(--calendar-scroll-height,\s*max\(8rem,\s*calc\(100dvh\s*-\s*12rem\)\)\)/);
   assert.match(rule[1], /overscroll-behavior-y:\s*auto/);
+  assert.match(calendarCss, /\.calendar-frame\s*\{[^}]*touch-action:\s*pan-x pan-y/);
+  assert.match(calendarCss, /\.resource-day-scroll\.has-horizontal-overflow\s*\{[^}]*touch-action:\s*pan-x pan-y/);
+  assert.match(calendarJs, /target\.classList\.toggle\('has-horizontal-overflow', target\.scrollWidth > target\.clientWidth\)/);
 
   const mobileRule = calendarCss.match(/@media \(max-width:\s*700px\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(mobileRule);
-  assert.match(mobileRule[1], /height:\s*max\(8rem,\s*calc\(100dvh\s*-\s*13rem\)\)/);
+  assert.match(mobileRule[1], /height:\s*var\(--calendar-scroll-height,\s*max\(8rem,\s*calc\(100dvh\s*-\s*13rem\)\)\)/);
   assert.match(views, /<\/div>\s*<div class="calendar-legend">/);
-  assert.match(calendarCss, /\.calendar-legend\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(calendarCss, /\.calendar-legend-items\s*\{[^}]*flex-wrap:\s*wrap/s);
+});
+
+test('calendar height uses actual legend size and stays stable when the page is scrolled', () => {
+  const source = calendarJs.slice(
+    calendarJs.indexOf('function fitCalendarViewport()'),
+    calendarJs.indexOf('function initCalendarViewportResize()'),
+  );
+  for (const [legendHeight, scrollY, expected] of [[40, 0, 698], [80, 0, 658], [20, 0, 718], [40, 200, 698]]) {
+    let result;
+    const root = {};
+    const shell = {};
+    const legend = { getBoundingClientRect: () => ({ height: legendHeight }) };
+    const frame = {
+      querySelector: () => legend,
+      closest: () => shell,
+      getBoundingClientRect: () => ({ top: 140 - scrollY }),
+      style: { setProperty: (name, value) => { result = [name, value]; } },
+    };
+    runInNewContext(`${source}\nfitCalendarViewport();`, {
+      document: { documentElement: root, querySelector: () => frame },
+      window: {
+        innerHeight: 900,
+        scrollY,
+        getComputedStyle: element => element === root ? { fontSize: '16px' }
+          : element === shell ? { paddingBottom: '20px' }
+          : { borderTopWidth: '1px', borderBottomWidth: '1px' },
+      },
+    });
+    assert.deepEqual(result, ['--calendar-scroll-height', `${expected}px`]);
+  }
 });
 
 test('calendar rows expand to use available viewport height', () => {
+  assert.match(calendarCss, /height:\s*var\(--calendar-scroll-height,/);
+  assert.match(calendarJs, /window\.innerHeight - \(frame\.getBoundingClientRect\(\)\.top \+ window\.scrollY\)/);
+  assert.match(calendarJs, /legend\?\.getBoundingClientRect\(\)\.height/);
+  assert.match(calendarJs, /- borders - bottomPadding/);
+  assert.match(calendarJs, /new ResizeObserver\(scheduleResize\)/);
+  assert.match(calendarJs, /observer\.observe\(frame\)/);
   assert.match(calendarJs, /target\.clientHeight - headingHeight - 4/);
   assert.match(calendarJs, /renderResourceDay\(fittedHourHeight\)/);
   assert.match(calendarJs, /target\.clientHeight - head\.offsetHeight - 4/);
@@ -106,25 +159,41 @@ test('week calendar uses fixed, equally sized day columns', () => {
   assert.match(calendarCss, /\.resource-week-table \.resource-week-resource-column\s*\{[^}]*width:\s*150px;/s);
 });
 
-test('day calendar columns share available width without imposing horizontal scrolling', () => {
+test('day calendar columns share available width without shrinking below their headings', () => {
   const rule = calendarCss.match(/\.resource-day-grid\s*\{([^}]+)\}/);
   assert.ok(rule, 'day calendar needs an explicit grid layout rule');
-  assert.match(rule[1], /grid-template-columns:\s*var\(--axis-width\)\s*repeat\(var\(--resource-count\),\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(rule[1], /width:\s*100%/);
+  assert.match(rule[1], /grid-template-columns:\s*var\(--axis-width\)\s*repeat\(var\(--resource-count\),\s*minmax\(max-content,\s*1fr\)\)/);
   assert.match(rule[1], /min-width:\s*0/);
-  assert.match(calendarJs, /repeat\(\$\{Math\.max\(1,\s*resources\.length\)\},\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(calendarJs, /grid\.style\.gridTemplateColumns/);
   assert.doesNotMatch(calendarJs, /grid\.style\.minWidth/);
 });
 
-test('day calendar keeps the time axis narrow and wraps resource headings without shifting the grid', () => {
+test('day calendar headings stay on one line with pitch suffixes below', () => {
   assert.match(calendarCss, /\.resource-day-grid\s*\{[^}]*--axis-width:\s*40px/s);
   const headingRule = calendarCss.match(/\.resource-column-heading\s*\{([^}]+)\}/);
   assert.ok(headingRule);
-  assert.match(headingRule[1], /white-space:\s*normal/);
-  assert.match(headingRule[1], /overflow-wrap:\s*anywhere/);
+  assert.match(headingRule[1], /white-space:\s*nowrap/);
+  assert.doesNotMatch(headingRule[1], /overflow-wrap:\s*anywhere/);
   assert.match(headingRule[1], /height:\s*var\(--resource-heading-height,\s*auto\)/);
-  assert.match(headingRule[1], /align-items:\s*flex-start/);
+  assert.match(headingRule[1], /flex-direction:\s*column/);
+  assert.match(headingRule[1], /align-items:\s*center/);
+  assert.match(headingRule[1], /justify-content:\s*flex-start/);
+  assert.match(calendarCss, /\.resource-heading-line\s*\{[^}]*white-space:\s*nowrap/);
+  assert.match(calendarJs, /resource\.name\.match\(\/\^\(Platz\\s\+\\d\+\)\(\?:\\s\+\(\.\+\)\)\?\$\/u\)/);
+  assert.match(calendarJs, /line\.textContent = text/);
+  assert.match(calendarJs, /heading\.textContent = resource\.name/);
   assert.match(calendarCss, /\.resource-week-table\.table > thead > tr > th\s*\{[^}]*vertical-align:\s*top/s);
-  assert.match(calendarCss, /\.resource-time-axis\s*\{[^}]*padding-top:\s*var\(--resource-heading-height,\s*24px\)/s);
+  const timeAxisRule = calendarCss.match(/\.resource-time-axis\s*\{([^}]+)\}/);
+  assert.ok(timeAxisRule);
+  assert.match(timeAxisRule[1], /position:\s*sticky/);
+  assert.match(timeAxisRule[1], /left:\s*0/);
+  const timeAxisHeadingRule = calendarCss.match(/\.resource-time-axis-heading\s*\{([^}]+)\}/);
+  assert.ok(timeAxisHeadingRule);
+  assert.match(timeAxisHeadingRule[1], /position:\s*sticky/);
+  assert.match(timeAxisHeadingRule[1], /top:\s*0/);
+  assert.match(timeAxisHeadingRule[1], /height:\s*var\(--resource-heading-height,\s*24px\)/);
+  assert.match(calendarJs, /axisHeading\.className = 'resource-time-axis-heading'/);
   assert.match(calendarJs, /const headingHeight = Math\.max\(/);
   assert.match(calendarJs, /\[\.\.\.grid\.querySelectorAll\('\.resource-column-heading'\)\]\.map\(heading => heading\.offsetHeight\)/);
   assert.match(calendarJs, /grid\.style\.setProperty\('--resource-heading-height', `\$\{headingHeight\}px`\)/);

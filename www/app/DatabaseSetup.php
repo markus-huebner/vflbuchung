@@ -126,6 +126,22 @@ final class DatabaseSetup
                 );
             }
         }
+
+        if ($this->hasTable('booking_occurrences')) {
+            foreach (['source_key', 'destination', 'purpose', 'driver_name'] as $column) {
+                if (!$this->hasColumn('booking_occurrences', $column)) {
+                    continue;
+                }
+                try {
+                    $this->pdo->exec('ALTER TABLE booking_occurrences DROP COLUMN `' . $column . '`');
+                } catch (PDOException $exception) {
+                    if (($exception->errorInfo[1] ?? null) !== 1091
+                        || $this->hasColumn('booking_occurrences', $column)) {
+                        throw $exception;
+                    }
+                }
+            }
+        }
     }
 
     public function initialize(bool $recreate): void

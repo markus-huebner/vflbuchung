@@ -33,13 +33,13 @@ Die Diagramme in dieser Anleitung sind **schematische Darstellungen**. Die Scree
 | Verwalter | Buchungen direkt anlegen, Anfragen prüfen, genehmigen oder ablehnen und bestätigte Buchungen bearbeiten oder löschen. |
 | Admin | Alle Verwalterfunktionen sowie Benutzer und Ressourcen verwalten. |
 
-Die öffentliche Ansicht zeigt keine internen Notizen oder Fahrernamen. Diese Angaben sind Verwaltern und Admins vorbehalten.
+Die öffentliche Ansicht zeigt keine internen Notizen. Diese Angaben sind Verwaltern und Admins vorbehalten.
 
 ### Öffentliche Ansicht (ohne Anmeldung)
 
 Der Belegungsplan kann ohne Benutzerkonto geöffnet werden. Öffentliche Besucher können zwischen **Platzbelegung** und **Fahrzeugkalender** wechseln, den Zeitraum und die Tages- oder Wochenansicht auswählen und Kalendereinträge anklicken, um deren Details anzusehen.
 
-Im Kalender erscheinen bestätigte Buchungen und offene Anfragen. Offene Anfragen sind als **Anfrage** gekennzeichnet und heller dargestellt. In den Details werden öffentliche Angaben wie **Gebuchte Plätze**, Kategorie und Zeitraum angezeigt; bei Fahrzeugbuchungen können auch Ziel und Zweck sichtbar sein. Ein separates Feld „Ressource“ entfällt. Fahrernamen und interne Notizen bleiben verborgen.
+Im Kalender erscheinen bestätigte Buchungen und offene Anfragen. Offene Anfragen sind als **Anfrage** gekennzeichnet und heller dargestellt, erhalten aber keinen Legendeneintrag. Die Legende erklärt die Buchungskategorien bzw. Fahrzeuge sowie das Symbol **↻ Regeltermin**. Der Kalender nutzt die verbleibende Fensterhöhe bis zum unteren Seitenabstand; eine kleinere oder umgebrochene Legende wird dabei automatisch berücksichtigt. In den Details werden öffentliche Angaben wie **Gebuchte Plätze**, Kategorie und Zeitraum angezeigt. Ein separates Feld „Ressource“ entfällt. Interne Notizen bleiben verborgen.
 
 Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübersicht und keine Möglichkeit, Buchungen anzulegen, zu ändern, freizugeben oder zu löschen. Dafür ist eine Anmeldung mit den passenden Berechtigungen erforderlich.
 
@@ -58,6 +58,7 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 - Mit den Pfeilen oder einer horizontalen Wischgeste im Kalender wechselst du zum vorherigen oder nächsten Zeitraum. In der Tagesansicht wechselst du dabei um einen Tag, in der Wochenansicht um eine Woche. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - Das Datumsfeld ist kompakt, behält für Tages- und Wochenwerte dieselbe Breite und ist genauso hoch wie die benachbarten Pfeilbuttons.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
+- Im Tagesplan bleibt „Platz 5“ einzeilig lesbar. Zusätze wie „Süd“, „West“ oder „Nord“ stehen in einer zweiten Überschriftszeile. Auf schmalen Bildschirmen lässt sich der Tagesplan bei Bedarf horizontal scrollen. Eine neue Wischgeste am rechten Scrollrand nach links wechselt zum nächsten Tag; am linken Scrollrand nach rechts zum vorherigen Tag. Eine Geste, die erst beim Scrollen den Rand erreicht, wechselt noch nicht den Tag.
 - Der Schalter **Ganzen Tag anzeigen** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 09:00 bis 21:00 Uhr. Die Stundenzeilen sind für eine kompaktere Darstellung um 20 % verkleinert.
 - Ein Klick auf einen Kalendereintrag öffnet die Details. Dort siehst du unter anderem Kategorie, Ressourcen, Beginn, Ende, Wiederholung und – falls vorhanden – zugeordnete Kabinen.
 
@@ -101,7 +102,7 @@ Als Trainer prüfst du im Dialog Kategorie, Mannschaft oder Hinweis, Datum, Uhrz
 
 ### 4.2 Angaben bei einer Fahrzeugbuchung
 
-Wähle das Fahrzeug und gib die erforderlichen Buchungsangaben ein, darunter **Mannschaft / Hinweis**, Zeitraum, Ziel, Zweck und Fahrer. Mehrtägige Fahrzeugbuchungen sind möglich. Fahrernamen und interne Notizen sind nur für Verwalter und Admins sichtbar.
+Wähle das Fahrzeug und gib **Mannschaft / Hinweis** und den Zeitraum ein. Die bisherigen Felder Ziel, Zweck und Fahrer entfallen. Interne Notizen sind nur für Verwalter und Admins sichtbar.
 
 ### 4.3 Wiederholungen
 
@@ -186,5 +187,5 @@ Kabinen können nur Verwalter und Admins einer Platzbuchung zuordnen. Traineranf
 **Verhindert der Kalender Überschneidungen?**  
 Nein. Zeitliche Überschneidungen sind möglich. Prüfe daher vor dem Speichern die Belegung und die ausgewählten Ressourcen.
 
-**Wer sieht interne Notizen und Fahrernamen?**  
+**Wer sieht interne Notizen?**
 Nur Verwalter und Admins. Öffentliche Kalenderansichten geben diese Angaben nicht aus.

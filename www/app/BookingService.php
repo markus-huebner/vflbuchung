@@ -62,11 +62,11 @@ final class BookingService
             $insertOccurrence = $this->pdo->prepare(
                 'INSERT INTO booking_occurrences
                     (group_id, occurrence_no, event_type, title, team_name,
-                     destination, purpose, driver_name, private_notes,
+                     private_notes,
                      starts_at, ends_at, status)
                  VALUES
                     (:group_id, :occurrence_no, :event_type, :title, :team_name,
-                     :destination, :purpose, :driver_name, :private_notes,
+                     :private_notes,
                      :starts_at, :ends_at, :status)'
             );
             $insertAssignment = $this->pdo->prepare(
@@ -141,17 +141,17 @@ final class BookingService
                 JOIN resources r2 ON r2.id = a2.resource_id
                 WHERE a2.occurrence_id = o.id AND a2.status IN ('confirmed', 'pending')) AS resource_names";
         $privateFields = $includePrivate
-            ? ", o.driver_name, o.private_notes,
+            ? ", o.private_notes,
                (SELECT GROUP_CONCAT(bca.cabin_id ORDER BY c.name)
                 FROM booking_cabin_assignments bca
                 JOIN resources c ON c.id = bca.cabin_id
                 WHERE bca.occurrence_id = o.id) AS cabin_ids_raw"
-            : ', NULL AS driver_name, NULL AS private_notes, NULL AS cabin_ids_raw';
+            : ', NULL AS private_notes, NULL AS cabin_ids_raw';
         if ($resourceType === 'cabin') {
             $sql = "SELECT a.id AS assignment_id, o.id AS occurrence_id, g.id AS group_id,
                            r.id AS resource_id, r.name AS resource_name, rc.code AS resource_type,
                            o.event_type, o.title, o.team_name,
-                           o.destination, o.purpose, o.starts_at, o.ends_at{$detailFields}{$privateFields},
+                           o.starts_at, o.ends_at{$detailFields}{$privateFields},
                            NULL AS parent_resource_name, NULL AS cabin_id, 0 AS is_attached_cabin,
                            NULL AS cabins
                     FROM booking_resource_assignments a
@@ -165,7 +165,7 @@ final class BookingService
                     SELECT a.id AS assignment_id, o.id AS occurrence_id, g.id AS group_id,
                            c.id AS resource_id, c.name AS resource_name, cc.code AS resource_type,
                            o.event_type, o.title, o.team_name,
-                           o.destination, o.purpose, o.starts_at, o.ends_at{$detailFields}{$privateFields},
+                           o.starts_at, o.ends_at{$detailFields}{$privateFields},
                            NULL AS parent_resource_name, c.id AS cabin_id, 1 AS is_attached_cabin,
                            c.name AS cabins
                     FROM booking_cabin_assignments bca
@@ -198,7 +198,7 @@ final class BookingService
                 "SELECT a.id AS assignment_id, o.id AS occurrence_id, g.id AS group_id,
                         r.id AS resource_id, r.name AS resource_name, rc.code AS resource_type,
                         o.event_type, o.title, o.team_name,
-                        o.destination, o.purpose, o.starts_at, o.ends_at{$detailFields}{$privateFields},
+                        o.starts_at, o.ends_at{$detailFields}{$privateFields},
                         NULL AS parent_resource_name, NULL AS cabin_id, 0 AS is_attached_cabin,
                         (SELECT GROUP_CONCAT(c.name ORDER BY c.name SEPARATOR ', ')
                          FROM booking_cabin_assignments bca
@@ -297,8 +297,7 @@ final class BookingService
                     CASE WHEN SUM(a.status = 'pending') > 0 THEN 'pending' ELSE MIN(o.status) END AS assignment_status,
                     MIN(o.status) AS occurrence_status,
                     MIN(o.event_type) AS event_type, MIN(o.title) AS title, MIN(o.team_name) AS team_name,
-                    MIN(o.destination) AS destination, MIN(o.purpose) AS purpose,
-                    MIN(o.driver_name) AS driver_name, MIN(o.private_notes) AS private_notes,
+                    MIN(o.private_notes) AS private_notes,
                     MIN(o.starts_at) AS starts_at, MAX(o.ends_at) AS ends_at,
                     MIN(o.rejection_reason) AS rejection_reason,
                     MAX(CASE WHEN {$groupConfirmedSeries} THEN 1 ELSE 0 END) AS is_series_summary,
@@ -807,9 +806,6 @@ final class BookingService
             'resources' => array_merge($assigned, $assignedCabins),
             'title' => $row['title'],
             'team_name' => $row['team_name'],
-            'destination' => $row['destination'],
-            'purpose' => $row['purpose'],
-            'driver_name' => $row['driver_name'],
             'private_notes' => $row['private_notes'],
             'start' => Recurrence::fromDatabase($row['starts_at'])->setTimezone($zone)->format(DATE_ATOM),
             'end' => Recurrence::fromDatabase($row['ends_at'])->setTimezone($zone)->format(DATE_ATOM),
@@ -865,9 +861,6 @@ final class BookingService
             'resources' => $assigned,
             'title' => $row['title'],
             'team_name' => $row['team_name'],
-            'destination' => $row['destination'],
-            'purpose' => $row['purpose'],
-            'driver_name' => $row['driver_name'],
             'private_notes' => $row['private_notes'],
             'start' => Recurrence::fromDatabase($row['starts_at'])->setTimezone($zone)->format(DATE_ATOM),
             'end' => Recurrence::fromDatabase($row['ends_at'])->setTimezone($zone)->format(DATE_ATOM),
@@ -987,16 +980,15 @@ final class BookingService
                 'UPDATE booking_occurrences
                  SET starts_at = :starts_at, ends_at = :ends_at,
                      event_type = :event_type, title = :title, team_name = :team_name,
-                     destination = :destination, purpose = :purpose, driver_name = :driver_name,
                      private_notes = :private_notes
                  WHERE id = :id'
             );
             $insert = $this->pdo->prepare(
                 "INSERT INTO booking_occurrences
-                    (group_id, occurrence_no, event_type, title, team_name, destination, purpose,
-                     driver_name, private_notes, starts_at, ends_at, status)
-                 VALUES (:group_id, :occurrence_no, :event_type, :title, :team_name, :destination, :purpose,
-                         :driver_name, :private_notes, :starts_at, :ends_at, :status)"
+                    (group_id, occurrence_no, event_type, title, team_name,
+                     private_notes, starts_at, ends_at, status)
+                 VALUES (:group_id, :occurrence_no, :event_type, :title, :team_name,
+                        :private_notes, :starts_at, :ends_at, :status)"
             );
             $maximum = $this->pdo->prepare(
                 'SELECT COALESCE(MAX(occurrence_no), -1) FROM booking_occurrences WHERE group_id = :id'
@@ -1174,9 +1166,6 @@ final class BookingService
             'team_name' => in_array($eventType, ['training', 'match'], true)
                 ? $this->optionalText($data['team_name'] ?? null, 120)
                 : null,
-            'destination' => $eventType === 'bus' ? $this->optionalText($data['destination'] ?? null, 180) : null,
-            'purpose' => $eventType === 'bus' ? $this->optionalText($data['purpose'] ?? null, 180) : null,
-            'driver_name' => $eventType === 'bus' ? $this->optionalText($data['driver_name'] ?? null, 120) : null,
             'private_notes' => $this->optionalText($data['private_notes'] ?? null, 4000),
         ];
     }
@@ -1418,7 +1407,10 @@ final class BookingService
     private function occurrenceDetails(int $occurrenceId, bool $forUpdate = false): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT o.*, g.recurrence_rule, g.requested_by,
+            'SELECT o.id, o.group_id, o.occurrence_no, o.event_type, o.title, o.team_name,
+                    o.private_notes, o.starts_at, o.ends_at,
+                    o.status, o.rejection_reason, o.created_at, o.updated_at,
+                    g.recurrence_rule, g.requested_by,
                     u.email AS requester_email,
                     TRIM(CONCAT(u.first_name, \' \', u.last_name)) AS requester_name
              FROM booking_occurrences o
@@ -1536,8 +1528,7 @@ final class BookingService
     private function requestNotificationDetails(int $occurrenceId): ?array
     {
         $statement = $this->pdo->prepare(
-            "SELECT o.id, o.event_type, o.title, o.team_name, o.destination, o.purpose,
-                    o.driver_name, o.starts_at, o.ends_at,
+            "SELECT o.id, o.event_type, o.title, o.team_name, o.starts_at, o.ends_at,
                     COALESCE(bt.name, 'Buchung') AS type_name,
                     TRIM(CONCAT(requester.first_name, ' ', requester.last_name)) AS requester_name,
                     requester.id AS requester_id,
@@ -1550,8 +1541,8 @@ final class BookingService
              LEFT JOIN booking_resource_assignments a ON a.occurrence_id = o.id
              LEFT JOIN resources r ON r.id = a.resource_id
              WHERE o.id = :id
-             GROUP BY o.id, o.event_type, o.title, o.team_name, o.destination, o.purpose,
-                      o.driver_name, o.starts_at, o.ends_at, bt.name, requester.id, requester.first_name,
+             GROUP BY o.id, o.event_type, o.title, o.team_name,
+                      o.starts_at, o.ends_at, bt.name, requester.id, requester.first_name,
                       requester.last_name, requester.email"
         );
         $statement->execute(['id' => $occurrenceId]);
@@ -1572,9 +1563,6 @@ final class BookingService
             ['Termin', $dateLabel],
             ['Ressource', trim((string) ($details['resource_names'] ?? '')) ?: 'Keine Ressource angegeben'],
             ['Mannschaft', trim((string) ($details['team_name'] ?? ''))],
-            ['Ziel', trim((string) ($details['destination'] ?? ''))],
-            ['Zweck', trim((string) ($details['purpose'] ?? ''))],
-            ['Fahrer', trim((string) ($details['driver_name'] ?? ''))],
         ];
         $htmlRows = '';
         $textLines = [];
@@ -1851,9 +1839,6 @@ final class BookingService
 
     private static function publicTitle(array $row): string
     {
-        if ($row['event_type'] === 'bus' && $row['purpose'] !== null && $row['purpose'] !== '') {
-            return $row['purpose'];
-        }
         return trim((string) ($row['title'] ?? ''));
     }
 }

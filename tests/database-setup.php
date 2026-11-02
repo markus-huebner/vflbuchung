@@ -55,6 +55,8 @@ if ($scenario !== '') {
         echo json_encode([
             'admin_count' => (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn(),
             'logged_in' => isset($_SESSION['user_id']),
+            'booking_count' => (int) $pdo->query('SELECT COUNT(*) FROM booking_occurrences')->fetchColumn(),
+            'flash_type' => $_SESSION['_flash']['type'] ?? null,
         ], JSON_THROW_ON_ERROR);
         session_destroy();
     });
@@ -118,9 +120,15 @@ $status = $setup->status();
 if (!$status['schema_complete']) {
     throw new RuntimeException('The setup did not create the complete application schema.');
 }
+foreach (['source_key', 'destination', 'purpose', 'driver_name'] as $column) {
+    if ($pdo->query("SHOW COLUMNS FROM booking_occurrences LIKE '$column'")->fetch() !== false) {
+        throw new RuntimeException("The removed column $column must not exist in new installations.");
+    }
+}
 $setupPage = App\Views::setup('csrf-test', '', $status, true);
 if (!str_contains($setupPage, 'id="setup-recreate"')
     || !str_contains($setupPage, 'setup-confirm-recreate')
+    || str_contains($setupPage, 'seed_example_bookings')
     || !str_contains($setupPage, 'Das aktuelle Datenbankschema wurde erkannt')
     || str_contains($setupPage, 'Setup-Schlüssel')) {
     throw new RuntimeException('A current database must offer an explicit rebuild without a setup-key prompt.');
@@ -157,10 +165,37 @@ if ((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'password-mis
     throw new RuntimeException('Mismatched passwords must be rejected before deleting existing data.');
 }
 $adminResult = $runScenario('--create-admin');
-if ($adminResult !== ['admin_count' => 1, 'logged_in' => true]) {
-    throw new RuntimeException('Matching passwords must create and sign in the first administrator.');
+if ($adminResult !== ['admin_count' => 1, 'logged_in' => true, 'booking_count' => 0, 'flash_type' => 'success']) {
+    throw new RuntimeException('The setup must create the first administrator without importing example bookings.');
 }
 session_destroy();
+
+$pdo->exec("INSERT INTO booking_groups (created_by) SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+$groupId = (int) $pdo->lastInsertId();
+$pdo->exec("INSERT INTO booking_occurrences (group_id, event_type, title, private_notes, starts_at, ends_at, status)
+    VALUES ($groupId, 'bus', 'Migration booking', 'Retained note', '2026-11-02 12:00', '2026-11-02 13:00', 'confirmed')");
+$occurrenceId = (int) $pdo->lastInsertId();
+$beforeMigration = $pdo->query("SELECT * FROM booking_occurrences WHERE id = $occurrenceId")->fetch();
+$pdo->exec('ALTER TABLE booking_occurrences
+    ADD COLUMN source_key VARCHAR(180) NULL,
+    ADD UNIQUE KEY uq_booking_occurrences_source_key (source_key),
+    ADD COLUMN destination VARCHAR(180) NULL,
+    ADD COLUMN purpose VARCHAR(180) NULL,
+    ADD COLUMN driver_name VARCHAR(120) NULL');
+$pdo->exec("UPDATE booking_occurrences SET source_key = 'legacy-example', destination = 'Destination',
+    purpose = 'Purpose', driver_name = 'Driver' WHERE id = $occurrenceId");
+$setup->migrate();
+$setup->migrate();
+foreach (['source_key', 'destination', 'purpose', 'driver_name'] as $column) {
+    if ($pdo->query("SHOW COLUMNS FROM booking_occurrences LIKE '$column'")->fetch() !== false) {
+        throw new RuntimeException("Migration did not remove $column.");
+    }
+}
+$afterMigration = $pdo->query("SELECT * FROM booking_occurrences WHERE id = $occurrenceId")->fetch();
+unset($beforeMigration['updated_at'], $afterMigration['updated_at']);
+if ($beforeMigration !== $afterMigration) {
+    throw new RuntimeException('Removing legacy fields must preserve bookings and internal notes.');
+}
 
 $pdo->exec("UPDATE booking_types SET name = 'Training angepasst', color = 'purple' WHERE code = 'training'");
 $pdo->exec("DELETE FROM app_settings WHERE setting_key = 'external_booking_type_renamed'");

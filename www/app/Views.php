@@ -136,18 +136,20 @@ final class Views
 
         $bookingDialog = $user === null ? '' : self::bookingDialog($user, $csrf, $eventTypes);
         $detailsDialog = self::eventDialog($user, $csrf);
-        $legendTypes = $activeTypes;
-        $legendTypes[] = [
-            'name' => 'Fahrzeug',
-            'color_hex' => BookingTypeService::palette()['violet-light']['hex'],
-        ];
         $bookingLegend = '';
-        $pendingLegend = '';
-        foreach ($legendTypes as $type) {
+        foreach ($activeTypes as $type) {
             $color = Security::escape((string) ($type['color_hex'] ?? BookingTypeService::palette()['black-light']['hex']));
             $bookingLegend .= '<span class="legend-item" style="--legend-color:' . $color . '">'
                 . Security::escape((string) $type['name']) . '</span>';
-            $pendingLegend .= '<span style="--legend-color:' . $color . '"></span>';
+        }
+        $vehicleLegend = '';
+        $vehicleColor = Security::escape(BookingTypeService::palette()['violet-light']['hex']);
+        foreach ($resources as $resource) {
+            if (($resource['type'] ?? '') !== 'bus') {
+                continue;
+            }
+            $vehicleLegend .= '<span class="legend-item" style="--legend-color:' . $vehicleColor . '">'
+                . Security::escape((string) $resource['name']) . '</span>';
         }
         $dashboardAvailable = in_array($user['role'] ?? '', ['admin', 'manager', 'trainer'], true);
         $dashboard = $dashboardAvailable
@@ -228,9 +230,9 @@ final class Views
     <div id="bus-week" class="resource-week-scroll" hidden></div>
   </div>
   <div class="calendar-legend">
-    ' . $bookingLegend . '
-    <span class="legend-item legend-recurring"><span aria-hidden="true">↻</span> Regeltermin</span>
-    <span class="legend-item legend-pending"><span class="legend-pending-colors" aria-hidden="true">' . $pendingLegend . '</span>Anfrage</span>
+    <div class="calendar-legend-items" data-calendar-legend="pitch">' . $bookingLegend . '</div>
+    <div class="calendar-legend-items" data-calendar-legend="bus" hidden>' . $vehicleLegend . '</div>
+    <span class="legend-recurring"><span aria-hidden="true">↻</span> Regeltermin</span>
   </div>
 </section>
 </div>
@@ -288,7 +290,6 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
       <div class="col-12">
         <div id="resource-choices" class="resource-choices mt-2"></div>
       </div>
-      <input type="hidden" name="destination"><input type="hidden" name="purpose"><input type="hidden" name="driver_name">
       <div class="col-12"><label class="form-label" for="private-notes">Interne Notiz (optional)</label><textarea class="form-control" id="private-notes" name="private_notes" maxlength="4000" rows="2"></textarea></div>
       <div class="col-12" id="recurrence-fields">
         <label class="form-label" for="frequency">Wiederholung</label>
@@ -378,8 +379,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '<button class="btn btn-outline-danger" type="submit">Ablehnen</button></form>'
             : '';
         $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<dt class="col-sm-4" data-event-bus-field data-event-driver-field>Fahrer (intern)</dt><dd class="col-sm-8" data-event-bus-field data-event-driver-field data-event-driver></dd>
-      <dt class="col-sm-4" data-event-notes-field>Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes-field data-event-notes></dd>'
+            ? '<dt class="col-sm-4" data-event-notes-field>Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes-field data-event-notes></dd>'
             : '';
 
         return '        <dialog id="event-dialog" aria-labelledby="event-dialog-title">
@@ -392,8 +392,6 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
               <dt class="col-sm-4" data-event-resource-label>Plätze</dt><dd class="col-sm-8" data-event-resources></dd>
               <dt class="col-sm-4" data-event-pitch-field>Kabinen</dt><dd class="col-sm-8" data-event-pitch-field data-event-cabins></dd>
               <dt class="col-sm-4">Status</dt><dd class="col-sm-8" data-event-status></dd>
-              <dt class="col-sm-4" data-event-bus-field data-event-destination-field>Ziel</dt><dd class="col-sm-8" data-event-bus-field data-event-destination-field data-event-destination></dd>
-              <dt class="col-sm-4" data-event-bus-field data-event-purpose-field>Zweck</dt><dd class="col-sm-8" data-event-bus-field data-event-purpose-field data-event-purpose></dd>
       <dt class="col-sm-4" data-event-pitch-field>Wiederholung</dt><dd class="col-sm-8" data-event-pitch-field data-event-recurrence></dd>
       ' . $privateDetails . '
     </dl>
@@ -409,8 +407,8 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
   <div class="dialog-body"><p data-scope-message>Dieser Termin gehört zu einer Regelterminserie. Auf welche Termine soll die Aktion angewendet werden?</p></div>
   <div class="dialog-footer">
     <button type="button" class="btn btn-outline-secondary" data-scope-cancel>Abbrechen</button>
-    <button type="button" class="btn btn-outline-primary" data-scope-choice="one">Nur diesen Termin</button>
-    <button type="button" class="btn btn-danger" data-scope-choice="future">Diesen und alle zukünftigen Termine</button>
+    <button type="button" class="btn btn-outline-primary" data-scope-choice="one">Einzeltermin</button>
+    <button type="button" class="btn btn-danger" data-scope-choice="future">Ab diesem Termin</button>
   </div>
 </dialog>';
     }
@@ -475,8 +473,6 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             $details = [
                 $request['resource_names'],
                 $request['team_name'],
-                $request['destination'],
-                $request['purpose'],
                 $request['cabins'] ? 'Kabine: ' . $request['cabins'] : '',
             ];
             $date = Recurrence::fromDatabase($request['starts_at'])
@@ -569,7 +565,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '</div>
 <div id="request-list">' . ($rows !== '' ? $rows : '<p class="mb-0">' . $empty . '</p>') . '</div>
 ' . $pagination . '
-' . ($embedded ? '' : '<p class="mt-3 mb-0"><a class="btn btn-primary" href="/">Zum Belegungsplan</a></p>') . '</aside>';
+' . ($embedded ? '' : '<p class="mt-3 mb-0"><a class="btn btn-primary" href="/">Belegungsplan</a></p>') . '</aside>';
     }
 
     public static function users(array $users, string $csrf, string $error = '', string $form = ''): string
@@ -614,7 +610,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '<label class="form-label small" for="confirm-password-' . $id . '">Passwort wiederholen</label>'
                 . '<input class="form-control form-control-sm mb-2" id="confirm-password-' . $id
                 . '" type="password" name="password_confirm" minlength="12" maxlength="200" autocomplete="new-password" required>'
-                . '<button class="btn btn-sm btn-primary" type="submit">Passwort speichern</button></form></details>'
+                . '<button class="btn btn-sm btn-primary" type="submit">Speichern</button></form></details>'
                 . '<button class="btn btn-sm btn-outline-danger text-nowrap" type="button" data-delete-user'
                 . ' data-user-id="' . $id . '" data-user-name="' . Security::escape($fullName)
                 . '">Löschen</button></div></td></tr>';
@@ -625,7 +621,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
 
         $header = '<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">'
             . '<h1 class="h3 mb-0">Benutzerverwaltung</h1>'
-            . '<details class="user-actions-menu"><summary class="btn btn-primary">Benutzer hinzufügen</summary>'
+            . '<details class="user-actions-menu"><summary class="btn btn-primary">Hinzufügen</summary>'
             . '<div class="user-actions-menu-items">'
             . '<a href="/?page=users&amp;form=invite">Per E-Mail einladen</a>'
             . '<a href="/?page=users&amp;form=create">Ohne E-Mail anlegen</a>'
@@ -658,7 +654,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<p>Benutzer <strong id="delete-user-name"></strong> wirklich endgültig löschen?</p>'
             . '<p class="mb-0 text-secondary">Alle zugehörigen Reservierungen bleiben erhalten und werden keinem Benutzer mehr zugeordnet.</p></div>'
             . '<div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>'
-            . 'Abbrechen</button><button class="btn btn-danger" type="submit">Endgültig löschen</button></div></form></dialog>';
+            . 'Abbrechen</button><button class="btn btn-danger" type="submit">Löschen</button></div></form></dialog>';
     }
 
     private static function userEditDialog(string $csrf): string
@@ -687,7 +683,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<option value="active">Aktiv</option><option value="invited">Eingeladen</option>'
             . '<option value="inactive">Deaktiviert</option></select></div>'
             . '<div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>'
-            . 'Abbrechen</button><button type="submit" class="btn btn-primary">Änderungen speichern</button></div>'
+            . 'Abbrechen</button><button type="submit" class="btn btn-primary">Speichern</button></div>'
             . '</form></dialog>';
     }
 
@@ -714,13 +710,13 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . Security::escape((string) ($user['email'] ?? '')) . '"></div>'
             . '<div class="d-flex flex-wrap gap-2">'
             . '<a class="btn btn-outline-secondary" href="/">Abbrechen</a>'
-            . '<button class="btn btn-primary" type="submit">Daten speichern</button>'
+            . '<button class="btn btn-primary" type="submit">Speichern</button>'
             . '</div></form></section>';
     }
 
     private static function inviteUserForm(string $csrf): string
     {
-        return '<a class="btn btn-outline-secondary mb-3" href="/?page=users">Zur Benutzerliste</a>'
+        return '<a class="btn btn-outline-secondary mb-3" href="/?page=users">Zurück</a>'
             . '<section class="panel-card mx-auto p-4" style="max-width:640px">'
             . '<h2 class="h4">Benutzer per E-Mail einladen</h2>'
             . '<p class="text-secondary">Die eingeladene Person legt ihr Passwort über den Einladungslink selbst fest.</p>'
@@ -741,12 +737,12 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<select class="form-select" id="invite-user-role" name="role">'
             . '<option value="trainer">Trainer</option><option value="manager">Verwalter</option>'
             . '<option value="admin">Admin</option></select></div>'
-            . '<button class="btn btn-primary" type="submit">Einladung senden</button></form></section>';
+            . '<button class="btn btn-primary" type="submit">Einladen</button></form></section>';
     }
 
     private static function createUserForm(string $csrf): string
     {
-        return '<a class="btn btn-outline-secondary mb-3" href="/?page=users">Zur Benutzerliste</a>'
+        return '<a class="btn btn-outline-secondary mb-3" href="/?page=users">Zurück</a>'
             . '<section class="panel-card mx-auto p-4" style="max-width:640px">'
             . '<h2 class="h4">Benutzer ohne E-Mail-Adresse anlegen</h2>'
             . '<p class="text-secondary">Die Anmeldung erfolgt mit Benutzername und Startpasswort.</p>'
@@ -771,7 +767,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<div class="mb-3"><label class="form-label" for="create-user-password-confirm">Passwort wiederholen</label>'
             . '<input class="form-control" id="create-user-password-confirm" type="password" name="password_confirm" '
             . 'minlength="12" maxlength="200" autocomplete="new-password" required></div>'
-            . '<button class="btn btn-primary" type="submit">Benutzer anlegen</button></form></section>';
+            . '<button class="btn btn-primary" type="submit">Anlegen</button></form></section>';
     }
 
     public static function resources(
@@ -839,7 +835,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         if ($form === 'create') {
             return $header . '<section class="panel-card p-3"><div class="d-flex justify-content-between '
                 . 'align-items-center gap-3 mb-3"><h2 class="h5 mb-0">Ressource anlegen</h2>'
-                . '<a class="btn btn-outline-secondary btn-sm" href="/?page=resources">Zurück zur Liste</a></div>'
+                . '<a class="btn btn-outline-secondary btn-sm" href="/?page=resources">Zurück</a></div>'
                 . '<form method="post" action="/?action=resource-save"><input type="hidden" name="_csrf" value="'
                 . Security::escape($csrf) . '"><div class="mb-3"><label class="form-label">Kategorie</label>'
                 . '<select class="form-select" name="type">' . $categoryOptions . '</select></div>'
@@ -865,7 +861,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<label class="form-label" for="resource-edit-name">Name</label><input class="form-control" '
             . 'id="resource-edit-name" name="name" maxlength="120" required></div><div class="dialog-footer">'
             . '<button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button>'
-            . '<button type="submit" class="btn btn-primary">Änderungen speichern</button></div></form></dialog>';
+            . '<button type="submit" class="btn btn-primary">Speichern</button></div></form></dialog>';
     }
 
     private static function resourceDeleteDialog(string $csrf): string
@@ -881,7 +877,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . 'ihrer weiteren Ressourcenzuordnungen gelöscht. Es werden keine E-Mails versendet. Dieser Vorgang '
             . 'kann nicht rückgängig gemacht werden.</p></div><div class="dialog-footer">'
             . '<button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button>'
-            . '<button type="submit" class="btn btn-danger">Ressource und Buchungen löschen</button>'
+            . '<button type="submit" class="btn btn-danger">Löschen</button>'
             . '</div></form></dialog>';
     }
 
@@ -933,7 +929,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
   <div class="mb-3"><label class="form-label" for="setup-password-confirmation">Passwort wiederholen</label><input class="form-control" id="setup-password-confirmation" type="password" name="password_confirmation" minlength="12" maxlength="200" autocomplete="new-password" required><div class="form-text">Beide Passwörter müssen übereinstimmen.</div></div>'
             : '';
         $heading = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
-        $submitLabel = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
+        $submitLabel = $allowAdminCreation ? 'Einrichten' : 'Vervollständigen';
         $description = $allowAdminCreation
             ? ($schemaComplete
                 ? 'Das Datenbankschema ist bereits aktuell. Du kannst es beibehalten oder ausdrücklich neu aufsetzen.'
@@ -955,19 +951,19 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     public static function invite(string $token, string $csrf, string $error = ''): string
     {
         return '<section class="panel-card mx-auto p-4" style="max-width:480px"><h1 class="h3">Konto einrichten</h1>' . self::inlineError($error) . '
-<form method="post" action="/?action=invite-accept"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="token" value="' . Security::escape($token) . '"><label class="form-label" for="new-password">Passwort (mindestens 12 Zeichen)</label><input id="new-password" class="form-control mb-3" type="password" name="password" minlength="12" autocomplete="new-password" required><button class="btn btn-primary" type="submit">Konto aktivieren</button></form></section>';
+<form method="post" action="/?action=invite-accept"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="token" value="' . Security::escape($token) . '"><label class="form-label" for="new-password">Passwort (mindestens 12 Zeichen)</label><input id="new-password" class="form-control mb-3" type="password" name="password" minlength="12" autocomplete="new-password" required><button class="btn btn-primary" type="submit">Aktivieren</button></form></section>';
     }
 
     public static function forgot(string $csrf, string $error = ''): string
     {
         return '<section class="panel-card mx-auto p-4" style="max-width:480px"><h1 class="h3">Passwort zurücksetzen</h1>' . self::inlineError($error) . '
-<form method="post" action="/?action=password-request"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><label class="form-label" for="reset-email">E-Mail</label><input id="reset-email" class="form-control mb-3" type="email" name="email" required><button class="btn btn-primary" type="submit">Link anfordern</button></form></section>';
+<form method="post" action="/?action=password-request"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><label class="form-label" for="reset-email">E-Mail</label><input id="reset-email" class="form-control mb-3" type="email" name="email" required><button class="btn btn-primary" type="submit">Anfordern</button></form></section>';
     }
 
     public static function reset(string $token, string $csrf, string $error = ''): string
     {
         return '<section class="panel-card mx-auto p-4" style="max-width:480px"><h1 class="h3">Neues Passwort</h1>' . self::inlineError($error) . '
-<form method="post" action="/?action=password-reset"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="token" value="' . Security::escape($token) . '"><label class="form-label" for="new-password">Passwort (mindestens 12 Zeichen)</label><input id="new-password" class="form-control mb-3" type="password" name="password" minlength="12" autocomplete="new-password" required><button class="btn btn-primary" type="submit">Passwort speichern</button></form></section>';
+<form method="post" action="/?action=password-reset"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="token" value="' . Security::escape($token) . '"><label class="form-label" for="new-password">Passwort (mindestens 12 Zeichen)</label><input id="new-password" class="form-control mb-3" type="password" name="password" minlength="12" autocomplete="new-password" required><button class="btn btn-primary" type="submit">Speichern</button></form></section>';
     }
 
     public static function bookingTypes(array $types, string $csrf): string
@@ -1029,7 +1025,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . Security::escape($csrf) . '"><input type="hidden" name="code" value="' . $escapedCode
                 . '"><input type="hidden" name="active" value="' . ($active ? '0' : '1')
                 . '"><button class="btn btn-sm btn-outline-secondary" type="submit">'
-                . ($active ? 'Archivieren' : 'Wieder aktivieren') . '</button></form>'
+                . ($active ? 'Archivieren' : 'Aktivieren') . '</button></form>'
                 . '<form method="post" action="/?action=booking-type-remove" data-confirm-action="delete"'
                 . ' data-confirm-item-name="' . Security::escape((string) $type['name']) . '">'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf)
@@ -1070,7 +1066,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . ' for="booking-type-edit-trainer-requestable">Trainer dürfen Anfragen stellen</label></div>'
             . '</div><div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" '
             . 'data-dialog-close>Abbrechen</button><button type="submit" class="btn btn-primary">'
-            . 'Änderungen speichern</button></div></form></dialog>'
+            . 'Speichern</button></div></form></dialog>'
             . '<section class="panel-card p-3 mt-3"><h2 class="h5">Buchungsart hinzufügen</h2>'
             . '<form id="' . $newFormId . '" method="post" action="/?action=booking-type-save">'
             . '<input type="hidden" name="_csrf" value="'

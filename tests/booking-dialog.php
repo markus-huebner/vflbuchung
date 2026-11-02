@@ -181,8 +181,8 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     );
     foreach (['destination', 'purpose', 'driver_name'] as $field) {
         check(
-            $xpath->query($form . '//input[@type!="hidden"][@name="' . $field . '"]')->length === 0,
-            "$role: The removed vehicle field $field must not be visible."
+            $xpath->query($form . '//*[@name="' . $field . '"]')->length === 0,
+            "$role: The removed vehicle field $field must not be submitted."
         );
     }
     check(
@@ -266,8 +266,6 @@ $request = [
     'resource_names' => 'Test pitch, Test pitch 2',
     'title' => 'Test title',
     'team_name' => null,
-    'destination' => null,
-    'purpose' => null,
     'cabins' => null,
     'starts_at' => '2026-10-24 13:07:00',
     'ends_at' => '2026-10-24 15:03:00',
@@ -379,7 +377,7 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
             && $xpath->query('//*[@id="calendar-actions-menu"]//*[@id="calendar-view-controls"]')->length === 1,
         'The burger menu must contain only view settings on every screen size.'
     );
-    foreach (['resources', 'date', 'time', 'cabins', 'type', 'status', 'destination', 'purpose', 'recurrence'] as $field) {
+    foreach (['resources', 'date', 'time', 'cabins', 'type', 'status', 'recurrence'] as $field) {
         check(
             $xpath->query('//*[@id="event-dialog"]//*[@data-event-' . $field . ']')->length === 1,
             "Event details must include $field."
@@ -391,7 +389,13 @@ foreach ([null, ['role' => 'trainer'], ['role' => 'manager'], ['role' => 'admin'
         'Show booked places once under the renamed label, without a separate resource field.'
     );
     $staff = in_array($user['role'] ?? '', ['admin', 'manager'], true);
-    foreach (['driver', 'notes'] as $field) {
+    foreach (['destination', 'purpose', 'driver'] as $field) {
+        check(
+            $xpath->query('//*[@id="event-dialog"]//*[@data-event-' . $field . ']')->length === 0,
+            "Removed event field $field must not appear in the detail dialog."
+        );
+    }
+    foreach (['notes'] as $field) {
         check(
             $xpath->query('//*[@id="event-dialog"]//*[@data-event-' . $field . ']')->length === ($staff ? 1 : 0),
             "Only staff may see the private event field $field."
@@ -460,7 +464,7 @@ $profileDocument->loadHTML(
 $profileXPath = new DOMXPath($profileDocument);
 check(
     $profileXPath->query('//form[@action="/?action=profile-update"]//a[@href="/" and normalize-space()="Abbrechen"]')->length === 1
-        && $profileXPath->query('//form[@action="/?action=profile-update"]//button[@type="submit" and normalize-space()="Daten speichern"]')->length === 1,
+        && $profileXPath->query('//form[@action="/?action=profile-update"]//button[@type="submit" and normalize-space()="Speichern"]')->length === 1,
     'The profile must offer cancellation without submitting changes and retain its save button.'
 );
 $profileFieldIds = [];
@@ -648,6 +652,32 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
         continue;
     }
     throw new RuntimeException("$eventType: The server accepted an overlong title.");
+}
+
+$buttonPages = [
+    Views::calendar(['role' => 'admin'], 'test-csrf', []),
+    Views::users([], 'test-csrf'),
+    Views::users([], 'test-csrf', '', 'invite'),
+    Views::users([], 'test-csrf', '', 'create'),
+    Views::resources([], [], 'test-csrf'),
+    Views::resources([], [], 'test-csrf', '', 'create'),
+    Views::bookingTypes(BookingTypeService::defaults(), 'test-csrf'),
+    Views::setup('test-csrf'),
+    Views::invite('token', 'test-csrf'),
+    Views::forgot('test-csrf'),
+    Views::reset('token', 'test-csrf'),
+];
+foreach ($buttonPages as $html) {
+    $document = new DOMDocument();
+    $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+    $xpath = new DOMXPath($document);
+    foreach ($xpath->query('//button[@type="submit"]') as $button) {
+        $label = trim($button->textContent);
+        check(
+            preg_match('/\s/u', $label) !== 1 || $label === 'Kabinenbelegung löschen',
+            "Submit buttons must use one word unless needed to distinguish actions: $label"
+        );
+    }
 }
 
 echo "Booking dialog checks passed.\n";

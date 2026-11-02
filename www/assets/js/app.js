@@ -222,6 +222,10 @@ function renderCalendar() {
   document.querySelectorAll('[data-calendar-view]').forEach((element) => {
     element.hidden = element.dataset.calendarView !== state.resourceType;
   });
+  document.querySelectorAll('[data-calendar-legend]').forEach((legend) => {
+    legend.hidden = legend.dataset.calendarLegend !== state.resourceType;
+  });
+  fitCalendarViewport();
   const dayView = document.querySelector(`#${state.resourceType}-day`);
   const weekView = document.querySelector(`#${state.resourceType}-week`);
   if (dayView) dayView.hidden = state.view !== 'day';
@@ -343,7 +347,9 @@ function renderResourceDay(hourHeight = DAY_HOUR_HEIGHT) {
   grid.style.width = '100%';
   const axis = document.createElement('div');
   axis.className = 'resource-time-axis';
-  axis.append(document.createElement('div'));
+  const axisHeading = document.createElement('div');
+  axisHeading.className = 'resource-time-axis-heading';
+  axis.append(axisHeading);
   const firstHour = state.showFullDay ? 0 : DEFAULT_DAY_START_HOUR;
   const lastHour = state.showFullDay ? 24 : DEFAULT_DAY_END_HOUR;
   const hourCount = lastHour - firstHour;
@@ -358,8 +364,6 @@ function renderResourceDay(hourHeight = DAY_HOUR_HEIGHT) {
       });
     return layoutDayEvents(events, firstHour, lastHour, hourHeight);
   });
-  grid.style.gridTemplateColumns =
-    `var(--axis-width) repeat(${Math.max(1, resources.length)}, minmax(0, 1fr))`;
   for (let hour = firstHour; hour < lastHour; hour += 1) {
     const label = document.createElement('div');
     label.className = 'resource-hour';
@@ -373,7 +377,17 @@ function renderResourceDay(hourHeight = DAY_HOUR_HEIGHT) {
     column.className = 'resource-column';
     const heading = document.createElement('h3');
     heading.className = 'resource-column-heading';
-    heading.textContent = resource.name;
+    const pitchName = resource.name.match(/^(Platz\s+\d+)(?:\s+(.+))?$/u);
+    if (pitchName) {
+      for (const text of pitchName.slice(1).filter(Boolean)) {
+        const line = document.createElement('span');
+        line.className = 'resource-heading-line';
+        line.textContent = text;
+        heading.append(line);
+      }
+    } else {
+      heading.textContent = resource.name;
+    }
     heading.title = resource.name;
     column.append(heading);
     const lane = document.createElement('div');
@@ -402,6 +416,7 @@ function renderResourceDay(hourHeight = DAY_HOUR_HEIGHT) {
 
   target.append(grid);
   const updateHeadingHeight = () => {
+    target.classList.toggle('has-horizontal-overflow', target.scrollWidth > target.clientWidth);
     grid.style.removeProperty('--resource-heading-height');
     const headingHeight = Math.max(
       24,
@@ -481,11 +496,31 @@ function renderResourceWeek() {
   table.style.setProperty('--resource-week-row-height', `${rowHeight}px`);
 }
 
+function fitCalendarViewport() {
+  const frame = document.querySelector('.calendar-frame');
+  if (!frame) return;
+  const legend = frame.querySelector('.calendar-legend');
+  const shell = frame.closest('.page-shell');
+  const style = window.getComputedStyle(frame);
+  const bottomPadding = shell ? Number.parseFloat(window.getComputedStyle(shell).paddingBottom) : 0;
+  const borders = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
+  const minimumHeight = 8 * Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+  const height = Math.max(
+    minimumHeight,
+    window.innerHeight - (frame.getBoundingClientRect().top + window.scrollY)
+      - (legend?.getBoundingClientRect().height ?? 0) - borders - bottomPadding,
+  );
+  frame.style.setProperty('--calendar-scroll-height', `${height}px`);
+}
+
 function initCalendarViewportResize() {
-  window.addEventListener('resize', () => {
+  const frame = document.querySelector('.calendar-frame');
+  if (!frame) return;
+  const scheduleResize = () => {
     if (calendarResizeFrame !== null) window.cancelAnimationFrame(calendarResizeFrame);
     calendarResizeFrame = window.requestAnimationFrame(() => {
       calendarResizeFrame = null;
+      fitCalendarViewport();
       const target = document.querySelector(`#${state.resourceType}-${state.view}`);
       const scrollTop = target?.scrollTop ?? 0;
       if (state.view === 'day') renderResourceDay();
@@ -493,6 +528,14 @@ function initCalendarViewportResize() {
       const updatedTarget = document.querySelector(`#${state.resourceType}-${state.view}`);
       if (updatedTarget) updatedTarget.scrollTop = scrollTop;
     });
+  };
+  window.addEventListener('resize', scheduleResize);
+  const observer = new ResizeObserver(scheduleResize);
+  observer.observe(frame);
+  document.querySelectorAll(
+    '.navbar-club, .calendar-heading-toolbar, .calendar-legend, #app-message, .page-shell > .alert',
+  ).forEach((element) => {
+    observer.observe(element);
   });
 }
 
@@ -549,9 +592,6 @@ function showEvent(event) {
     form.hidden = !pending;
     form.elements.assignment_id.value = event.assignment_id;
   });
-  set('[data-event-destination]', event.destination);
-  set('[data-event-purpose]', event.purpose);
-  set('[data-event-driver]', event.driver_name);
   set('[data-event-notes]', event.private_notes);
   detailsDialog.querySelectorAll('[data-event-bus-field]').forEach((element) => {
     element.hidden = !isBus;
@@ -559,9 +599,6 @@ function showEvent(event) {
   detailsDialog.querySelectorAll('[data-event-pitch-field]').forEach((element) => {
     element.hidden = isBus;
   });
-  setFieldsVisible('[data-event-destination-field]', isBus && hasValue(event.destination));
-  setFieldsVisible('[data-event-purpose-field]', isBus && hasValue(event.purpose));
-  setFieldsVisible('[data-event-driver-field]', isBus && hasValue(event.driver_name));
   setFieldsVisible('[data-event-notes-field]', hasValue(event.private_notes));
   const rule = event.recurrence_rule;
   let recurrence = 'Keine';
@@ -793,9 +830,7 @@ function updateBookingFields() {
     const saved = bookingForm.dataset.saved === 'true';
     const approve = bookingForm.querySelector('[data-request-approve]');
     if (approve) approve.hidden = !editingRequest?.can_approve;
-    submit.textContent = saved ? 'Gespeichert'
-      : editingRequest ? 'Speichern'
-      : editing ? 'Änderungen speichern' : 'Speichern';
+    submit.textContent = saved ? 'Gespeichert' : 'Speichern';
     submit.disabled = saved;
     bookingForm.querySelector('[data-booking-close]').textContent = saved ? 'Schließen' : 'Abbrechen';
     bookingForm.elements.combined_title.maxLength =
@@ -1445,7 +1480,7 @@ function initControls() {
       bookingForm.dataset.saved = '';
       ensureBookingTypeOption(data.event_type, bookingTypeInfo(data.event_type)?.name);
       for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
-        'destination', 'purpose', 'driver_name', 'private_notes']) {
+        'private_notes']) {
         bookingForm.elements[name].value = data[name] ?? '';
       }
       const combined = [data.team_name, data.title].filter(Boolean).join(' – ');
@@ -1570,7 +1605,7 @@ function initControls() {
     reasonInput.setCustomValidity('');
     reasonInput.value = '';
     actionConfirmDialog.querySelector('[data-confirm-submit]').textContent = rejecting
-      ? 'Anfrage ablehnen' : bookingTypeRemoval ? 'Entfernen' : 'Löschen';
+      ? 'Ablehnen' : bookingTypeRemoval ? 'Entfernen' : 'Löschen';
     pendingConfirmationForm = form;
     actionConfirmDialog.showModal();
     if (rejecting) reasonInput.focus();
@@ -1627,7 +1662,7 @@ function initControls() {
       bookingForm.dataset.saved = '';
       ensureBookingTypeOption(data.event_type, bookingTypeInfo(data.event_type)?.name || selectedEvent.event_type_name);
       for (const name of ['occurrence_id', 'event_type', 'resource_mode', 'title', 'team_name',
-        'destination', 'purpose', 'driver_name', 'private_notes']) {
+        'private_notes']) {
         bookingForm.elements[name].value = data[name] ?? '';
       }
       const combined = [data.team_name, data.title].filter(Boolean).join(' – ');

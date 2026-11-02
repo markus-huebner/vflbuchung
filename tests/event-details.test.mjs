@@ -405,12 +405,11 @@ test('pending bookings use lighter category colors and standard borders', () => 
   assert.ok(pendingStyle);
   assert.match(pendingStyle[1], /color-mix\(in srgb, var\(--event-color\) 40%, white\)/);
   assert.doesNotMatch(pendingStyle[1], /border-style/);
-  assert.match(styles, /\.legend-pending::before\s*\{[^}]*display:\s*none/);
-  assert.match(styles, /\.legend-pending-colors > span\s*\{[^}]*border:\s*1px solid var\(--legend-color\);[^}]*color-mix\(in srgb, var\(--legend-color\) 40%, white\)/s);
 
-  assert.match(views, /foreach \(\$legendTypes as \$type\)/);
+  assert.match(views, /foreach \(\$activeTypes as \$type\)/);
   assert.match(views, /\$bookingLegend \.= '<span class="legend-item" style="--legend-color:' \. \$color/);
-  assert.match(views, /\$pendingLegend \.= '<span style="--legend-color:' \. \$color \. '"><\/span>'/);
+  assert.match(views, /data-calendar-legend="pitch"/);
+  assert.doesNotMatch(views, /legend-pending|>Anfrage<\/span>/);
   assert.doesNotMatch(views, /--booking-(training|match|external|bus)/);
 });
 
@@ -612,7 +611,7 @@ test('pitch detail dialog puts category and hint first, followed by date, time, 
   assert.match(eventDialog, /<p class="event-dialog-category" data-event-type><\/p><h2[^>]*data-event-title/);
   const fieldOrder = [
     'data-event-date', 'data-event-time', 'data-event-resources', 'data-event-cabins',
-    'data-event-status', 'data-event-destination',
+    'data-event-status', 'data-event-recurrence',
   ].map(field => eventDialog.indexOf(field));
   assert.ok(fieldOrder.every((position, index) => position >= 0 && (index === 0 || position > fieldOrder[index - 1])));
 });
@@ -668,7 +667,7 @@ test('pending requests open the shared booking dialog for editing', () => {
   assert.match(submitBookingSource, /await Promise\.all\(updates\)/);
   assert.match(application, /if \(\$api === 'request-dashboard'/);
   assert.match(source, /url\.searchParams\.set\('api', 'request-dashboard'\)/);
-  assert.match(source, /submit\.textContent = saved \? 'Gespeichert'\s*:\s*editingRequest \? 'Speichern'\s*:\s*editing \? 'Änderungen speichern' : 'Speichern'/);
+  assert.match(source, /submit\.textContent = saved \? 'Gespeichert' : 'Speichern'/);
   assert.match(application, /if \(\$api === 'request-edit'/);
 });
 
@@ -770,9 +769,7 @@ test('booking request emails include request details and state-specific colors',
   assert.match(bookingService, /\['Termin', \$dateLabel\]/);
   assert.match(bookingService, /\['Ressource', trim\(\(string\) \(\$details\['resource_names'\]/);
   assert.match(bookingService, /\['Mannschaft', trim\(\(string\) \(\$details\['team_name'\]/);
-  assert.match(bookingService, /\['Ziel', trim\(\(string\) \(\$details\['destination'\]/);
-  assert.match(bookingService, /\['Zweck', trim\(\(string\) \(\$details\['purpose'\]/);
-  assert.match(bookingService, /\['Fahrer', trim\(\(string\) \(\$details\['driver_name'\]/);
+  assert.doesNotMatch(bookingService, /destination|purpose|driver_name/);
   assert.match(bookingService, /notifyRequesterOfRequest\(\$details, 'freigegeben'\)/);
   assert.match(bookingService, /notifyRequesterOfRequest\(\$requestDetails, 'freigegeben'\)/);
   assert.match(bookingService, /notifyRequesterOfRequest\(\$details, 'abgelehnt', \$reason\)/);
@@ -953,7 +950,7 @@ test('booking type removal requires confirmation and preserves types used by boo
   assert.match(bookingTypesService, /UPDATE booking_types SET is_active = 0 WHERE code = :code/);
 });
 
-test('vehicle details retain the title and show destination, purpose, driver and both dates', () => {
+test('vehicle details retain the title and both dates without removed fields', () => {
   const ui = setup();
   ui.show({
     ...pitch, event_type: 'bus', title: 'Auswärtsfahrt', team_name: null,
@@ -961,22 +958,19 @@ test('vehicle details retain the title and show destination, purpose, driver and
     end: '2026-10-26T09:00:00Z',
   });
   assert.equal(ui.text('title'), 'Auswärtsfahrt');
-  assert.equal(ui.text('destination'), 'Berlin');
-  assert.equal(ui.text('purpose'), 'Turnier');
-  assert.equal(ui.text('driver'), 'Max');
+  assert.doesNotMatch(views, /data-event-destination|data-event-purpose|data-event-driver/);
+  assert.doesNotMatch(source, /event\.destination|event\.purpose|event\.driver_name/);
   assert.equal(ui.text('date'), '24.10.2026 – 26.10.2026');
   assert.equal(ui.text('time'), '15:00–10:00 Uhr');
   assert.equal(ui.text('resource-label'), 'Fahrzeug');
   assert.equal(ui.hidden('type'), true);
   assert.ok(ui.busFields.every(field => !field.hidden));
   assert.ok(ui.pitchFields.every(field => field.hidden));
-  assert.ok(['destination-field', 'purpose-field', 'driver-field', 'notes-field']
-    .every(field => !ui.hidden(field)));
+  assert.equal(ui.hidden('notes-field'), false);
   ui.show({
     ...pitch, destination: '', purpose: null, driver_name: '  ', private_notes: null,
   });
-  assert.ok(['destination-field', 'purpose-field', 'driver-field', 'notes-field']
-    .every(field => ui.hidden(field)));
+  assert.equal(ui.hidden('notes-field'), true);
   assert.ok(ui.busFields.every(field => field.hidden));
 });
 

@@ -387,7 +387,7 @@ foreach ($events as $event) {
 }
 $publicEvents = $service->events('2031-04-01', '2031-04-02', 'pitch', false);
 foreach ($publicEvents as $event) {
-    check($event['private_notes'] === null && $event['driver_name'] === null, 'Public event details must not leak private fields.');
+    check($event['private_notes'] === null && !array_key_exists('driver_name', $event), 'Public event details must not leak private or removed fields.');
     check($event['resource_names'] === 'pitch1, pitch2', 'Public details must also list every booked pitch.');
 }
 fails(fn() => $service->editableOccurrence($id, $actors['trainer']), 'Rechte');
@@ -528,11 +528,14 @@ $bus = createBooking('2031-11-01', [
 $service->editOccurrence($bus, editData($bus, [
     'resource_ids' => [$resources['bus'][1]], 'destination' => 'New destination',
     'purpose' => 'New purpose', 'driver_name' => 'New driver', 'private_notes' => 'Bus note',
-    'ends_at' => '2031-11-03T12:00',
+    'ends_at' => '2031-11-01T12:00',
 ]), $manager);
 $details = $service->editableOccurrence($bus, $admin);
-check($details['resource_ids'] === [$resources['bus'][1]] && $details['destination'] === 'New destination', 'Persist changed vehicle and destination.');
-check($details['purpose'] === 'New purpose' && $details['driver_name'] === 'New driver' && $details['private_notes'] === 'Bus note', 'Persist all vehicle details.');
+check($details['resource_ids'] === [$resources['bus'][1]], 'Persist changed vehicle.');
+check($details['private_notes'] === 'Bus note', 'Persist internal vehicle notes.');
+foreach (['destination', 'purpose', 'driver_name'] as $field) {
+    check(!array_key_exists($field, $details), "Removed vehicle field $field must not appear in edit details.");
+}
 fails(fn() => $service->editOccurrence($bus, editData($bus, ['frequency' => 'daily', 'limit_type' => 'count', 'count' => 2]), $manager), 'nicht als Serie');
 fails(fn() => $service->editOccurrence($bus, editData($bus, ['title' => '  ']), $manager), 'Mannschaft oder einen Hinweis');
 fails(fn() => $service->editOccurrence($bus, editData($bus, ['resource_ids' => [$resources['pitch'][0]]]), $manager), 'Buchungsart');
@@ -541,7 +544,7 @@ fails(fn() => $service->editOccurrence($bus, editData($bus), $manager), 'deaktiv
 
 $public = $service->events('2031-04-01', '2031-04-02', 'pitch', false);
 foreach ($public as $event) {
-    check($event['private_notes'] === null && $event['driver_name'] === null, 'Keep private editing details out of the public calendar.');
+    check($event['private_notes'] === null && !array_key_exists('driver_name', $event), 'Keep private and removed editing details out of the public calendar.');
 }
 check(
     (int) $pdo->query(
@@ -571,7 +574,7 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
     $request = array_values(array_filter($public, fn(array $event): bool => $event['occurrence_id'] === $pending));
     check(count($request) === 1 && $request[0]['status'] === 'pending', "$eventType: Open requests must be publicly visible.");
     check($request[0]['event_type'] === $eventType, 'Requests must preserve their category.');
-    check($request[0]['driver_name'] === null && $request[0]['private_notes'] === null, 'Public requests must not expose private details.');
+    check(!array_key_exists('driver_name', $request[0]) && $request[0]['private_notes'] === null, 'Public requests must not expose private or removed details.');
     check($request[0]['resource_names'] !== null, 'Pending resource names must appear in the details.');
     fails(fn() => $service->approve([$request[0]['assignment_id']], $actors['trainer']), 'Rechte');
     fails(fn() => $service->cancel($request[0]['assignment_id'], $manager), 'nicht gefunden');

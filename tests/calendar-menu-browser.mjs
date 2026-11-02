@@ -91,14 +91,39 @@ try {
         rowHeight: parseFloat(getComputedStyle(hours[0]).height),
         laneHeight: root.querySelector('.resource-lane').getBoundingClientRect().height,
         lineHeight: parseFloat(getComputedStyle(root.querySelector('.resource-hour-line')).height),
+        viewportHeight: root.clientHeight,
+        headingHeight: root.querySelector('.resource-time-axis-heading').getBoundingClientRect().height,
       };
     })()`);
     const first = fullDay ? 0 : 9;
     const last = fullDay ? 24 : 21;
     assert.deepEqual(metrics.labels, Array.from({ length: last - first }, (_, index) => `${String(first + index).padStart(2, '0')}:00`));
-    assert.ok(Math.abs(metrics.rowHeight - 64 * 0.8) < 0.05);
-    assert.ok(Math.abs(metrics.lineHeight - 64 * 0.8) < 0.05);
-    assert.ok(Math.abs(metrics.laneHeight - (last - first) * 64 * 0.8) < 0.05);
+    const hourHeight = Math.max(64 * 0.8, (metrics.viewportHeight - metrics.headingHeight - 4) / (last - first));
+    assert.ok(Math.abs(metrics.rowHeight - hourHeight) < 0.05);
+    assert.ok(Math.abs(metrics.lineHeight - hourHeight) < 0.05);
+    assert.ok(Math.abs(metrics.laneHeight - (last - first) * hourHeight) < 0.1);
+  };
+  const checkCalendarHeight = async () => {
+    await checkCalendarBottom();
+    const previousHeight = await evaluate(`document.querySelector('[data-calendar-view]:not([hidden]) > :not([hidden])').clientHeight`);
+    await evaluate(`document.querySelector('.calendar-legend').style.paddingBottom = '80px'`);
+    await checkCalendarBottom();
+    const smallerHeight = await evaluate(`document.querySelector('[data-calendar-view]:not([hidden]) > :not([hidden])').clientHeight`);
+    assert.ok(smallerHeight < previousHeight, 'A taller legend must reduce the scroll surface, not extend the page');
+    await evaluate(`document.querySelector('.calendar-legend').style.paddingBottom = ''`);
+    await checkCalendarBottom();
+    assert.equal(
+      await evaluate(`document.querySelector('[data-calendar-view]:not([hidden]) > :not([hidden])').clientHeight`),
+      previousHeight,
+      'A smaller legend must return all available height to the calendar',
+    );
+  };
+  const checkCalendarBottom = async () => {
+    await waitFor(`(() => {
+      const frame = document.querySelector('.calendar-frame');
+      const padding = parseFloat(getComputedStyle(frame.closest('.page-shell')).paddingBottom);
+      return Math.abs(frame.getBoundingClientRect().bottom + scrollY + padding - innerHeight) < 1;
+    })()`);
   };
   const checkDateControl = async () => {
     const metrics = await evaluate(`(() => {
@@ -162,7 +187,7 @@ try {
     await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
     await waitFor(`!document.querySelector('#user-menu').open`);
     assert.equal(await evaluate(`document.activeElement === document.querySelector('#user-menu > summary')`), true);
-    await evaluate(`document.querySelector('#user-menu > summary').click(); document.querySelector('h1').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));`);
+    await evaluate(`document.querySelector('#user-menu > summary').click(); document.querySelector('main').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));`);
     assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
   };
   for (const role of ['public', 'trainer', 'manager', 'admin']) {
@@ -175,6 +200,7 @@ try {
     await command('Page.navigate', { url: `http://localhost:8100/?menu-test=${role}` });
     await waitFor(`document.querySelector('#calendar-range')?.textContent && document.querySelector('#calendar-actions')?.parentElement.matches('.calendar-heading-toolbar')`);
     await checkHourGrid(await evaluate(`document.querySelector('[data-calendar-resource]:checked').dataset.calendarResource`));
+    await checkCalendarHeight();
     await checkDateControl();
     const width = await evaluate(`(() => {
       const shell = document.querySelector('main');
@@ -218,6 +244,7 @@ try {
     await evaluate(`document.querySelector('[data-calendar-resource="bus"]').click()`);
     await waitFor(`!document.querySelector('[data-calendar-view="bus"]').hidden && document.querySelector('[data-calendar-resource="bus"]:checked') && !document.querySelector('[data-calendar-resource="bus"]').disabled && !document.querySelector('#calendar-actions-menu').open`);
     await checkHourGrid('bus');
+    await checkCalendarHeight();
     assert.equal(await evaluate(`document.querySelectorAll('[data-calendar-resource]:checked').length`), 1);
     await open();
     await evaluate(`document.querySelector('#full-day-toggle').click()`);
@@ -230,6 +257,7 @@ try {
     await open();
     await evaluate(`document.querySelector('[data-view="week"]').click()`);
     await waitFor(`!document.querySelector('#bus-week').hidden && document.querySelector('#full-day-toggle').disabled && !document.querySelector('#calendar-view-controls').disabled`);
+    await checkCalendarHeight();
     assert.equal(await evaluate(`document.querySelectorAll('[data-view]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('#full-day-toggle-wrap').hidden`), false);
     assert.equal(await evaluate(`document.querySelector('#calendar-actions-menu').open`), false);
@@ -248,6 +276,7 @@ try {
     await resize(1200);
     await waitFor(`document.querySelector('#calendar-actions').parentElement.matches('.calendar-heading-toolbar')`);
     await checkDateControl();
+    await checkCalendarHeight();
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('#calendar-actions-menu')).display`), 'block');
     assert.equal(await evaluate(`document.querySelector('[data-calendar-resource="bus"]:checked') !== null`), true);
     assert.equal(await evaluate(`document.querySelector('[data-view="week"]').checked`), true);
@@ -267,6 +296,7 @@ try {
     }
     await resize(320);
     await waitFor(`document.querySelector('#calendar-actions').parentElement.matches('.calendar-heading-toolbar')`);
+    await checkCalendarHeight();
     await checkDateControl();
     assert.equal(await evaluate(`document.documentElement.scrollWidth <= 320 && innerWidth <= 320`), true, `${role}: 320px width regression`);
     await checkAccountMenu(role);
@@ -286,6 +316,68 @@ try {
     console.log(`${role}: separate plus/calendar menus, radio switching, booking choices and phone/desktop widths passed.`);
   }
   const appSource = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
+  const daySource = appSource.slice(appSource.indexOf('function renderResourceDay('), appSource.indexOf('function renderResourceWeek('));
+  for (const width of [280, 390, 1200]) {
+    for (const fontSize of [16, 24]) {
+      const headings = await evaluate(`(() => {
+        ${daySource}
+        const DAY_HOUR_HEIGHT = 51.2;
+        const DEFAULT_DAY_START_HOUR = 9;
+        const DEFAULT_DAY_END_HOUR = 21;
+        const layoutDayEvents = () => [];
+        let resourceHeadingObserver;
+        const names = ['Platz 1 Süd', 'Platz 1 Nord', 'Platz 2', 'Platz 3', 'Platz 4 Ost', 'Platz 4 West', 'Platz 5'];
+        const state = {
+          resourceType: 'heading-fixture', events: [], showFullDay: false,
+          resources: names.map((name, id) => ({ name, id, type: 'heading-fixture' })),
+        };
+        const previousFontSize = document.documentElement.style.fontSize;
+        document.documentElement.style.fontSize = '${fontSize}px';
+        const target = document.createElement('div');
+        target.id = 'heading-fixture-day';
+        target.className = 'resource-day-scroll';
+        target.style.cssText = 'position:fixed;top:0;left:0;width:${width}px;height:300px';
+        document.body.append(target);
+        try {
+          renderResourceDay();
+          return {
+            scrollable: target.scrollWidth > target.clientWidth,
+            touchAction: getComputedStyle(target).touchAction,
+            headings: Array.from(target.querySelectorAll('h3'), heading => ({
+              name: heading.title,
+              width: heading.getBoundingClientRect().width,
+              height: heading.getBoundingClientRect().height,
+              lines: Array.from(heading.children, line => ({
+                text: line.textContent,
+                width: line.getBoundingClientRect().width,
+                height: line.getBoundingClientRect().height,
+                top: line.getBoundingClientRect().top,
+              })),
+            })),
+          };
+        } finally {
+          resourceHeadingObserver?.disconnect();
+          target.remove();
+          document.documentElement.style.fontSize = previousFontSize;
+        }
+      })()`);
+      assert.equal(headings.scrollable, width < 40 + 7 * 4.5 * fontSize);
+      assert.equal(headings.touchAction, headings.scrollable ? 'pan-x pan-y' : 'pan-y');
+      const heights = headings.headings.map(heading => heading.height);
+      assert.ok(Math.max(...heights) - Math.min(...heights) < 1, 'Heading rows must stay aligned');
+      for (const heading of headings.headings) {
+        const expected = heading.name.match(/^(Platz \d+)(?: (.+))?$/).slice(1).filter(Boolean);
+        assert.deepEqual(heading.lines.map(line => line.text), expected);
+        for (const line of heading.lines) {
+          assert.ok(line.width <= heading.width - fontSize * .5 + 1, width + 'px: ' + heading.name + ' must fit');
+        }
+        if (heading.lines.length === 2) {
+          assert.ok(heading.lines[1].top >= heading.lines[0].top + heading.lines[0].height - 1);
+        }
+      }
+    }
+  }
+  console.log('Calendar headings: minimum widths, single-line pitch numbers, suffix lines, aligned rows and horizontal scrolling passed.');
   const cardSource = appSource.slice(appSource.indexOf('function eventCard('), appSource.indexOf('function renderResourceDay('));
   await evaluate(`(() => {
     ${cardSource}

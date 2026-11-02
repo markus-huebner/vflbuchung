@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App;
 
+use PDOException;
 use RuntimeException;
 use Throwable;
 
@@ -370,7 +371,10 @@ final class Application
                     }
 
                     $this->databaseSetup->initialize(false);
-                    $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Datenbankschema wurde ergänzt. Melde dich mit deinem Administratorkonto an.'];
+                    $_SESSION['_flash'] = [
+                        'type' => 'success',
+                        'message' => 'Das Datenbankschema wurde ergänzt. Melde dich mit deinem Administratorkonto an.',
+                    ];
                     $this->redirect('/?page=login');
                 }
 
