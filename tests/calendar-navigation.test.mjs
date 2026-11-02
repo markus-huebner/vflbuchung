@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  initCalendarScrollChaining,
   initCalendarSwipeNavigation,
   shiftCalendarDate,
 } from '../www/assets/js/calendar-navigation.mjs';
@@ -14,6 +15,172 @@ function pointerEvent(type, properties) {
   });
   return result;
 }
+
+function verticalScrollFixture() {
+  const frame = new CalendarFrame();
+  const doc = new EventTarget();
+  const page = { scrollHeight: 2000, clientHeight: 600 };
+  const surface = { scrollTop: 600, scrollHeight: 900, clientHeight: 300 };
+  const movements = [];
+  let pageTop = 100;
+  Object.defineProperty(page, 'scrollTop', {
+    get: () => pageTop,
+    set: value => { movements.push(value - pageTop); pageTop = value; },
+  });
+  let time = 0;
+  let nextFrame = 0;
+  const frames = new Map();
+  doc.scrollingElement = page;
+  const view = new EventTarget();
+  Object.assign(view, {
+    getComputedStyle: () => ({ lineHeight: '20px', fontSize: '16px' }),
+    performance: { now: () => time },
+    requestAnimationFrame: callback => { frames.set(++nextFrame, callback); return nextFrame; },
+    cancelAnimationFrame: id => frames.delete(id),
+  });
+  doc.defaultView = view;
+  frame.ownerDocument = doc;
+  const target = { closest: () => surface };
+  initCalendarScrollChaining(frame);
+  const wheel = properties => {
+    const event = pointerEvent('wheel', { target, deltaX: 0, deltaY: 100, deltaMode: 0, ...properties });
+    frame.dispatchEvent(event);
+    return event;
+  };
+  const touch = (x, y, identifier = 1) => ({ clientX: x, clientY: y, identifier });
+  const dispatch = (type, touches) => {
+    time += 16;
+    const event = pointerEvent(type, { target, touches, timeStamp: time });
+    (type === 'touchend' || type === 'touchcancel' ? doc : frame).dispatchEvent(event);
+    return event;
+  };
+  const advance = (elapsed = 16) => {
+    time += elapsed;
+    const callbacks = [...frames.values()];
+    frames.clear();
+    callbacks.forEach(callback => callback(time));
+  };
+  return { page, surface, movements, wheel, touch, dispatch, advance, frames, doc, view };
+}
+
+for (const [description, surfaceTop, pageTop, properties, expected] of [
+  ['bottom edge', 600, 0, {}, [100]],
+  ['top edge', 0, 100, { deltaY: -100 }, [-100]],
+  ['calendar interior', 300, 100, {}, []],
+  ['page bottom', 600, 1400, {}, []],
+  ['page top', 0, 0, { deltaY: -100 }, []],
+  ['horizontal trackpad movement', 600, 100, { deltaX: 120 }, []],
+  ['zoom gesture', 600, 100, { ctrlKey: true }, []],
+  ['shift-wheel horizontal scrolling', 600, 100, { shiftKey: true }, []],
+  ['line deltas', 600, 100, { deltaMode: 1, deltaY: 3 }, [60]],
+  ['page deltas', 600, 100, { deltaMode: 2, deltaY: 1 }, [300]],
+]) {
+  test(`vertical wheel handoff: ${description}`, () => {
+    const fixture = verticalScrollFixture();
+    fixture.surface.scrollTop = surfaceTop;
+    fixture.page.scrollTop = pageTop;
+    fixture.movements.length = 0;
+    const event = fixture.wheel(properties);
+    assert.deepEqual(fixture.movements, expected);
+    assert.equal(event.defaultPrevented, expected.length > 0 || fixture.surface.scrollTop !== surfaceTop);
+  });
+}
+
+test('a vertical edge gesture scrolls the page without double-scrolling the calendar', () => {
+  const { dispatch, touch, movements } = verticalScrollFixture();
+  dispatch('touchstart', [touch(150, 200)]);
+  assert.equal(dispatch('touchmove', [touch(152, 170)]).defaultPrevented, true);
+  assert.equal(dispatch('touchmove', [touch(152, 150)]).defaultPrevented, true);
+  assert.deepEqual(movements, [30, 20]);
+  dispatch('touchend', []);
+  dispatch('touchmove', [touch(152, 100)]);
+  assert.deepEqual(movements, [30, 20]);
+});
+
+test('vertical dragging scrolls the calendar while horizontal swipes, pinching and cancellation remain native', () => {
+  const { dispatch, touch, movements, surface } = verticalScrollFixture();
+  surface.scrollTop = 300;
+  dispatch('touchstart', [touch(150, 200)]);
+  assert.equal(dispatch('touchmove', [touch(150, 150)]).defaultPrevented, true);
+  assert.equal(surface.scrollTop, 350);
+  surface.scrollTop = 600;
+  dispatch('touchstart', [touch(150, 200)]);
+  assert.equal(dispatch('touchmove', [touch(80, 190)]).defaultPrevented, false);
+  dispatch('touchstart', [touch(150, 200)]);
+  assert.equal(dispatch('touchmove', [touch(150, 150), touch(200, 150, 2)]).defaultPrevented, false);
+  dispatch('touchstart', [touch(150, 200)]);
+  dispatch('touchcancel', []);
+  assert.equal(dispatch('touchmove', [touch(150, 150)]).defaultPrevented, false);
+  assert.deepEqual(movements, []);
+});
+
+test('one wheel movement consumes the calendar remainder and then scrolls the page', () => {
+  const { surface, page, wheel, movements } = verticalScrollFixture();
+  surface.scrollTop = 580;
+  const event = wheel({ deltaY: 180 });
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(surface.scrollTop, 600);
+  assert.equal(page.scrollTop, 260);
+  assert.deepEqual(movements, [160]);
+});
+
+test('one touch gesture crosses the calendar edge without lifting the finger', () => {
+  const { surface, page, dispatch, touch, movements } = verticalScrollFixture();
+  surface.scrollTop = 580;
+  dispatch('touchstart', [touch(150, 220)]);
+  assert.equal(dispatch('touchmove', [touch(150, 190)]).defaultPrevented, true);
+  assert.equal(surface.scrollTop, 600);
+  assert.equal(page.scrollTop, 110);
+  assert.equal(dispatch('touchmove', [touch(150, 140)]).defaultPrevented, true);
+  assert.equal(page.scrollTop, 160);
+  assert.deepEqual(movements, [10, 50]);
+});
+
+test('scrolling up first brings a partly hidden calendar back into view', () => {
+  const { surface, page, wheel } = verticalScrollFixture();
+  surface.scrollTop = 400;
+  wheel({ deltaY: -160 });
+  assert.equal(page.scrollTop, 0);
+  assert.equal(surface.scrollTop, 340);
+});
+
+test('touch momentum continues across the edge and stops on a new gesture or cancellation', () => {
+  const { surface, page, dispatch, touch, advance, frames } = verticalScrollFixture();
+  surface.scrollTop = 570;
+  dispatch('touchstart', [touch(150, 220)]);
+  dispatch('touchmove', [touch(150, 200)]);
+  dispatch('touchend', []);
+  assert.equal(frames.size, 1);
+  advance();
+  assert.equal(surface.scrollTop, 600);
+  assert.ok(page.scrollTop > 100, 'Momentum must cross from the calendar into the page');
+  dispatch('touchstart', [touch(150, 200)]);
+  assert.equal(frames.size, 0);
+  dispatch('touchmove', [touch(150, 180)]);
+  dispatch('touchcancel', []);
+  advance();
+  assert.equal(frames.size, 0);
+});
+
+test('a gesture paused before release does not launch momentum', () => {
+  const { dispatch, touch, advance, frames } = verticalScrollFixture();
+  dispatch('touchstart', [touch(150, 220)]);
+  dispatch('touchmove', [touch(150, 200)]);
+  advance(100);
+  dispatch('touchend', []);
+  assert.equal(frames.size, 0);
+});
+
+test('reversing a swipe makes momentum follow the final direction', () => {
+  const { page, dispatch, touch, advance } = verticalScrollFixture();
+  dispatch('touchstart', [touch(150, 200)]);
+  dispatch('touchmove', [touch(150, 100)]);
+  dispatch('touchmove', [touch(150, 102)]);
+  const before = page.scrollTop;
+  dispatch('touchend', []);
+  advance();
+  assert.ok(page.scrollTop < before, 'Momentum must not continue in the previous direction');
+});
 
 test('calendar dates move by one day or one week in either direction', () => {
   const date = new Date(2026, 0, 1, 12);
@@ -54,7 +221,7 @@ test('horizontal scrolling in an overflowing day calendar does not navigate', ()
   const frame = new CalendarFrame();
   const navigation = [];
   const scrollSurface = { scrollWidth: 544, clientWidth: 320 };
-  const target = { closest: selector => selector === '.resource-day-scroll' ? scrollSurface : null };
+  const target = { closest: selector => selector.includes('.resource-day-scroll') ? scrollSurface : null };
   initCalendarSwipeNavigation(frame, {
     onPrevious: () => navigation.push('previous'),
     onNext: () => navigation.push('next'),
@@ -75,7 +242,7 @@ function scrollSwipeFixture(scrollLeft = 0) {
   const navigation = [];
   const surface = { scrollWidth: 544, clientWidth: 320, scrollLeft };
   const button = {
-    closest: selector => selector === '.resource-day-scroll' ? surface : button,
+    closest: selector => selector.includes('.resource-day-scroll') ? surface : button,
   };
   initCalendarSwipeNavigation(frame, {
     onPrevious: () => navigation.push('previous'),
@@ -83,7 +250,7 @@ function scrollSwipeFixture(scrollLeft = 0) {
   });
   const touch = (x, y = 100, identifier = 1) => ({ identifier, clientX: x, clientY: y });
   const dispatch = (type, touches, changedTouches = [], target = button) => {
-    const emitter = type === 'touchstart' ? frame : doc;
+    const emitter = type === 'touchstart' || type === 'touchmove' ? frame : doc;
     emitter.dispatchEvent(pointerEvent(type, { touches, changedTouches, target }));
   };
   return { frame, doc, surface, button, navigation, touch, dispatch };
@@ -125,6 +292,14 @@ test('scrolling to the edge requires a separate swipe to navigate', () => {
   dispatch('touchstart', [touch(150)]);
   dispatch('touchend', [], [touch(70)]);
   assert.deepEqual(navigation, ['next']);
+});
+
+test('a vertical scroll cannot turn into date navigation when the finger later moves sideways', () => {
+  const { dispatch, touch, navigation } = scrollSwipeFixture(224);
+  dispatch('touchstart', [touch(150, 200)]);
+  dispatch('touchmove', [touch(150, 140)]);
+  dispatch('touchend', [], [touch(50, 180)]);
+  assert.deepEqual(navigation, []);
 });
 
 test('cancelled, multi-touch and unrelated touch endings do not navigate', () => {

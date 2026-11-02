@@ -392,13 +392,14 @@ body {
   touch-action: pan-y;
 }
 
-.resource-day-scroll.has-horizontal-overflow {
+.resource-day-scroll.has-horizontal-overflow,
+.resource-week-scroll.has-horizontal-overflow {
   touch-action: pan-x pan-y;
   overscroll-behavior-x: contain;
 }
 
 .resource-day-grid {
-  --axis-width: 40px;
+  --axis-width: 48px;
   display: grid;
   width: 100%;
   grid-template-columns: var(--axis-width) repeat(var(--resource-count), minmax(max-content, 1fr));
@@ -408,6 +409,10 @@ body {
 .resource-time-axis,
 .resource-column {
   position: relative;
+}
+
+.resource-column {
+  min-width: 6rem;
 }
 
 .resource-time-axis {
@@ -610,13 +615,14 @@ body {
 
 .resource-week-table {
   width: 100%;
+  min-width: 60rem;
   margin: 0;
   font-size: .75rem;
   table-layout: fixed;
 }
 
 .resource-week-table .resource-week-resource-column {
-  width: 150px;
+  width: 168px;
 }
 
 .resource-week-table.table > thead > tr > th {
@@ -1713,7 +1719,7 @@ dialog::backdrop {
   }
 
   .resource-week-table .resource-week-resource-column {
-    width: 90px;
+    width: 112px;
   }
 
   .resource-week-table tbody th {

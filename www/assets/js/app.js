@@ -3,7 +3,7 @@ import '../css/app.css';
 
 import { initBookingDates } from './booking-dates.mjs';
 import { initCalendarActionsMenu, syncCalendarActionsMenu } from './calendar-actions.mjs';
-import { initCalendarSwipeNavigation, shiftCalendarDate } from './calendar-navigation.mjs';
+import { initCalendarScrollChaining, initCalendarSwipeNavigation, shiftCalendarDate } from './calendar-navigation.mjs';
 import { initDatePicker } from './date-picker.mjs';
 import {
   DEFAULT_DAY_END_HOUR,
@@ -490,6 +490,7 @@ function renderResourceWeek() {
   });
   table.append(body);
   target.append(table);
+  target.classList.toggle('has-horizontal-overflow', target.scrollWidth > target.clientWidth);
   const rowHeight = resources.length > 0
     ? Math.max(90, (target.clientHeight - head.offsetHeight - 4) / resources.length)
     : 90;
@@ -1280,6 +1281,7 @@ function initControls() {
   initBookingTypeEditor();
   initCalendarActionsMenu();
   initDashboardResizer();
+  initCalendarScrollChaining(document.querySelector('.calendar-frame'));
   initCalendarSwipeNavigation(document.querySelector('.calendar-frame'), {
     onPrevious: () => { void navigateCalendar(-1); },
     onNext: () => { void navigateCalendar(1); },

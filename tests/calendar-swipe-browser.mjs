@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const profile = await mkdtemp(join(tmpdir(), 'vfl-calendar-swipe-'));
+const surfaceClass = process.argv.includes('--week') ? 'resource-week-scroll' : 'resource-day-scroll';
 const chrome = spawn('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', [
   '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
   '--no-first-run', '--no-default-browser-check', 'about:blank',
@@ -63,15 +64,16 @@ try {
     const style = document.createElement('style');
     style.textContent = ${JSON.stringify(css)};
     document.head.append(style);
-    document.body.innerHTML = '<div class="calendar-frame" style="width:320px"><div id="surface" class="resource-day-scroll has-horizontal-overflow" style="height:300px"><div class="resource-day-grid" style="--resource-count:7"></div></div></div>';
+    document.body.innerHTML = '<div class="calendar-frame" style="width:320px"><div id="surface" class="${surfaceClass} has-horizontal-overflow" style="height:300px"><div class="resource-day-grid" style="--resource-count:7"></div></div></div><section id="requests" style="height:900px">Buchungsanfragen</section>';
     const grid = document.querySelector('.resource-day-grid');
-    grid.innerHTML = '<div style="height:900px"></div>' + '<section style="height:900px"><button style="width:100%;height:150px">Buchung</button></section>'.repeat(7);
+    grid.innerHTML = '<div style="height:900px"></div>' + '<section style="height:900px"><button style="width:100%;height:900px">Buchung</button></section>'.repeat(7);
     window.navigations = [];
     window.bookingClicks = 0;
     window.pointerCancels = 0;
     document.addEventListener('pointercancel', () => window.pointerCancels++);
     document.addEventListener('click', event => { if (event.target.closest('button')) window.bookingClicks++; });
     ${navigation.replaceAll('export ', '')}
+    initCalendarScrollChaining(document.querySelector('.calendar-frame'));
     initCalendarSwipeNavigation(document.querySelector('.calendar-frame'), {
       onPrevious: () => window.navigations.push('previous'),
       onNext: () => window.navigations.push('next'),
@@ -94,6 +96,63 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   };
   const calls = () => evaluate('window.navigations');
+  const transitions = [];
+  for (const input of ['wheel', 'touch']) {
+    await evaluate(`(() => {
+      const surface = document.querySelector('#surface');
+      surface.scrollTop = surface.scrollHeight - surface.clientHeight - 20;
+      window.scrollTo(0, 0);
+      surface.querySelector('button').focus({ preventScroll: true });
+    })()`);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (input === 'wheel') {
+      await command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 150, y: 220, deltaX: 0, deltaY: 180 });
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } else {
+      await swipe(150, 220, 0, -160);
+    }
+    transitions.push({
+      input,
+      ...await evaluate(`(() => {
+        const surface = document.querySelector('#surface');
+        return { remaining: surface.scrollHeight - surface.clientHeight - surface.scrollTop, page: window.scrollY };
+      })()`),
+    });
+  }
+  assert.ok(
+    transitions.every(result => result.remaining <= 1 && result.page >= 80),
+    `A movement crossing the calendar bottom must continue on the page without restarting: ${JSON.stringify(transitions)}`,
+  );
+  for (const input of ['wheel', 'touch']) {
+    await evaluate(`(() => {
+      document.querySelector('#surface').scrollTop = 400;
+      window.scrollTo(0, 100);
+    })()`);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (input === 'wheel') {
+      await command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 150, y: 140, deltaX: 0, deltaY: -160 });
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } else {
+      await swipe(150, 140, 0, 160);
+    }
+    const position = await evaluate(`({ page: window.scrollY, calendar: document.querySelector('#surface').scrollTop })`);
+    assert.equal(position.page, 0, 'Scrolling back over the calendar must first reveal the page header');
+    assert.ok(position.calendar < 400, `The rest of the upward ${input} movement must scroll the calendar contents`);
+  }
+  await evaluate(`document.querySelector('#surface').scrollTop = 10000; window.scrollTo(0, 0)`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await swipe(150, 200, 0, -100);
+  assert.ok(await evaluate('window.scrollY > 0'), 'At the calendar bottom, touch scrolling must continue to the booking requests below');
+  await evaluate(`window.scrollTo(0, 0)`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 150, y: 200, deltaX: 0, deltaY: 180 });
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.ok(await evaluate('window.scrollY > 0'), 'At the calendar bottom, mouse-wheel scrolling must continue to the booking requests below');
+  await evaluate(`document.querySelector('#surface').scrollTop = 0; window.scrollTo(0, 100)`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await swipe(150, 100, 0, 80);
+  assert.ok(await evaluate('window.scrollY < 100'), 'At the calendar top, a downward gesture must scroll back up the page');
+  await evaluate(`window.scrollTo(0, 0)`);
   await setPosition('80');
   await swipe(220, 100, -80);
   assert.deepEqual(await calls(), []);
@@ -116,7 +175,17 @@ try {
   assert.ok(await evaluate('document.querySelector("#surface").scrollTop > 0'), 'Vertical scrolling must remain functional');
   assert.deepEqual(await calls(), ['next', 'previous']);
   assert.equal(await evaluate('window.bookingClicks'), 0, 'Swiping bookings must not open them');
-  console.log('Native touch scrolling, edge navigation, pointer cancellation, vertical scrolling and booking click suppression passed.');
+  await evaluate(`document.querySelector('#surface').scrollTop = 10000; window.scrollTo(0, 0)`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await swipe(150, 200, 0, -100);
+  assert.ok(await evaluate('window.scrollY > 0'), 'After scrolling inside the calendar, the next bottom-edge gesture must reach the requests');
+  await evaluate(`window.scrollTo(0, 0); document.querySelector('#surface').scrollTop = 100`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await command('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 150, y: 150, id: 1 }] });
+  await command('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await new Promise(resolve => setTimeout(resolve, 400));
+  assert.equal(await evaluate('window.bookingClicks'), 1, 'A regular tap must still open a booking after scrolling');
+  console.log(`${surfaceClass}: uninterrupted wheel/touch transitions, reverse scrolling, horizontal navigation and booking taps passed.`);
   await send('Browser.close');
 } finally {
   ws?.close();

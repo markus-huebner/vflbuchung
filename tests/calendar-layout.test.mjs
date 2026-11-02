@@ -67,7 +67,7 @@ test('calendar scroll surfaces reserve horizontal touch gestures for swipe navig
   assert.match(rule[1], /height:\s*var\(--calendar-scroll-height,\s*max\(8rem,\s*calc\(100dvh\s*-\s*12rem\)\)\)/);
   assert.match(rule[1], /overscroll-behavior-y:\s*auto/);
   assert.match(calendarCss, /\.calendar-frame\s*\{[^}]*touch-action:\s*pan-x pan-y/);
-  assert.match(calendarCss, /\.resource-day-scroll\.has-horizontal-overflow\s*\{[^}]*touch-action:\s*pan-x pan-y/);
+  assert.match(calendarCss, /\.resource-day-scroll\.has-horizontal-overflow,\s*\.resource-week-scroll\.has-horizontal-overflow\s*\{[^}]*touch-action:\s*pan-x pan-y/);
   assert.match(calendarJs, /target\.classList\.toggle\('has-horizontal-overflow', target\.scrollWidth > target\.clientWidth\)/);
 
   const mobileRule = calendarCss.match(/@media \(max-width:\s*700px\)\s*\{([\s\S]*?)\n\}/);
@@ -155,8 +155,8 @@ test('week calendar uses fixed, equally sized day columns', () => {
   assert.ok(rule, 'week calendar needs an explicit table layout rule');
   assert.match(rule[1], /width:\s*100%/);
   assert.match(rule[1], /table-layout:\s*fixed/);
-  assert.doesNotMatch(rule[1], /min-width:\s*\d/);
-  assert.match(calendarCss, /\.resource-week-table \.resource-week-resource-column\s*\{[^}]*width:\s*150px;/s);
+  assert.match(rule[1], /min-width:\s*60rem/);
+  assert.match(calendarCss, /\.resource-week-table \.resource-week-resource-column\s*\{[^}]*width:\s*168px;/s);
 });
 
 test('day calendar columns share available width without shrinking below their headings', () => {
@@ -165,12 +165,13 @@ test('day calendar columns share available width without shrinking below their h
   assert.match(rule[1], /width:\s*100%/);
   assert.match(rule[1], /grid-template-columns:\s*var\(--axis-width\)\s*repeat\(var\(--resource-count\),\s*minmax\(max-content,\s*1fr\)\)/);
   assert.match(rule[1], /min-width:\s*0/);
+  assert.match(calendarCss, /\.resource-column\s*\{[^}]*min-width:\s*6rem/s);
   assert.doesNotMatch(calendarJs, /grid\.style\.gridTemplateColumns/);
   assert.doesNotMatch(calendarJs, /grid\.style\.minWidth/);
 });
 
 test('day calendar headings stay on one line with pitch suffixes below', () => {
-  assert.match(calendarCss, /\.resource-day-grid\s*\{[^}]*--axis-width:\s*40px/s);
+  assert.match(calendarCss, /\.resource-day-grid\s*\{[^}]*--axis-width:\s*48px/s);
   const headingRule = calendarCss.match(/\.resource-column-heading\s*\{([^}]+)\}/);
   assert.ok(headingRule);
   assert.match(headingRule[1], /white-space:\s*nowrap/);
@@ -238,7 +239,7 @@ test('week calendar narrows its resource label column on small screens', () => {
 
   const resourceColumnRule = mediaRule[1].match(/\.resource-week-table \.resource-week-resource-column\s*\{([^}]+)\}/);
   assert.ok(resourceColumnRule, 'week calendar resource column needs a narrow-screen width');
-  assert.match(resourceColumnRule[1], /width:\s*90px/);
+  assert.match(resourceColumnRule[1], /width:\s*112px/);
 
   const resourceHeadingRule = mediaRule[1].match(/\.resource-week-table tbody th\s*\{([^}]+)\}/);
   assert.ok(resourceHeadingRule, 'week calendar resource labels need to wrap on small screens');

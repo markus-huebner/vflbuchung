@@ -258,6 +258,16 @@ try {
     await evaluate(`document.querySelector('[data-view="week"]').click()`);
     await waitFor(`!document.querySelector('#bus-week').hidden && document.querySelector('#full-day-toggle').disabled && !document.querySelector('#calendar-view-controls').disabled`);
     await checkCalendarHeight();
+    const weekWidths = await evaluate(`(() => {
+      const table = document.querySelector('#bus-week table');
+      return {
+        table: table.getBoundingClientRect().width,
+        days: [...table.querySelectorAll('thead th')].slice(1).map(cell => cell.getBoundingClientRect().width),
+      };
+    })()`);
+    assert.ok(weekWidths.table >= 960, 'Week columns must not collapse on a narrow screen');
+    assert.ok(weekWidths.days.every(width => width >= 100), 'Every weekday must retain a readable column width');
+    assert.ok(Math.max(...weekWidths.days) - Math.min(...weekWidths.days) < 1, 'Weekday columns must stay equally wide');
     assert.equal(await evaluate(`document.querySelectorAll('[data-view]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('#full-day-toggle-wrap').hidden`), false);
     assert.equal(await evaluate(`document.querySelector('#calendar-actions-menu').open`), false);
@@ -361,11 +371,12 @@ try {
           document.documentElement.style.fontSize = previousFontSize;
         }
       })()`);
-      assert.equal(headings.scrollable, width < 40 + 7 * 4.5 * fontSize);
+      assert.equal(headings.scrollable, width < 48 + 7 * 6 * fontSize);
       assert.equal(headings.touchAction, headings.scrollable ? 'pan-x pan-y' : 'pan-y');
       const heights = headings.headings.map(heading => heading.height);
       assert.ok(Math.max(...heights) - Math.min(...heights) < 1, 'Heading rows must stay aligned');
       for (const heading of headings.headings) {
+        assert.ok(heading.width >= 6 * fontSize - 1, 'Resource columns must retain their wider minimum width');
         const expected = heading.name.match(/^(Platz \d+)(?: (.+))?$/).slice(1).filter(Boolean);
         assert.deepEqual(heading.lines.map(line => line.text), expected);
         for (const line of heading.lines) {
@@ -380,12 +391,13 @@ try {
   console.log('Calendar headings: minimum widths, single-line pitch numbers, suffix lines, aligned rows and horizontal scrolling passed.');
   const cardSource = appSource.slice(appSource.indexOf('function eventCard('), appSource.indexOf('function renderResourceDay('));
   await evaluate(`(() => {
+    const bookingTypeInfo = () => null;
     ${cardSource}
     const stage = document.createElement('div');
     stage.id = 'card-density-fixture';
     stage.style.cssText = 'position:fixed;top:0;left:0;width:280px;pointer-events:none';
     const sample = {
-      assignment_id: 1, occurrence_id: 1, event_type: 'training', status: 'confirmed',
+      assignment_id: 1, occurrence_id: 1, event_type: 'training', event_type_name: 'Training', status: 'confirmed',
       title: 'Testbuchung', start: '2026-10-26T10:00:00+01:00', end: '2026-10-26T11:00:00+01:00',
       recurrence_rule: { frequency: 'weekly' },
     };

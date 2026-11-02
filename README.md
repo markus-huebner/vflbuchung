@@ -199,6 +199,15 @@ Mit laufender Umgebung auf `8100` und installiertem Google Chrome prüft der Bro
 node .\tests\calendar-menu-browser.mjs
 ```
 
+Touch- und Mausradgesten einschließlich horizontalem Scrollen, Zeitraumwechsel am Scrollrand und unterbrechungsfreiem Übergang an die Buchungsanfragen unter dem Kalender prüfen:
+
+```powershell
+node .\tests\calendar-swipe-browser.mjs
+node .\tests\calendar-swipe-browser.mjs --week
+```
+
+Diese beiden Tests verwenden isolierte Browser-Fixtures mit den aktuellen Kalenderstilen und der Scroll-/Navigationslogik. Sie benötigen Google Chrome, aber keine Anmeldung und keine Buchungsänderungen.
+
 Nach `docker compose build web` prüft der Integrationstest vollständige Buchungsänderungen einschließlich Serien, Ressourcen, Doppelbuchungen und öffentlich sichtbaren Anfragen. Er legt eine eigene temporäre Testdatenbank an und entfernt sie anschließend; die vorhandene Datenbank bleibt unverändert:
 
 ```powershell
