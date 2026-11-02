@@ -67,7 +67,7 @@ test('calendar scroll surfaces reserve horizontal touch gestures for swipe navig
   assert.match(rule[1], /height:\s*var\(--calendar-scroll-height,\s*max\(8rem,\s*calc\(100dvh\s*-\s*12rem\)\)\)/);
   assert.match(rule[1], /overscroll-behavior-y:\s*auto/);
   assert.match(calendarCss, /\.calendar-frame\s*\{[^}]*touch-action:\s*pan-x pan-y/);
-  assert.match(calendarCss, /\.resource-day-scroll\.has-horizontal-overflow,\s*\.resource-week-scroll\.has-horizontal-overflow\s*\{[^}]*touch-action:\s*pan-x pan-y/);
+  assert.match(calendarCss, /\.resource-day-scroll\.has-horizontal-overflow,\s*\.resource-week-scroll\.has-horizontal-overflow\s*\{[^}]*touch-action:\s*pan-x\s*;/);
   assert.match(calendarJs, /target\.classList\.toggle\('has-horizontal-overflow', target\.scrollWidth > target\.clientWidth\)/);
 
   const mobileRule = calendarCss.match(/@media \(max-width:\s*700px\)\s*\{([\s\S]*?)\n\}/);
@@ -201,6 +201,13 @@ test('day calendar headings stay on one line with pitch suffixes below', () => {
   assert.match(calendarJs, /grid\.style\.removeProperty\('--resource-heading-height'\)/);
   assert.match(calendarJs, /resourceHeadingObserver = new ResizeObserver\(updateHeadingHeight\)/);
   assert.match(calendarJs, /resourceHeadingObserver\.observe\(grid\)/);
+});
+
+test('pitch columns have 40 percent smaller minimums without reducing vehicle widths', () => {
+  assert.match(calendarCss, /#pitch-day \.resource-column\s*\{[^}]*min-width:\s*3\.6rem/s);
+  assert.match(calendarCss, /#pitch-week \.resource-week-table\s*\{[^}]*min-width:\s*36rem/s);
+  assert.match(calendarCss, /#pitch-week \.resource-week-resource-column\s*\{[^}]*width:\s*100\.8px/s);
+  assert.match(calendarCss, /@media\s*\(max-width:\s*375px\)[\s\S]*#pitch-week \.resource-week-resource-column\s*\{[^}]*width:\s*67\.2px/s);
 });
 
 test('calendar date briefly highlights after the displayed range changes', () => {

@@ -328,7 +328,8 @@ try {
   const appSource = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
   const daySource = appSource.slice(appSource.indexOf('function renderResourceDay('), appSource.indexOf('function renderResourceWeek('));
   for (const width of [280, 390, 1200]) {
-    for (const fontSize of [16, 24]) {
+    for (const [resourceType, fontSize] of [['pitch', 16], ['pitch', 24], ['bus', 16], ['bus', 24]]) {
+      const minimumRem = resourceType === 'pitch' ? 3.6 : 6;
       const headings = await evaluate(`(() => {
         ${daySource}
         const DAY_HOUR_HEIGHT = 51.2;
@@ -338,13 +339,15 @@ try {
         let resourceHeadingObserver;
         const names = ['Platz 1 Süd', 'Platz 1 Nord', 'Platz 2', 'Platz 3', 'Platz 4 Ost', 'Platz 4 West', 'Platz 5'];
         const state = {
-          resourceType: 'heading-fixture', events: [], showFullDay: false,
-          resources: names.map((name, id) => ({ name, id, type: 'heading-fixture' })),
+          resourceType: '${resourceType}', events: [], showFullDay: false,
+          resources: names.map((name, id) => ({ name, id, type: '${resourceType}' })),
         };
         const previousFontSize = document.documentElement.style.fontSize;
         document.documentElement.style.fontSize = '${fontSize}px';
         const target = document.createElement('div');
-        target.id = 'heading-fixture-day';
+        const existingTarget = document.querySelector('#${resourceType}-day');
+        existingTarget.id = 'original-calendar-day';
+        target.id = '${resourceType}-day';
         target.className = 'resource-day-scroll';
         target.style.cssText = 'position:fixed;top:0;left:0;width:${width}px;height:300px';
         document.body.append(target);
@@ -352,6 +355,7 @@ try {
           renderResourceDay();
           return {
             scrollable: target.scrollWidth > target.clientWidth,
+            columns: [...target.querySelectorAll('.resource-column')].map(column => column.getBoundingClientRect().width),
             touchAction: getComputedStyle(target).touchAction,
             headings: Array.from(target.querySelectorAll('h3'), heading => ({
               name: heading.title,
@@ -368,15 +372,19 @@ try {
         } finally {
           resourceHeadingObserver?.disconnect();
           target.remove();
+          existingTarget.id = '${resourceType}-day';
           document.documentElement.style.fontSize = previousFontSize;
         }
       })()`);
-      assert.equal(headings.scrollable, width < 48 + 7 * 6 * fontSize);
+      assert.equal(headings.scrollable, width < 48 + 7 * minimumRem * fontSize);
+      const expectedWidth = Math.max(minimumRem * fontSize, (width - 48) / 7);
+      assert.ok(headings.columns.every(column => Math.abs(column - expectedWidth) < 1),
+        `${resourceType}: columns must use their minimum or fill the available width: ${headings.columns}`);
       assert.equal(headings.touchAction, headings.scrollable ? 'pan-x pan-y' : 'pan-y');
       const heights = headings.headings.map(heading => heading.height);
       assert.ok(Math.max(...heights) - Math.min(...heights) < 1, 'Heading rows must stay aligned');
       for (const heading of headings.headings) {
-        assert.ok(heading.width >= 6 * fontSize - 1, 'Resource columns must retain their wider minimum width');
+        assert.ok(heading.width >= minimumRem * fontSize - 1, 'Resource columns must retain their minimum width');
         const expected = heading.name.match(/^(Platz \d+)(?: (.+))?$/).slice(1).filter(Boolean);
         assert.deepEqual(heading.lines.map(line => line.text), expected);
         for (const line of heading.lines) {
@@ -389,6 +397,42 @@ try {
     }
   }
   console.log('Calendar headings: minimum widths, single-line pitch numbers, suffix lines, aligned rows and horizontal scrolling passed.');
+  const weekSource = appSource.slice(appSource.indexOf('function renderResourceWeek('), appSource.indexOf('function fitCalendarViewport('));
+  for (const resourceType of ['pitch', 'bus']) {
+    for (const width of [280, 390, 1200]) {
+      const minimumWidth = resourceType === 'pitch' ? 576 : 960;
+      const layout = await evaluate(`(() => {
+        ${weekSource}
+        const weekStart = date => date;
+        const state = {
+          resourceType: '${resourceType}', date: new Date('2026-10-26T12:00:00'), events: [],
+          resources: [{ id: 1, name: 'Platz 1 Nord', type: '${resourceType}' }],
+        };
+        const existingTarget = document.querySelector('#${resourceType}-week');
+        existingTarget.id = 'original-calendar-week';
+        const target = document.createElement('div');
+        target.id = '${resourceType}-week';
+        target.className = 'resource-week-scroll';
+        target.style.cssText = 'position:fixed;top:0;left:0;width:${width}px;height:300px';
+        document.body.append(target);
+        try {
+          renderResourceWeek();
+          return {
+            width: target.querySelector('table').getBoundingClientRect().width,
+            scrollable: target.scrollWidth > target.clientWidth,
+            days: [...target.querySelectorAll('thead th')].slice(1).map(cell => cell.getBoundingClientRect().width),
+          };
+        } finally {
+          target.remove();
+          existingTarget.id = '${resourceType}-week';
+        }
+      })()`);
+      assert.ok(Math.abs(layout.width - Math.max(width, minimumWidth)) < 1,
+        `${resourceType}: week table must use its minimum or fill the available width`);
+      assert.equal(layout.scrollable, width < minimumWidth);
+      assert.ok(Math.max(...layout.days) - Math.min(...layout.days) < 1, 'Weekday widths must stay equal');
+    }
+  }
   const cardSource = appSource.slice(appSource.indexOf('function eventCard('), appSource.indexOf('function renderResourceDay('));
   await evaluate(`(() => {
     const bookingTypeInfo = () => null;

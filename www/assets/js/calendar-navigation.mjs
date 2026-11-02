@@ -17,7 +17,8 @@ export function initCalendarScrollChaining(root) {
     if (delta === 0) return 0;
     const before = element.scrollTop;
     const next = Math.max(0, Math.min(element.scrollHeight - element.clientHeight, before + delta));
-    if (next !== before) element.scrollTop = next;
+    // Gesture deltas must stay synchronous even when the page enables CSS smooth scrolling.
+    if (next !== before) element.scrollTo({ top: next, behavior: 'instant' });
     return element.scrollTop - before;
   };
   const scroll = (surface, delta) => {
@@ -83,17 +84,22 @@ export function initCalendarScrollChaining(root) {
     const touch = event.touches[0];
     if (touch.identifier !== gesture.id || gesture.native) return;
     const delta = gesture.lastY - touch.clientY;
-    if (!event.cancelable || delta === 0) return;
-    if (!gesture.vertical
-      && Math.abs(touch.clientY - gesture.y) <= Math.abs(touch.clientX - gesture.x) * 1.25) {
-      gesture.native = true;
-      return;
+    if (delta === 0) return;
+    if (!gesture.vertical) {
+      const distanceX = Math.abs(touch.clientX - gesture.x);
+      const distanceY = Math.abs(touch.clientY - gesture.y);
+      // Ignore finger jitter and only hand clearly horizontal gestures to the browser.
+      if (Math.max(distanceX, distanceY) < 6) return;
+      if (distanceX > distanceY * 1.25) {
+        gesture.native = true;
+        return;
+      }
     }
     // Take vertical ownership before native scrolling makes later touch moves non-cancelable.
     const moved = scroll(gesture.surface, delta);
     if (!gesture.vertical && moved === 0) return;
     gesture.vertical = true;
-    event.preventDefault();
+    if (event.cancelable) event.preventDefault();
     const elapsed = Math.max(1, event.timeStamp - gesture.lastTime);
     const velocity = Math.max(-3, Math.min(3, delta / elapsed));
     gesture.velocity = Math.sign(velocity) === Math.sign(gesture.velocity)

@@ -75,7 +75,7 @@ Das Burger-Menü rechts oben am Belegungsplan enthält Kalender- und Ansichtsein
 
 Auf Handy und Desktop stehen dieselben beiden Kalendermenüs zur Verfügung: **+** öffnet für angemeldete Benutzer die Auswahl zum Anlegen einer Platz- oder Fahrzeugbuchung beziehungsweise einer Traineranfrage; das **Burger-Menü** enthält Kalender- und Ansichtseinstellungen und schließt sich nach einer Auswahl. „Ganzen Tag anzeigen“ ist nur in der Tagesansicht aktiv. Es ist immer nur eines der beiden Kalendermenüs geöffnet. Die Kopfzeile zeigt angemeldet das Kopfsymbol und daneben den Namen als normalen Text außerhalb des Buttons; das Symbol öffnet für Admins zuerst „Ressourcen“, „Benutzerverwaltung“ und „Buchungsarten“, dann eine Trennlinie, „Mein Profil“ und „Abmelden“. Ohne Anmeldung erscheint nur „Anmelden“ und kein Anlegen-Menü.
 
-- **Plätze:** Tagesraster mit Platzspalten (standardmäßig 09:00–21:00 Uhr; außerhalb dieses Zeitraums kann der restliche Tag eingeblendet werden) und Wochenansicht mit Tagen als Spalten. Die Tagesplan-Spalten teilen die verfügbare Breite gleichmäßig mit einer Mindestbreite von 4,5 rem, sodass „Platz 5“ einzeilig bleibt; Namenszusätze stehen darunter. Bei horizontalem Bildlauf scrollen Wischgesten die Spalten. Eine neue Wischgeste am rechten Scrollrand nach links wechselt zum nächsten Tag, am linken Scrollrand nach rechts zum vorherigen. Das Erreichen des Randes während einer Scrollgeste löst keinen Datumswechsel aus. Stundenzeilen sind 51,2 statt 64 Pixel hoch; Eintragspositionen und Mindesthöhen verwenden denselben Maßstab.
+- **Plätze:** Tagesraster mit Platzspalten (standardmäßig 09:00–21:00 Uhr; außerhalb dieses Zeitraums kann der restliche Tag eingeblendet werden) und Wochenansicht mit Tagen als Spalten. Die Tagesplan-Spalten teilen die verfügbare Breite gleichmäßig mit einer Mindestbreite von 3,6 rem, sodass „Platz 5“ einzeilig bleibt; Namenszusätze stehen darunter. Die Wochenansicht hat eine Mindestbreite von 36 rem und wächst bei mehr Platz ebenfalls auf die gesamte verfügbare Breite. Die Mindestbreiten der Platzbelegung sind damit gegenüber den bisherigen 6 beziehungsweise 60 rem um 40 Prozent reduziert; die Fahrzeugansicht bleibt unverändert. Bei horizontalem Bildlauf scrollen Wischgesten die Spalten. Eine neue Wischgeste am rechten Scrollrand nach links wechselt zum nächsten Tag, am linken Scrollrand nach rechts zum vorherigen. Das Erreichen des Randes während einer Scrollgeste löst keinen Datumswechsel aus. Stundenzeilen sind 51,2 statt 64 Pixel hoch; Eintragspositionen und Mindesthöhen verwenden denselben Maßstab.
 - **Kabinen:** Zugeordnete Kabinen erscheinen direkt an den Platzterminen und in deren Buchungsdialog.
 - **Fahrzeuge:** Tages- und Wochenansicht, standardmäßig 09:00–21:00 Uhr mit optional einblendbarem restlichen Tag; mehrtägige Einzelbuchungen sind möglich.
 - Buchungskategorie und optionale öffentliche Zusatzinfo werden direkt im Kalender angezeigt.
@@ -207,6 +207,14 @@ node .\tests\calendar-swipe-browser.mjs --week
 ```
 
 Diese beiden Tests verwenden isolierte Browser-Fixtures mit den aktuellen Kalenderstilen und der Scroll-/Navigationslogik. Sie benötigen Google Chrome, aber keine Anmeldung und keine Buchungsänderungen.
+
+Den vertikalen Übergang zu den Buchungsanfragen zusätzlich in der tatsächlichen angemeldeten Anwendung bei 320 und 390 Pixel Breite prüfen: leicht schräg beginnende Wischgesten, mehrere aufeinanderfolgende Wischbewegungen durch den Kalender und eine Größenänderung durch die mobile Browserleiste. Der Test prüft die unmittelbare Umsetzung jeder Fingerbewegung beim Übergang zur Seite, auch bei aktiviertem CSS-Smooth-Scrolling:
+
+```powershell
+node .\tests\calendar-auth-scroll-browser.mjs
+```
+
+Dieser Test benötigt die laufende, aktuell gebaute Docker-Umgebung auf `8100`, Google Chrome, `APP_ENV=local` und ein vorhandenes aktives Kalenderkonto. Er erzeugt nur eine temporäre PHP-Sitzung, die anschließend entfernt wird; Konten und Buchungen werden nicht verändert.
 
 Nach `docker compose build web` prüft der Integrationstest vollständige Buchungsänderungen einschließlich Serien, Ressourcen, Doppelbuchungen und öffentlich sichtbaren Anfragen. Er legt eine eigene temporäre Testdatenbank an und entfernt sie anschließend; die vorhandene Datenbank bleibt unverändert:
 

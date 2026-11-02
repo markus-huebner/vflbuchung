@@ -16,17 +16,32 @@ function pointerEvent(type, properties) {
   return result;
 }
 
-function verticalScrollFixture() {
+function verticalScrollFixture({ smoothPage = false } = {}) {
   const frame = new CalendarFrame();
   const doc = new EventTarget();
   const page = { scrollHeight: 2000, clientHeight: 600 };
-  const surface = { scrollTop: 600, scrollHeight: 900, clientHeight: 300 };
+  const surface = {
+    scrollTop: 600, scrollHeight: 900, clientHeight: 300,
+    scrollTo({ top }) { this.scrollTop = top; },
+  };
   const movements = [];
   let pageTop = 100;
   Object.defineProperty(page, 'scrollTop', {
     get: () => pageTop,
-    set: value => { movements.push(value - pageTop); pageTop = value; },
+    set: value => {
+      if (smoothPage) return;
+      movements.push(value - pageTop);
+      pageTop = value;
+    },
   });
+  page.scrollTo = ({ top, behavior }) => {
+    if (behavior !== 'instant') {
+      page.scrollTop = top;
+      return;
+    }
+    movements.push(top - pageTop);
+    pageTop = top;
+  };
   let time = 0;
   let nextFrame = 0;
   const frames = new Map();
@@ -134,6 +149,31 @@ test('one touch gesture crosses the calendar edge without lifting the finger', (
   assert.equal(dispatch('touchmove', [touch(150, 140)]).defaultPrevented, true);
   assert.equal(page.scrollTop, 160);
   assert.deepEqual(movements, [10, 50]);
+});
+
+test('CSS smooth scrolling cannot delay page handoff after the calendar has scrolled', () => {
+  const { surface, page, dispatch, touch, movements } = verticalScrollFixture({ smoothPage: true });
+  surface.scrollTop = 500;
+  dispatch('touchstart', [touch(150, 300)]);
+  dispatch('touchmove', [touch(150, 220)]);
+  assert.equal(surface.scrollTop, 580);
+  assert.equal(dispatch('touchmove', [touch(150, 180)]).defaultPrevented, true);
+  assert.equal(surface.scrollTop, 600);
+  assert.equal(page.scrollTop, 120);
+  assert.equal(dispatch('touchmove', [touch(150, 140)]).defaultPrevented, true);
+  assert.equal(page.scrollTop, 160);
+  assert.deepEqual(movements, [20, 40]);
+});
+
+test('small sideways finger jitter must not disable the following vertical gesture', () => {
+  const { surface, page, dispatch, touch } = verticalScrollFixture();
+  surface.scrollTop = 580;
+  dispatch('touchstart', [touch(150, 220)]);
+  dispatch('touchmove', [touch(152, 219)]);
+  assert.equal(dispatch('touchmove', [touch(154, 180)]).defaultPrevented, true);
+  dispatch('touchmove', [touch(156, 100)]);
+  assert.equal(surface.scrollTop, 600);
+  assert.equal(page.scrollTop, 200);
 });
 
 test('scrolling up first brings a partly hidden calendar back into view', () => {

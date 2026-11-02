@@ -97,7 +97,7 @@ try {
   };
   const calls = () => evaluate('window.navigations');
   const transitions = [];
-  for (const input of ['wheel', 'touch']) {
+  for (const input of ['wheel', 'touch', 'diagonal-touch']) {
     await evaluate(`(() => {
       const surface = document.querySelector('#surface');
       surface.scrollTop = surface.scrollHeight - surface.clientHeight - 20;
@@ -108,8 +108,19 @@ try {
     if (input === 'wheel') {
       await command('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 150, y: 220, deltaX: 0, deltaY: 180 });
       await new Promise(resolve => setTimeout(resolve, 500));
-    } else {
+    } else if (input === 'touch') {
       await swipe(150, 220, 0, -160);
+    } else {
+      await command('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 150, y: 220, id: 1 }] });
+      for (let step = 1; step <= 10; step++) {
+        await command('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{ x: 174, y: 220 - 24 - (step - 1) * 16, id: 1 }],
+        });
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      await command('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     transitions.push({
       input,
