@@ -50,6 +50,7 @@ if ($scenario !== '') {
         'password' => 'SetupTestPassword123!',
         'password_confirmation' => 'SetupTestPassword123!',
         'schema_action' => 'keep',
+        'seed_example_bookings' => '1',
     ];
     register_shutdown_function(static function () use ($pdo): void {
         echo json_encode([
@@ -128,7 +129,8 @@ foreach (['source_key', 'destination', 'purpose', 'driver_name'] as $column) {
 $setupPage = App\Views::setup('csrf-test', '', $status, true);
 if (!str_contains($setupPage, 'id="setup-recreate"')
     || !str_contains($setupPage, 'setup-confirm-recreate')
-    || str_contains($setupPage, 'seed_example_bookings')
+    || !str_contains($setupPage, 'name="seed_example_bookings" value="1"')
+    || preg_match('/<input[^>]*name="seed_example_bookings"[^>]*checked/', $setupPage) === 1
     || !str_contains($setupPage, 'Das aktuelle Datenbankschema wurde erkannt')
     || str_contains($setupPage, 'Setup-Schlüssel')) {
     throw new RuntimeException('A current database must offer an explicit rebuild without a setup-key prompt.');
@@ -165,8 +167,8 @@ if ((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'password-mis
     throw new RuntimeException('Mismatched passwords must be rejected before deleting existing data.');
 }
 $adminResult = $runScenario('--create-admin');
-if ($adminResult !== ['admin_count' => 1, 'logged_in' => true, 'booking_count' => 0, 'flash_type' => 'success']) {
-    throw new RuntimeException('The setup must create the first administrator without importing example bookings.');
+if ($adminResult !== ['admin_count' => 1, 'logged_in' => true, 'booking_count' => 437, 'flash_type' => 'info']) {
+    throw new RuntimeException('The setup must create the first administrator and import the explicitly selected examples.');
 }
 session_destroy();
 

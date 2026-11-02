@@ -9,6 +9,8 @@ use RuntimeException;
 
 final class DatabaseSetup
 {
+    private const EXAMPLE_BOOKINGS_PROCEDURE = 'seed_example_bookings_202610_202703';
+
     private const TABLES = [
         'users',
         'password_resets',
@@ -160,6 +162,53 @@ final class DatabaseSetup
         $this->migrate();
         $this->executeSqlFile($this->databaseDirectory . '/install.sql');
         $this->executeSqlFile($this->databaseDirectory . '/seed_resources.sql');
+    }
+
+    public function seedExampleBookings(): array
+    {
+        $sql = file_get_contents($this->databaseDirectory . '/seed_example_bookings.sql');
+        if ($sql === false) {
+            throw new RuntimeException('Die Beispieldaten konnten nicht gelesen werden.');
+        }
+
+        $sections = preg_split('/^DELIMITER[^\r\n]*\r?$/m', $sql);
+        if (!is_array($sections) || count($sections) !== 3) {
+            throw new RuntimeException('Das Skript für die Beispieldaten hat ein ungültiges Format.');
+        }
+        $createProcedure = preg_replace('/\$\$\s*$/', '', trim($sections[1]));
+        if (!is_string($createProcedure) || $createProcedure === '') {
+            throw new RuntimeException('Das Skript für die Beispieldaten enthält keine Importprozedur.');
+        }
+
+        $this->pdo->exec('DROP PROCEDURE IF EXISTS ' . self::EXAMPLE_BOOKINGS_PROCEDURE);
+        try {
+            $this->pdo->exec($createProcedure);
+            $statement = $this->pdo->query('CALL ' . self::EXAMPLE_BOOKINGS_PROCEDURE . '()');
+            if ($statement === false) {
+                throw new RuntimeException('Der Import der Beispieldaten lieferte kein Ergebnis.');
+            }
+            $summary = $statement->fetch(PDO::FETCH_ASSOC);
+            while ($statement->nextRowset()) {
+                $statement->fetchAll();
+            }
+            $statement->closeCursor();
+        } catch (PDOException $exception) {
+            if (($exception->errorInfo[0] ?? null) === '45000'
+                && is_string($exception->errorInfo[2] ?? null)) {
+                throw new RuntimeException($exception->errorInfo[2], 0, $exception);
+            }
+            throw $exception;
+        } finally {
+            $this->pdo->exec('DROP PROCEDURE IF EXISTS ' . self::EXAMPLE_BOOKINGS_PROCEDURE);
+        }
+
+        if (!is_array($summary) || !isset($summary['planned_bookings'], $summary['inserted_bookings'])) {
+            throw new RuntimeException('Der Import der Beispieldaten lieferte eine ungültige Zusammenfassung.');
+        }
+        return [
+            'planned_bookings' => (int) $summary['planned_bookings'],
+            'inserted_bookings' => (int) $summary['inserted_bookings'],
+        ];
     }
 
     private function hasColumn(string $table, string $column): bool

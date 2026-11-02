@@ -134,9 +134,27 @@ Für InfinityFree muss die Website über HTTPS erreichbar sein. Die kostenlose H
 
 Alternativ zum Web-Assistenten können für eine neue lokale oder gehostete Datenbank zuerst `www/database/install.sql` und danach `www/database/seed_resources.sql` manuell ausgeführt werden. Die Buchungskategorie „Extern“ wird bereits im Installationsskript mit diesem Namen angelegt; bestehende Kategorienamen werden nicht nachträglich umbenannt. Beim Start wird ein unvollständiges Anwendungsschema erkannt und nicht automatisch verändert. Im Einrichtungsassistenten ergänzt „Daten behalten“ fehlende Tabellen und Schemaänderungen; nach ausdrücklicher Bestätigung können stattdessen alle Anwendungstabellen gelöscht und mit dem aktuellen Schema neu angelegt werden. Eine separate Sammlung von Migrationsskripten gibt es nicht; additive Schemaänderungen sind im Installationsskript enthalten.
 
-Beim Anwendungsstart entfernt die Migration die bisherigen Spalten `source_key`, `destination`, `purpose` und `driver_name` aus `booking_occurrences` einschließlich ihrer Inhalte. Vor dem Update sollte deshalb eine Datenbanksicherung erstellt werden. Buchungen, Ressourcenzuordnungen und interne Notizen bleiben erhalten. Der Beispieldatenimport einschließlich Importzuordnung und Setup-Option wurde entfernt; bereits importierte Buchungen bleiben als normale Buchungen bestehen.
+Beim Anwendungsstart entfernt die Migration die bisherigen Spalten `source_key`, `destination`, `purpose` und `driver_name` aus `booking_occurrences` einschließlich ihrer Inhalte. Vor dem Update sollte deshalb eine Datenbanksicherung erstellt werden. Buchungen, Ressourcenzuordnungen und interne Notizen bleiben erhalten. Importzuordnungen werden nicht gespeichert; bereits importierte Buchungen bleiben als normale Buchungen bestehen.
+
+### Optionale Beispieldaten
+
+Im letzten Schritt des Einrichtungsassistenten kann **„Beispielbuchungen von Oktober 2026 bis März 2027 importieren“** ausgewählt werden. Die Auswahl ist standardmäßig deaktiviert. Der Import startet nach der Erstellung des Administratorkontos und legt 437 bestätigte Platzbuchungen an: 311 Trainings, 92 Spiele und 34 externe Belegungen. Quellen, Zeitauflösung und veröffentlichte Zeiträume sind in [Beispieldaten-Quelle](docs/beispieldaten-quelle.md) dokumentiert. Es werden keine zusätzlichen Benutzer, Serienregeln oder internen Notizen erzeugt.
+
+**Der Import funktioniert ausschließlich bei leerem Buchungsbestand.** Sind in `booking_groups` oder `booking_occurrences` bereits Einträge vorhanden, bricht er ohne Datenänderungen ab. Das gilt auch für abgelehnte oder zurückgezogene Anfragen und für einen erneuten Import. Es werden keine Buchungen überschrieben oder automatisch gelöscht.
+
+Alternativ kann nach abgeschlossener Einrichtung `www/database/seed_example_bookings.sql` über phpMyAdmin importiert werden. Erforderlich sind MySQL 8, ein aktiver Administrator, die aktiven Standardbuchungsarten und die sieben aktiven Standardplätze mit unveränderten Namen. Der Datenbankbenutzer benötigt `CREATE ROUTINE`, `ALTER ROUTINE` und `EXECUTE`; ohne diese Berechtigungen ist der Import auch im Assistenten nicht möglich. Der Docker-Start importiert keine Beispielbuchungen.
+
+Für einen vollständigen Neustart beim Webhoster: zuerst die Datenbank sichern und die Website für andere Besucher sperren. Anschließend ausschließlich die Anwendungstabellen in phpMyAdmin löschen (nicht nur leeren). Bei unveränderten Zugangsdaten `config/.env` behalten, die Website in einem privaten Browserfenster öffnen, ein neues Administratorkonto einrichten und die Beispieldatenoption auswählen. Das Löschen der Tabellen entfernt alle bisherigen Benutzer und Buchungen unwiderruflich. Falls die Tabellen bereits manuell über `install.sql` und `seed_resources.sql` angelegt wurden, können sie im Assistenten beibehalten werden.
 
 ## Checks
+
+Den Beispieldatenimport einschließlich Quellfingerabdruck, Zeitzonenumrechnung, aktuellem Schema, Fehler-Rollback und Ablehnung wiederholter Imports in einer isolierten Datenbank prüfen:
+
+```powershell
+.\tests\example-bookings.ps1
+```
+
+Der Test verwendet eine eigene Datenbank mit zufälligem Namen `vflbuchung_test_*` und entfernt sie anschließend. Die Anwendungsdatenbank bleibt unverändert.
 
 Die Ersteinrichtung und beide Datenbankoptionen in einer eigens angelegten Testdatenbank prüfen:
 

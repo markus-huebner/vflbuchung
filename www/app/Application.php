@@ -371,10 +371,9 @@ final class Application
                     }
 
                     $this->databaseSetup->initialize(false);
-                    $_SESSION['_flash'] = [
-                        'type' => 'success',
-                        'message' => 'Das Datenbankschema wurde ergänzt. Melde dich mit deinem Administratorkonto an.',
-                    ];
+                    $_SESSION['_flash'] = $this->setupCompletionFlash(
+                        'Das Datenbankschema wurde ergänzt. Melde dich mit deinem Administratorkonto an.'
+                    );
                     $this->redirect('/?page=login');
                 }
 
@@ -411,7 +410,7 @@ final class Application
                     (string) ($_POST['password'] ?? '')
                 );
                 $this->auth->loginAfterSetup((string) $_POST['email']);
-                $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Administratorkonto wurde eingerichtet.'];
+                $_SESSION['_flash'] = $this->setupCompletionFlash('Das Administratorkonto wurde eingerichtet.');
                 $this->redirect('/');
 
             case 'invite-accept':
@@ -812,6 +811,33 @@ final class Application
             is_array($flash) ? $flash : null,
             $clientData
         );
+    }
+
+    private function setupCompletionFlash(string $message): array
+    {
+        if ((string) ($_POST['seed_example_bookings'] ?? '') !== '1') {
+            return ['type' => 'success', 'message' => $message];
+        }
+        try {
+            $summary = $this->databaseSetup->seedExampleBookings();
+            return [
+                'type' => 'info',
+                'message' => $message . ' Beispieldaten importiert: ' . $summary['inserted_bookings'] . ' Buchungen.',
+            ];
+        } catch (PDOException $exception) {
+            error_log('Example booking setup failed: ' . $exception->getMessage());
+            return [
+                'type' => 'danger',
+                'message' => $message . ' Die Beispieldaten konnten nicht importiert werden. '
+                    . 'Prüfe die Stored-Procedure-Berechtigungen; technische Details stehen im Serverprotokoll.',
+            ];
+        } catch (RuntimeException $exception) {
+            error_log('Example booking setup failed: ' . $exception->getMessage());
+            return [
+                'type' => 'danger',
+                'message' => $message . ' Die Beispieldaten konnten nicht importiert werden: ' . $exception->getMessage(),
+            ];
+        }
     }
 
     private function initialAdminExists(): bool

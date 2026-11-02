@@ -930,6 +930,10 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             : '';
         $heading = $allowAdminCreation ? 'System einrichten' : 'Datenbankschema vervollständigen';
         $submitLabel = $allowAdminCreation ? 'Einrichten' : 'Vervollständigen';
+        $exampleDataOption = '<fieldset class="mb-4"><legend class="h5">Optionale Beispieldaten</legend>
+  <div class="form-check"><input class="form-check-input" type="checkbox" id="setup-example-bookings" name="seed_example_bookings" value="1"><label class="form-check-label" for="setup-example-bookings">Beispielbuchungen von Oktober 2026 bis März 2027 importieren</label></div>
+  <div class="form-text">Importiert 437 bestätigte Buchungen, nur bei leerem Buchungsbestand. Vorhandene Buchungen werden weder geändert noch gelöscht. Der Datenbankbenutzer benötigt Stored-Procedure-Berechtigungen.</div>
+</fieldset>';
         $description = $allowAdminCreation
             ? ($schemaComplete
                 ? 'Das Datenbankschema ist bereits aktuell. Du kannst es beibehalten oder ausdrücklich neu aufsetzen.'
@@ -943,6 +947,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
   <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
   <h2 class="h5">Datenbankschema</h2>
   ' . $databaseChoice . '
+  ' . $exampleDataOption . '
   ' . $accountForm . '
   <button class="btn btn-primary" type="submit">' . $submitLabel . '</button>
 </form></section>';
