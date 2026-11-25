@@ -2,6 +2,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import '../css/app.css';
 
 import { initBookingDates } from './booking-dates.mjs';
+import { initDeletePeriod } from './delete-period.mjs';
 import { initCalendarActionsMenu, syncCalendarActionsMenu } from './calendar-actions.mjs';
 import { initCalendarScrollChaining, initCalendarSwipeNavigation, shiftCalendarDate } from './calendar-navigation.mjs';
 import { initDatePicker } from './date-picker.mjs';
@@ -744,7 +745,7 @@ function renderResourceChoices() {
   const resources = available.filter((resource) => resource.type === resourceType);
   const selectedIds = new Set(editingBooking?.resource_ids || editingRequest?.resource_ids || []);
   const cabinIds = new Set(editingBooking?.cabin_ids || []);
-  const allowCabins = bookingForm?.dataset.allowCabins === 'true' && !editingRequest;
+  const allowCabins = bookingForm?.dataset.allowCabins === 'true' && (!editingRequest || editingRequest.can_approve);
   const group = document.createElement('fieldset');
   group.className = 'resource-choice-group';
   if (mode === 'pitch') group.classList.add('pitch-choice-group');
@@ -843,8 +844,30 @@ function updateBookingFields() {
 function updateRecurrenceFields() {
   const frequency = bookingForm?.elements.frequency?.value || 'none';
   const limitType = bookingForm?.elements.limit_type?.value || 'until';
+  const units = { daily: 'Tage', weekly: 'Wochen', monthly: 'Monate', yearly: 'Jahre' };
+  const interval = document.querySelector('[data-recurrence-interval]');
+  interval?.toggleAttribute('hidden', frequency === 'none');
+  if (interval && units[frequency]) {
+    interval.querySelector('label').textContent = `Alle … ${units[frequency]}`;
+  }
   document.querySelector('[data-recurrence-options]')?.toggleAttribute('hidden', frequency === 'none');
   document.querySelector('#weekday-choices')?.toggleAttribute('hidden', frequency !== 'weekly');
+  const date = bookingForm?.querySelector('[data-booking-date]')?.value || '';
+  const parsed = new Date(`${date}T12:00:00Z`);
+  const weekday = document.querySelector('#recurrence-weekday');
+  if (weekday) {
+    weekday.value = /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(parsed.getTime())
+      && parsed.toISOString().slice(0, 10) === date
+      ? new Intl.DateTimeFormat('de-DE', { weekday: 'long', timeZone: 'UTC' }).format(parsed)
+      : '';
+  }
+  const legacy = document.querySelector('[data-legacy-weekdays]');
+  if (legacy) {
+    const days = (editingRequest || editingBooking)?.recurrence_rule?.weekdays || [];
+    const labels = { MO: 'Mo', TU: 'Di', WE: 'Mi', TH: 'Do', FR: 'Fr', SA: 'Sa', SU: 'So' };
+    legacy.hidden = days.length < 2;
+    legacy.textContent = days.length < 2 ? '' : `Bestehende Serie: ${days.map((day) => labels[day]).join(', ')}. Bei unveränderter Wiederholungsregel bleiben diese Wochentage erhalten.`;
+  }
   document.querySelectorAll('[data-recurrence-limit]').forEach((element) => {
     element.hidden = element.dataset.recurrenceLimit !== limitType;
   });
@@ -863,6 +886,8 @@ function bookingError(message = '', kind = 'danger') {
 
 async function submitBooking(event) {
   event.preventDefault();
+  const approveRequest = Boolean(editingRequest?.approve);
+  if (editingRequest) editingRequest.approve = false;
   if (bookingForm.dataset.saved === 'true') return;
   validateRequiredNonWhitespace(bookingForm.elements.combined_title);
   if (!bookingForm.reportValidity()) return;
@@ -880,6 +905,11 @@ async function submitBooking(event) {
       : 'Wähle ein Fahrzeug aus.', 'danger');
     return;
   }
+  if (isRequestEdit && !approveRequest
+    && bookingForm.querySelector('[data-resource-choice][data-resource-kind="cabin"][aria-pressed="true"]')) {
+    bookingError('Kabinen können nur beim Freigeben zugeordnet werden.', 'danger');
+    return;
+  }
   const submit = bookingForm.querySelector('[data-booking-submit]');
   bookingError();
   bookingForm.dataset.saved = '';
@@ -892,7 +922,7 @@ async function submitBooking(event) {
     const api = isRequestEdit ? 'request-edit' : editingBooking ? 'booking-edit' : 'booking-create';
     if (isRequestEdit) {
       formData.set('occurrence_id', editingRequest.occurrence_id);
-      formData.set('approve', editingRequest.approve ? '1' : '0');
+      formData.set('approve', approveRequest ? '1' : '0');
     }
     const response = await fetch(`/?api=${api}`, {
       method: 'POST', body: formData, headers: { Accept: 'application/json' },
@@ -1105,7 +1135,8 @@ async function showLinkedRequest(occurrenceId) {
   }
 
   const requestRow = [...document.querySelectorAll('#request-dashboard .request-row')]
-    .find((row) => row.dataset.occurrenceIds?.split(',').includes(String(occurrenceId)));
+    .find((row) => row.dataset.occurrenceIds?.split(',').includes(String(occurrenceId))
+      || (result.request.group_id && row.dataset.groupId === String(result.request.group_id)));
   if (requestRow) selectRequestRow(requestRow);
   const statusLabels = {
     confirmed: 'genehmigt',
@@ -1159,20 +1190,20 @@ async function refreshRequestDashboard() {
 }
 
 function initUserMenu() {
-  const menu = document.querySelector('#user-menu');
-  if (!menu) return;
-  menu.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && menu.open) {
-      event.preventDefault();
-      menu.open = false;
-      menu.querySelector('summary').focus();
-    }
-  });
-  document.addEventListener('pointerdown', event => {
-    if (menu.open && !menu.contains(event.target)) menu.open = false;
-  });
-  menu.addEventListener('focusout', event => {
-    if (event.relatedTarget && !menu.contains(event.relatedTarget)) menu.open = false;
+  document.querySelectorAll('#user-menu, #settings-menu').forEach((menu) => {
+    menu.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && menu.open) {
+        event.preventDefault();
+        menu.open = false;
+        menu.querySelector('summary').focus();
+      }
+    });
+    document.addEventListener('pointerdown', event => {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    });
+    menu.addEventListener('focusout', event => {
+      if (event.relatedTarget && !menu.contains(event.relatedTarget)) menu.open = false;
+    });
   });
 }
 
@@ -1306,12 +1337,6 @@ function initControls() {
     });
   });
   initResourceOrdering();
-  document.querySelector('#resource-category-filter')?.addEventListener('change', (event) => {
-    const selectedCategory = event.currentTarget.value;
-    document.querySelectorAll('[data-resource-order-group]').forEach((group) => {
-      group.hidden = selectedCategory !== '' && group.dataset.resourceOrderGroup !== selectedCategory;
-    });
-  });
   const resourceDeleteDialog = document.querySelector('#resource-delete-dialog');
   document.querySelectorAll('[data-resource-delete]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -1470,7 +1495,8 @@ function initControls() {
     const occurrenceId = button.dataset.occurrenceId;
     button.disabled = true;
     try {
-      const response = await fetch(`/?api=request-details&occurrence_id=${encodeURIComponent(occurrenceId)}`, {
+      const requestScope = button.dataset.requestSeries === 'true' ? 'all' : 'one';
+      const response = await fetch(`/?api=request-details&occurrence_id=${encodeURIComponent(occurrenceId)}&scope=${requestScope}`, {
         headers: { Accept: 'application/json' },
       });
       const data = await response.json();
@@ -1492,12 +1518,9 @@ function initControls() {
       bookingForm.elements.limit_type.value = data.recurrence_rule?.limit_type || 'until';
       bookingForm.elements.until.value = data.recurrence_rule?.until || '';
       bookingForm.elements.count.value = data.recurrence_rule?.limit_type === 'count'
-        ? data.scope_counts.one : 10;
+        ? data.scope_counts[requestScope] : 10;
       bookingForm.elements.count.dataset.modified = '';
-      bookingForm.elements.scope.value = 'one';
-      bookingForm.querySelectorAll('[name="weekdays[]"]').forEach((input) => {
-        input.checked = (data.recurrence_rule?.weekdays || []).includes(input.value);
-      });
+      bookingForm.elements.scope.value = requestScope;
       bookingDates.setRange(berlinDateTimeInput(data.start), berlinDateTimeInput(data.end));
       updateBookingFields();
       renderResourceChoices();
@@ -1520,8 +1543,47 @@ function initControls() {
   });
   bookingForm?.querySelector('[data-request-approve]')?.addEventListener('click', () => {
     if (!editingRequest?.can_approve) return;
+    if (!bookingForm.reportValidity()) return;
     editingRequest.approve = true;
     bookingForm.requestSubmit();
+  });
+  detailsDialog?.querySelector('[data-event-approve]')?.addEventListener('submit', async (event) => {
+    if (selectedEvent?.event_type === 'bus') return;
+    event.preventDefault();
+    const approvalDialog = document.querySelector('#event-approval-dialog');
+    const cabinGroup = approvalDialog?.querySelector('[data-approval-cabins]');
+    if (!approvalDialog || !cabinGroup) {
+      announce('Der Freigabedialog ist nicht verfügbar.', 'danger');
+      return;
+    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const resources = await fetchResources();
+      const cabins = resources.filter((resource) => resource.type === 'cabin');
+      cabinGroup.replaceChildren();
+      const legend = document.createElement('legend');
+      legend.className = 'form-label';
+      legend.textContent = 'Kabinen (optional)';
+      cabinGroup.append(legend);
+      if (cabins.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'small text-secondary mb-0';
+        empty.textContent = 'Es sind keine aktiven Kabinen vorhanden.';
+        cabinGroup.append(empty);
+      } else {
+        cabins.forEach((cabin) => cabinGroup.append(createResourceChip(cabin, 'cabin_ids[]')));
+      }
+      approvalDialog.querySelector('[name="assignment_id"]').value = selectedEvent.assignment_id;
+      detailsDialog.close();
+      approvalDialog.showModal();
+    } catch (error) {
+      const message = detailsDialog.querySelector('[data-event-error]');
+      message.textContent = error.message || 'Die Kabinen konnten nicht geladen werden.';
+      message.hidden = false;
+    } finally {
+      button.disabled = false;
+    }
   });
   bookingForm?.querySelector('#event-type-select')?.addEventListener('change', updateBookingFields);
   document.addEventListener('click', (event) => {
@@ -1535,6 +1597,8 @@ function initControls() {
   });
   bookingForm?.elements.frequency?.addEventListener('change', updateRecurrenceFields);
   bookingForm?.elements.limit_type?.addEventListener('change', updateRecurrenceFields);
+  bookingForm?.querySelector('[data-booking-date]')?.addEventListener('input', updateRecurrenceFields);
+  bookingForm?.querySelector('[data-booking-date]')?.addEventListener('change', updateRecurrenceFields);
   bookingForm?.addEventListener('submit', submitBooking);
   bookingForm?.addEventListener('input', () => {
     if (bookingForm.dataset.saved !== 'true') bookingError();
@@ -1581,6 +1645,7 @@ function initControls() {
     const rejecting = action === 'reject';
     const cabinDeletion = form.matches('[data-cancel-cabin-form]');
     const requestDeletion = form.action.includes('booking-delete');
+    const seriesRequest = form.elements.namedItem('request_scope')?.value === 'series';
     const bookingTypeRemoval = form.action.includes('booking-type-remove');
     const bookingTypeName = form.dataset.confirmItemName || 'Buchungsart';
     const title = rejecting
@@ -1589,13 +1654,15 @@ function initControls() {
         ? `Buchungsart "${bookingTypeName}" entfernen?`
         : requestDeletion ? 'Buchungsanfrage löschen?' : 'Buchung löschen?';
     const message = rejecting
-      ? 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
+      ? seriesRequest ? 'Möchten Sie alle offenen Termine dieser Serienanfrage wirklich ablehnen?'
+        : 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
       : bookingTypeRemoval
         ? `Möchten Sie "${bookingTypeName}" wirklich entfernen? Bei vorhandenen Terminen wird die Buchungsart archiviert.`
       : cabinDeletion
         ? 'Möchten Sie diese Kabinenbelegung wirklich löschen?'
         : requestDeletion
-          ? 'Möchten Sie diese Buchungsanfrage wirklich löschen?'
+          ? seriesRequest ? 'Möchten Sie alle offenen Termine dieser Serienanfrage wirklich löschen?'
+            : 'Möchten Sie diese Buchungsanfrage wirklich löschen?'
           : 'Möchten Sie diese Buchung wirklich löschen?';
     actionConfirmDialog.querySelector('[data-confirm-title]').textContent = title;
     actionConfirmDialog.querySelector('[data-confirm-message]').textContent = message;
@@ -1678,9 +1745,6 @@ function initControls() {
       bookingForm.elements.count.value = rule?.limit_type === 'count' ? data.scope_counts[scope] : 10;
       bookingForm.elements.count.dataset.modified = '';
       bookingForm.elements.scope.value = scope;
-      bookingForm.querySelectorAll('[name="weekdays[]"]').forEach((input) => {
-        input.checked = (rule?.weekdays || []).includes(input.value);
-      });
       updateBookingFields();
       renderResourceChoices();
       detailsDialog.close();
@@ -1736,6 +1800,7 @@ function initControls() {
 }
 
 initControls();
+initDeletePeriod();
 initCalendarViewportResize();
 loadResources()
   .then(async () => {

@@ -1,3 +1,8 @@
+param(
+    [ValidateSet('booking-edit.php', 'booking-cancel.php')]
+    [string]$TestFile = 'booking-edit.php'
+)
+
 $ErrorActionPreference = "Stop"
 $previousEncoding = $OutputEncoding
 $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
@@ -29,8 +34,8 @@ try {
     Get-Content www\database\install.sql -Raw -Encoding UTF8 |
         docker compose exec -T -e "TEST_DB=$testDatabase" db sh -c 'export MYSQL_PWD=$MYSQL_ROOT_PASSWORD; exec mysql -uroot $TEST_DB'
     if ($LASTEXITCODE -ne 0) { throw "Could not install the isolated test schema." }
-    Get-Content tests\booking-edit.php -Raw -Encoding UTF8 |
-        docker compose run --rm --no-deps -T -e "DB_NAME=$testDatabase" web php
+    $testDirectory = Join-Path (Get-Location).Path 'tests'
+    docker compose run --rm --no-deps -T --volume "${testDirectory}:/var/www/app/tests:ro" -e "DB_NAME=$testDatabase" web php "tests/$TestFile"
     if ($LASTEXITCODE -ne 0) { throw "Booking editing checks failed." }
 } finally {
     $cleanupExitCode = 0

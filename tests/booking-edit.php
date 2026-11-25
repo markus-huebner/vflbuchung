@@ -10,7 +10,7 @@ use App\Recurrence;
 
 require getcwd() . '/www/vendor/autoload.php';
 
-$config = Config::fromEnvironment();
+$config = Config::fromEnvironment('/dev/null', '/dev/null');
 if (!preg_match('/^vflbuchung_test_[a-z0-9]+$/', $config->get('DB_NAME'))) {
     throw new RuntimeException('Run this test only against a dedicated vflbuchung_test_* database with install.sql applied.');
 }
@@ -94,7 +94,7 @@ function editData(int $id, array $changes = [], string $scope = 'one'): array
 }
 
 $requestEditData = function (int $id, array $actor, array $changes = [], string $scope = 'one') use ($service): array {
-    $details = $service->editablePendingRequest($id, $actor);
+    $details = $service->editablePendingRequest($id, $actor, $scope === 'one' ? 'one' : 'all');
     $rule = $details['recurrence_rule'] ?? ['frequency' => 'none'];
     if (($rule['limit_type'] ?? '') === 'count') $rule['count'] = $details['scope_counts'][$scope];
     return array_replace($details, $rule, [
@@ -103,6 +103,93 @@ $requestEditData = function (int $id, array $actor, array $changes = [], string 
         'scope' => $scope,
     ], $changes);
 };
+
+$seriesStart = (new DateTimeImmutable('now', new DateTimeZone('Europe/Berlin')))
+    ->modify('-4 months')->format('Y-m-d');
+$seriesToReview = createBooking($seriesStart, [
+    'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
+    'frequency' => 'monthly', 'limit_type' => 'count', 'count' => 6,
+], $actors['trainer']);
+$allPending = $service->pendingSeriesAssignmentIds($seriesToReview[0], $manager);
+check(count($allPending) === 12, 'Series actions include old and recent pending assignments.');
+$service->approve([$allPending[0]], $manager);
+$service->reject([$allPending[2]], $manager, 'Test');
+$original = $pdo->prepare(
+    'SELECT o.title, o.starts_at, a.status FROM booking_occurrences o
+     JOIN booking_resource_assignments a ON a.occurrence_id = o.id WHERE a.id = ?'
+);
+$original->execute([$allPending[0]]);
+$confirmedBefore = $original->fetch();
+$original->execute([$allPending[2]]);
+$rejectedBefore = $original->fetch();
+foreach ([$manager, $actors['trainer']] as $viewer) {
+    $rows = array_values(array_filter(
+        $service->requests($viewer, true, 1, 50)['items'],
+        static fn(array $row): bool => in_array((string) $seriesToReview[0], explode(',', $row['occurrence_ids']), true)
+    ));
+    check(count($rows) === 1 && (int) $rows[0]['is_series_summary'] === 1
+        && (int) $rows[0]['occurrence_count'] === 6 && $rows[0]['assignment_status'] === 'pending',
+        'Partially decided series must appear as a single pending series for both roles.');
+}
+$change = $requestEditData($seriesToReview[0], $manager, ['title' => 'Series changed'], 'all');
+$changed = $service->editPendingRequest($seriesToReview[0], $change, $manager, true);
+check($changed['approved'] === 10, 'Approval must cover all updated pending series assignments.');
+$original->execute([$allPending[0]]);
+check($original->fetch() === $confirmedBefore, 'Editing a series must preserve confirmed assignments and their occurrence.');
+$original->execute([$allPending[2]]);
+check($original->fetch() === $rejectedBefore, 'Editing a series must preserve rejected assignments and their occurrence.');
+
+$seriesToReject = createBooking('2034-01-01', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 3,
+], $actors['trainer']);
+$rejectionIds = $service->pendingSeriesAssignmentIds($seriesToReject[1], $manager);
+$service->approve([$rejectionIds[0]], $manager);
+$service->reject($service->pendingSeriesAssignmentIds($seriesToReject[1], $manager), $manager, 'Test');
+$original->execute([$rejectionIds[0]]);
+check($original->fetch()['status'] === 'confirmed', 'Series rejection must preserve confirmed assignments.');
+foreach (array_slice($rejectionIds, 1) as $id) {
+    $original->execute([$id]);
+    check($original->fetch()['status'] === 'rejected', 'Series rejection must reject all remaining requests.');
+}
+
+$seriesToDelete = createBooking('2034-02-01', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 3,
+], $actors['trainer']);
+$deletionIds = $service->pendingSeriesAssignmentIds($seriesToDelete[0], $actors['trainer']);
+$service->approve([$deletionIds[0]], $manager);
+$service->deletePendingRequests($service->pendingSeriesAssignmentIds($seriesToDelete[1], $actors['trainer']), $actors['trainer']);
+$original->execute([$deletionIds[0]]);
+check($original->fetch()['status'] === 'confirmed', 'Series withdrawal must preserve confirmed assignments.');
+$original->execute([$deletionIds[1]]);
+check($original->fetch() === false, 'Series withdrawal must remove pending assignments.');
+
+$seriesToReschedule = createBooking('2034-03-01', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 3,
+], $actors['trainer']);
+$rescheduleIds = $service->pendingSeriesAssignmentIds($seriesToReschedule[0], $manager);
+$service->approve([$rescheduleIds[0]], $manager);
+$original->execute([$rescheduleIds[0]]);
+$beforeReschedule = $original->fetch();
+$service->editPendingRequest($seriesToReschedule[1], $requestEditData(
+    $seriesToReschedule[1], $actors['trainer'], ['count' => 4], 'all'
+), $actors['trainer']);
+$original->execute([$rescheduleIds[0]]);
+check($original->fetch() === $beforeReschedule, 'Changing the recurrence must preserve decided occurrences.');
+check(count($service->pendingSeriesAssignmentIds($seriesToReschedule[1], $actors['trainer'])) === 4,
+    'Changing recurrence must regenerate the open part of the series.');
+
+$seriesToReduce = createBooking('2034-04-01', [
+    'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 2,
+], $actors['trainer']);
+$reductionIds = $service->pendingSeriesAssignmentIds($seriesToReduce[0], $manager);
+$service->approve([$reductionIds[0]], $manager);
+$result = $service->editPendingRequest($seriesToReduce[0], $requestEditData(
+    $seriesToReduce[0], $manager, ['resource_ids' => [$resources['pitch'][0]]], 'all'
+), $manager, true);
+check($result['approved'] === 1, 'Removing a resource must not recreate decided assignments or leave empty requests.');
+$original->execute([$reductionIds[0]]);
+check($original->fetch()['status'] === 'confirmed', 'Removing a pending resource must preserve confirmed assignments.');
 
 $bookingTypeService = new BookingTypeService($pdo);
 $restrictedTypeCode = $bookingTypeService->save('Nur für Admins', 'red', null, false);
@@ -234,10 +321,15 @@ $approvalSeriesIds = createBooking('2031-03-05', [
 ], $actors['trainer']);
 $service->editPendingRequest(
     $approvalSeriesIds[1],
-    $requestEditData($approvalSeriesIds[1], $manager, [], 'future'),
+    $requestEditData($approvalSeriesIds[1], $manager, ['cabin_ids' => [$resources['cabin'][0]]], 'future'),
     $manager,
     true
 );
+$seriesCabins = $pdo->prepare('SELECT COUNT(*) FROM booking_cabin_assignments WHERE occurrence_id = ? AND cabin_id = ?');
+foreach ($approvalSeriesIds as $index => $seriesId) {
+    $seriesCabins->execute([$seriesId, $resources['cabin'][0]]);
+    check((int) $seriesCabins->fetchColumn() === ($index === 0 ? 0 : 1), 'Approval must attach cabins only to the selected series occurrences.');
+}
 $approvalSeriesGroup = $pdo->prepare('SELECT group_id FROM booking_occurrences WHERE id = ?');
 $approvalSeriesGroup->execute([$approvalSeriesIds[1]]);
 $approvedFutureGroupId = (int) $approvalSeriesGroup->fetchColumn();
@@ -317,7 +409,7 @@ fails(fn() => $service->editPendingRequest(
 ), 'Kabinen belegen');
 $approvalResult = $service->editPendingRequest(
     $approvalRequestId,
-    $requestEditData($approvalRequestId, $manager, ['title' => 'Reviewed request']),
+    $requestEditData($approvalRequestId, $manager, ['title' => 'Reviewed request', 'cabin_ids' => $resources['cabin']]),
     $manager,
     true
 );
@@ -330,6 +422,22 @@ check(
     $approvalResult['approved'] === 2 && (int) $approvedAssignments->fetchColumn() === 2,
     'Approving from the editor must approve every pending place assignment atomically with edits.'
 );
+$seriesCabins->execute([$approvalRequestId, $resources['cabin'][0]]);
+check((int) $seriesCabins->fetchColumn() === 1, 'Approval from the editor must attach selected cabins.');
+
+$directApprovalId = createBooking('2031-03-06', ['resource_ids' => $resources['pitch']], $actors['trainer'])[0];
+$directAssignments = $pdo->prepare("SELECT id FROM booking_resource_assignments WHERE occurrence_id = ? ORDER BY id");
+$directAssignments->execute([$directApprovalId]);
+$directIds = array_map('intval', $directAssignments->fetchAll(PDO::FETCH_COLUMN));
+fails(fn() => $service->approve([$directIds[0]], $actors['trainer'], [$resources['cabin'][0]]), 'Rechte');
+fails(fn() => $service->approve([$directIds[0]], $manager, [$resources['pitch'][0]]), 'ungültig');
+$service->approve([$directIds[0]], $manager, [$resources['cabin'][0]]);
+$service->approve([$directIds[1]], $manager, [$resources['cabin'][0], $resources['cabin'][1]]);
+foreach ($resources['cabin'] as $cabinId) {
+    $seriesCabins->execute([$directApprovalId, $cabinId]);
+    check((int) $seriesCabins->fetchColumn() === 1, 'Direct approval must preserve existing cabins without duplicates.');
+}
+fails(fn() => $service->approve([$directIds[0]], $manager, [$resources['cabin'][0]]), 'offenen Platzanfragen');
 $approvalRequester->execute([$approvalRequestId]);
 check(
     (int) $approvalRequester->fetchColumn() === $originalRequesterId
@@ -435,6 +543,31 @@ check($service->editableOccurrence($series[1], $admin)['scope_counts']['all'] ==
 $result = $service->editOccurrence($series[1], editData($series[1], ['frequency' => 'none'], 'all'), $manager);
 check($result['updated'] === 1 && $service->editableOccurrence($series[1], $admin)['recurrence_rule'] === null, 'Stopping recurrence must remove unneeded dates in scope.');
 fails(fn() => $service->editableOccurrence($series[2], $admin), 'nicht gefunden');
+
+$weekly = createBooking('2035-01-01', [
+    'frequency' => 'weekly', 'weekdays' => ['WE', 'FR'], 'limit_type' => 'count', 'count' => 3,
+]);
+$weeklyDetails = $service->editableOccurrence($weekly[0], $admin);
+check($weeklyDetails['recurrence_rule']['weekdays'] === ['MO'], 'Weekly series must use the start date weekday.');
+$weeklyQuery = $pdo->prepare('SELECT starts_at FROM booking_occurrences WHERE group_id = (SELECT group_id FROM booking_occurrences WHERE id = ?) ORDER BY occurrence_no');
+$weeklyQuery->execute([$weekly[0]]);
+foreach ($weeklyQuery->fetchAll(PDO::FETCH_COLUMN) as $date) {
+    check(Recurrence::fromDatabase($date)->setTimezone(new DateTimeZone('Europe/Berlin'))->format('N') === '1',
+        'Each generated weekly occurrence must fall on the start weekday.');
+}
+$legacyWeekly = createBooking('2035-02-05', [
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 3,
+]);
+$legacyRule = ['frequency' => 'weekly', 'interval' => 1, 'weekdays' => ['MO', 'WE'],
+    'limit_type' => 'count', 'count' => 3, 'until' => null];
+$pdo->prepare('UPDATE booking_groups SET recurrence_rule = ? WHERE id = (SELECT group_id FROM booking_occurrences WHERE id = ?)')
+    ->execute([json_encode($legacyRule, JSON_THROW_ON_ERROR), $legacyWeekly[0]]);
+$service->editOccurrence($legacyWeekly[0], editData($legacyWeekly[0], ['title' => 'Legacy unchanged'], 'all'), $manager);
+check($service->editableOccurrence($legacyWeekly[0], $admin)['recurrence_rule']['weekdays'] === ['MO', 'WE'],
+    'An unchanged legacy recurrence must retain multiple weekdays.');
+$service->editOccurrence($legacyWeekly[0], editData($legacyWeekly[0], ['interval' => 2], 'all'), $manager);
+check($service->editableOccurrence($legacyWeekly[0], $admin)['recurrence_rule']['weekdays'] === ['MO'],
+    'Changing a legacy recurrence must use only the selected date weekday.');
 
 $single = createBooking('2031-08-01')[0];
 $result = $service->editOccurrence($single, editData($single, [
@@ -653,7 +786,10 @@ $trainerSeriesRows = array_values(array_filter(
     $service->requests($actors['trainer'], true, 1, 50)['items'],
     static fn(array $request): bool => (int) $request['group_id'] === $approvedRequestGroupId
 ));
-check(count($trainerSeriesRows) === 3, 'Trainers retain the individual entries for approved recurring requests.');
+check(
+    count($trainerSeriesRows) === 1 && (int) $trainerSeriesRows[0]['occurrence_count'] === 3,
+    'Trainers see approved recurring requests as one series entry.'
+);
 
 $seriesEvents = $service->events('2033-05-01', '2033-05-05', 'pitch', false);
 $targetEvent = array_values(array_filter(
@@ -684,4 +820,87 @@ $legacy = createBooking('2032-04-01')[0];
 $pdo->prepare('UPDATE booking_resource_assignments SET resource_id = :cabin WHERE occurrence_id = :id')
     ->execute(['cabin' => $resources['cabin'][0], 'id' => $legacy]);
 fails(fn() => $service->editableOccurrence($legacy, $admin), 'nur zusammen mit einem Platz');
+$periodSeries = createBooking('2038-03-27', [
+    'resource_ids' => [$resources['pitch'][0], $resources['pitch'][1]],
+    'cabin_ids' => [$resources['cabin'][0]],
+    'frequency' => 'daily', 'limit_type' => 'count', 'count' => 4,
+]);
+$periodRequest = createBooking('2038-03-28', [
+    'resource_ids' => [$resources['pitch'][2], $resources['pitch'][3]],
+], $actors['trainer'])[0];
+$pendingIds = $service->pendingSeriesAssignmentIds($periodRequest, $manager);
+$service->approve([$pendingIds[0]], $manager);
+$periodBus = createBooking('2038-03-28', [
+    'event_type' => 'bus', 'resource_mode' => 'bus', 'resource_ids' => [$resources['bus'][0]],
+])[0];
+fails(fn() => $service->deleteInPeriod('2038-03-28', '2038-03-29', 'all', $actors['trainer']), 'Rechte');
+fails(fn() => $service->deleteInPeriod('2038-03-28', '2038-03-29', 'all', $manager), 'Rechte');
+fails(fn() => $service->deleteInPeriod('2038-03-29', '2038-03-28', 'all', $admin), 'Bis-Datum');
+fails(fn() => $service->deleteInPeriod('2038-02-30', '2038-03-28', 'all', $admin), 'gültig');
+fails(fn() => $service->deleteInPeriod('2038-03-28', '2038-03-29', 'invalid', $admin), 'Auswahl');
+$deleted = $service->deleteInPeriod('2038-03-28', '2038-03-28', 'pending', $admin);
+check($deleted['affected'] === 1 && $deleted['deleted'] === 0 && $deleted['assignments'] === 1,
+    'Pending-only deletion must preserve confirmed resources of a mixed occurrence.');
+check($service->editableOccurrence($periodRequest, $admin)['resource_ids'] === [$resources['pitch'][2]],
+    'The confirmed place must remain after deleting pending places.');
+$deleted = $service->deleteInPeriod('2038-03-28', '2038-03-29', 'confirmed', $admin);
+check($deleted['affected'] === 4 && $deleted['deleted'] === 4,
+    'Confirmed period deletion must include both dates and vehicles.');
+check($service->editableOccurrence($periodSeries[0], $admin)['cabin_ids'] === [$resources['cabin'][0]]
+    && $service->editableOccurrence($periodSeries[3], $admin)['cabin_ids'] === [$resources['cabin'][0]],
+    'Period deletion must preserve outside series occurrences and their cabins.');
+$closed = createBooking('2038-04-01', [], $actors['trainer'])[0];
+$service->reject($service->pendingSeriesAssignmentIds($closed, $manager), $manager, 'Test');
+$open = createBooking('2038-04-01', ['resource_ids' => [$resources['pitch'][1]]], $actors['trainer'])[0];
+check($service->deleteInPeriod('2038-04-01', '2038-04-01', 'all', $admin)['deleted'] === 2,
+    'All-period deletion must include open and rejected requests.');
+check($service->deleteInPeriod('2038-04-01', '2038-04-01', 'all', $admin)['affected'] === 0,
+    'Repeated period deletion must report no matches.');
+$service->deleteInPeriod('2038-03-27', '2038-03-30', 'all', $admin);
+fails(fn() => $service->editableOccurrence($periodSeries[0], $admin), 'nicht gefunden');
+$boundaryBefore = createBooking('2038-03-27', [
+    'starts_at' => '2038-03-27T23:58', 'ends_at' => '2038-03-27T23:59',
+])[0];
+$boundaryStart = createBooking('2038-03-28', [
+    'starts_at' => '2038-03-28T00:00', 'ends_at' => '2038-03-28T01:00',
+    'resource_ids' => [$resources['pitch'][1]], 'cabin_ids' => [$resources['cabin'][1]],
+])[0];
+$boundaryLast = createBooking('2038-03-28', [
+    'starts_at' => '2038-03-28T23:58', 'ends_at' => '2038-03-28T23:59',
+])[0];
+$boundaryAfter = createBooking('2038-03-29', [
+    'starts_at' => '2038-03-29T00:00', 'ends_at' => '2038-03-29T01:00',
+    'resource_ids' => [$resources['pitch'][1]],
+])[0];
+$boundaryUpdate = $pdo->prepare('UPDATE booking_occurrences SET starts_at = ?, ends_at = ? WHERE id = ?');
+foreach ([[$boundaryBefore, '2038-03-27', '2038-03-28'], [$boundaryLast, '2038-03-28', '2038-03-29']] as [$id, $day, $nextDay]) {
+    $boundaryUpdate->execute([
+        Recurrence::toDatabase(Recurrence::parseLocalDateTime($day . 'T23:59')),
+        Recurrence::toDatabase(Recurrence::parseLocalDateTime($nextDay . 'T00:01')),
+        $id,
+    ]);
+}
+$assignmentFor = $pdo->prepare('SELECT id FROM booking_resource_assignments WHERE occurrence_id = ?');
+$assignmentFor->execute([$boundaryBefore]);
+$outsideAssignment = (int) $assignmentFor->fetchColumn();
+$assignmentFor->execute([$boundaryStart]);
+$insideAssignment = (int) $assignmentFor->fetchColumn();
+$pdo->prepare(
+    'INSERT INTO booking_overrides (new_assignment_id, conflicting_assignment_id, actor_id) VALUES (?, ?, ?)'
+)->execute([$insideAssignment, $outsideAssignment, $admin['id']]);
+$overrideId = (int) $pdo->lastInsertId();
+check($service->deleteInPeriod('2038-03-28', '2038-03-28', 'all', $admin)['deleted'] === 2,
+    'The local DST day must include midnight and 23:59, not adjacent days.');
+check($service->editableOccurrence($boundaryBefore, $admin)['occurrence_id'] === $boundaryBefore
+    && $service->editableOccurrence($boundaryAfter, $admin)['occurrence_id'] === $boundaryAfter,
+    'An overlapping term starting before the range and the next midnight must survive.');
+$overrideCheck = $pdo->prepare('SELECT COUNT(*) FROM booking_overrides WHERE id = ?');
+$overrideCheck->execute([$overrideId]);
+check((int) $overrideCheck->fetchColumn() === 0, 'Remove override references, including references to surviving assignments.');
+$cabinCheck = $pdo->prepare('SELECT COUNT(*) FROM booking_cabin_assignments WHERE occurrence_id = ?');
+$cabinCheck->execute([$boundaryStart]);
+check((int) $cabinCheck->fetchColumn() === 0, 'Remove cabins of deleted occurrences.');
+check((int) $pdo->query(
+    'SELECT COUNT(*) FROM booking_groups g WHERE NOT EXISTS (SELECT 1 FROM booking_occurrences o WHERE o.group_id = g.id)'
+)->fetchColumn() === 0, 'Period deletion must not leave empty booking groups.');
 echo "Full booking editing checks passed.\n";

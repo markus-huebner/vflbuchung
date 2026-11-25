@@ -23,17 +23,24 @@ final class Views
                 . '<details class="user-actions-menu user-account-menu" id="user-menu">'
                 . '<summary class="btn btn-sm user-account-trigger" aria-label="Benutzermenü">'
                 . '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>'
-                . '</summary>'
-                . '<div class="user-actions-menu-items">';
+                . '</summary><div class="user-actions-menu-items">'
+                . '<a href="/?page=profile">Mein Profil</a>'
+                . '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
+                . '</div></details>';
             if ($user['role'] === 'admin') {
-                $nav .= '<a href="/?page=resources">Ressourcenverwaltung</a>'
+                $nav .= '<details class="user-actions-menu user-account-menu" id="settings-menu">'
+                    . '<summary class="btn btn-sm user-account-trigger" aria-label="Einstellungen" title="Einstellungen">'
+                    . '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 2h4l.5 2.4a8 8 0 0 1 1.8.8l2.1-1.3 2.8 2.8-1.3 2.1a8 8 0 0 1 .8 1.8L23 10v4l-2.4.5a8 8 0 0 1-.8 1.8l1.3 2.1-2.8 2.8-2.1-1.3a8 8 0 0 1-1.8.8L14 23h-4l-.5-2.4a8 8 0 0 1-1.8-.8l-2.1 1.3-2.8-2.8 1.3-2.1a8 8 0 0 1-.8-1.8L1 14v-4l2.4-.5a8 8 0 0 1 .8-1.8L2.9 5.6l2.8-2.8 2.1 1.3a8 8 0 0 1 1.8-.8z"/><circle cx="12" cy="12.5" r="3"/></svg>'
+                    . '</summary><div class="user-actions-menu-items">'
+                    . '<a href="/?page=resources&amp;category=pitch">Plätze</a>'
+                    . '<a href="/?page=resources&amp;category=bus">Fahrzeuge</a>'
+                    . '<a href="/?page=resources&amp;category=cabin">Kabinen</a>'
                     . '<a href="/?page=users">Benutzerverwaltung</a>'
                     . '<a href="/?page=booking-types">Buchungsarten</a>'
-                    . '<hr class="my-1">';
+                    . '<button type="button" data-delete-period-open>Zeitraum löschen</button>'
+                    . '</div></details>';
             }
-            $nav .= '<a href="/?page=profile">Mein Profil</a>'
-                . '<form method="post" action="/?action=logout" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($csrfToken) . '"><button type="submit">Abmelden</button></form>'
-                . '</div></details></div>';
+            $nav .= '</div>';
         } else {
             $nav .= '<a class="nav-link" href="/?page=login">Anmelden</a>';
         }
@@ -71,6 +78,7 @@ final class Views
 <nav class="navbar navbar-expand navbar-club"><div class="container-fluid">' . $nav . '</div></nav>
 <main class="' . $pageShellClass . '">' . $flashHtml . $content . '</main>
 ' . self::actionConfirmationDialog() . '
+' . (($user['role'] ?? '') === 'admin' ? self::deletePeriodDialog($csrfToken) : '') . '
 </body>
 </html>';
     }
@@ -241,6 +249,29 @@ final class Views
 ' . $bookingDialog . $detailsDialog . self::recurrenceScopeDialog();
     }
 
+    private static function deletePeriodDialog(string $csrf): string
+    {
+        return '<dialog id="delete-period-dialog" aria-labelledby="delete-period-title">
+<form id="delete-period-form" method="post" action="/?action=booking-delete-period">
+  <div class="dialog-header"><h2 class="h5 mb-0" id="delete-period-title">Termine im Zeitraum löschen</h2></div>
+  <div class="dialog-body">
+    <input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">
+    <input type="hidden" name="confirmed" value="">
+    <div data-delete-period-fields>
+      <p>Es werden Termine gelöscht, deren Beginn im Datumsbereich liegt. Beide Tage sind eingeschlossen. Serientermine außerhalb des Zeitraums bleiben erhalten.</p>
+      <div class="row g-3">
+        <div class="col-sm-6"><label class="form-label" for="delete-period-from">Von</label><input class="form-control" id="delete-period-from" name="from" type="date" required></div>
+        <div class="col-sm-6"><label class="form-label" for="delete-period-until">Bis</label><input class="form-control" id="delete-period-until" name="until" type="date" required></div>
+        <div class="col-12"><label class="form-label" for="delete-period-selection">Zu löschende Termine</label><select class="form-select" id="delete-period-selection" name="selection"><option value="all">Alle Termine (inkl. offener und abgeschlossener Anfragen)</option><option value="confirmed">Bestätigte Buchungen</option><option value="pending">Offene Anfragen</option></select></div>
+      </div>
+      <p class="text-danger mt-3 mb-0">Die Löschung ist dauerhaft. Es werden keine E-Mails versendet.</p>
+    </div>
+    <p class="mb-0" data-delete-period-confirmation hidden aria-live="polite"></p>
+  </div>
+  <div class="dialog-footer"><button class="btn btn-outline-secondary" type="button" data-delete-period-cancel>Abbrechen</button><button class="btn btn-danger" type="submit" data-delete-period-submit>Prüfen</button></div>
+</form></dialog>';
+    }
+
     private static function bookingCreateMenu(string $label, bool $isTrainer): string
     {
 $bookingChoices = '';
@@ -292,20 +323,20 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
       </div>
       <div class="col-12"><label class="form-label" for="private-notes">Interne Notiz (optional)</label><textarea class="form-control" id="private-notes" name="private_notes" maxlength="4000" rows="2"></textarea></div>
       <div class="col-12" id="recurrence-fields">
-        <label class="form-label" for="frequency">Wiederholung</label>
-        <select class="form-select mb-2" id="frequency" name="frequency">
-          <option value="none">Keine</option><option value="daily">Täglich</option><option value="weekly">Wöchentlich</option><option value="monthly">Monatlich</option><option value="yearly">Jährlich</option>
-        </select>
-        <div data-recurrence-options hidden>
         <div class="row g-2">
-          <div class="col-sm-4"><label class="form-label" for="interval">Alle …</label><input class="form-control" id="interval" name="interval" type="number" min="1" max="52" value="1"></div>
-          <div class="col-sm-8"><label class="form-label" for="limit-type">Serie beenden nach</label><select class="form-select" id="limit-type" name="limit_type"><option value="until">Enddatum</option><option value="count">Anzahl Termine</option></select></div>
-          <div class="col-sm-6" data-recurrence-limit="until"><label class="form-label" for="until">Enddatum</label><input class="form-control" id="until" name="until" type="date"></div>
-          <div class="col-sm-6" data-recurrence-limit="count" hidden><label class="form-label" for="count">Anzahl</label><input class="form-control" id="count" name="count" type="number" min="1" max="5000" value="10"></div>
+          <div class="col-sm-4"><label class="form-label" for="frequency">Wiederholung</label><select class="form-select" id="frequency" name="frequency">
+            <option value="none">Keine</option><option value="daily">Täglich</option><option value="weekly">Wöchentlich</option><option value="monthly">Monatlich</option><option value="yearly">Jährlich</option>
+          </select></div>
+          <div class="col-sm-4" data-recurrence-interval hidden><label class="form-label" for="interval">Alle …</label><input class="form-control" id="interval" name="interval" type="number" min="1" max="52" value="1"></div>
+          <div class="col-sm-4" id="weekday-choices" hidden><label class="form-label" for="recurrence-weekday">Wochentag</label><input class="form-control" id="recurrence-weekday" type="text" readonly></div>
         </div>
-        <fieldset class="mt-2" id="weekday-choices"><legend class="form-label">Wochentage</legend>
-          ' . self::weekdayCheckboxes() . '
-        </fieldset>
+        <div data-recurrence-options hidden>
+          <p class="form-text mb-0" data-legacy-weekdays hidden></p>
+          <div class="row g-2 mt-1">
+            <div class="col-sm-4"><label class="form-label" for="limit-type">Serie beenden nach</label><select class="form-select" id="limit-type" name="limit_type"><option value="until">Enddatum</option><option value="count">Anzahl Termine</option></select></div>
+            <div class="col-sm-4" data-recurrence-limit="until"><label class="form-label" for="until">Enddatum</label><input class="form-control" id="until" name="until" type="date"></div>
+            <div class="col-sm-4" data-recurrence-limit="count" hidden><label class="form-label" for="count">Anzahl</label><input class="form-control" id="count" name="count" type="number" min="1" max="5000" value="10"></div>
+          </div>
         </div>
         <p class="small text-secondary mt-2 mb-0" data-edit-only hidden>Eine geänderte Wiederholung baut die Termine im gewählten Änderungsumfang neu auf. Nicht mehr enthaltene Termine werden entfernt.</p>
       </div>
@@ -348,17 +379,6 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         return $html . '</div>';
     }
 
-    private static function weekdayCheckboxes(): string
-    {
-        $days = ['MO' => 'Mo', 'TU' => 'Di', 'WE' => 'Mi', 'TH' => 'Do', 'FR' => 'Fr', 'SA' => 'Sa', 'SU' => 'So'];
-        $html = '';
-        foreach ($days as $value => $label) {
-            $html .= '<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="weekdays[]" value="' . $value . '"><span class="form-check-label">' . $label . '</span></label>';
-        }
-
-        return $html;
-    }
-
     private static function eventDialog(?array $user, string $csrf): string
     {
         $cancel = in_array($user['role'] ?? '', ['admin', 'manager'], true)
@@ -381,6 +401,17 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
             ? '<dt class="col-sm-4" data-event-notes-field>Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes-field data-event-notes></dd>'
             : '';
+        $approvalDialog = in_array($user['role'] ?? '', ['admin', 'manager'], true)
+            ? '<dialog id="event-approval-dialog" aria-labelledby="event-approval-title">'
+                . '<form method="post" action="/?action=booking-approve">'
+                . '<div class="dialog-header"><h2 id="event-approval-title" class="h5 mb-0">Anfrage freigeben</h2>'
+                . '<button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>'
+                . '<div class="dialog-body"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
+                . '<input type="hidden" name="assignment_id"><fieldset class="resource-choice-group cabin-choice-group"'
+                . ' data-approval-cabins><legend class="form-label">Kabinen (optional)</legend></fieldset></div>'
+                . '<div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>'
+                . 'Abbrechen</button><button type="submit" class="btn btn-success">Freigeben</button></div></form></dialog>'
+            : '';
 
         return '        <dialog id="event-dialog" aria-labelledby="event-dialog-title">
           <div class="dialog-header"><div class="event-dialog-heading"><p class="event-dialog-category" data-event-type></p><h2 class="h5 mb-0 booking-title" id="event-dialog-title" data-event-title></h2></div><button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>
@@ -397,7 +428,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     </dl>
   </div>
   <div class="dialog-footer">' . $requestActions . $cancel . $edit . '<button type="button" class="btn btn-primary" data-dialog-close>Schließen</button></div>
-</dialog>';
+</dialog>' . $approvalDialog;
     }
 
     private static function recurrenceScopeDialog(): string
@@ -470,6 +501,10 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 static fn(int $id): string => '<input type="hidden" name="assignment_ids[]" value="' . $id . '">',
                 $pendingIds
             ));
+            if ($isSeriesSummary) {
+                $assignmentInputs = '<input type="hidden" name="request_scope" value="series">'
+                    . '<input type="hidden" name="occurrence_id" value="' . (int) $request['occurrence_id'] . '">';
+            }
             $details = [
                 $request['resource_names'],
                 $request['team_name'],
@@ -495,10 +530,11 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                     . ' data-assignment-id="' . $assignmentId . '"'
                     . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '"'
                     . ' data-resource-type="' . $resourceType . '"'
-                    . ' data-start="' . Security::escape(Recurrence::fromDatabase($request['starts_at'])->format(DATE_ATOM)) . '">'
+                    . ' data-start="' . Security::escape(Recurrence::fromDatabase($request['target_starts_at'] ?? $request['starts_at'])->format(DATE_ATOM)) . '">'
                     . $entryDetails . '</button>'
                 : '<div class="dashboard-entry-closed">' . $entryDetails . '</div>';
-            $rows .= '<article class="request-row" data-occurrence-ids="' . Security::escape($occurrenceIds)
+            $rows .= '<article class="request-row" data-group-id="' . (int) ($request['group_id'] ?? 0)
+                . '" data-occurrence-ids="' . Security::escape($occurrenceIds)
                 . '"><div class="request-row-layout"><div class="request-row-content">'
                 . $jumpButton;
             if ($staff) {
@@ -511,14 +547,16 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
 
             if ($staff && $request['assignment_status'] === 'pending') {
                 $rows .= '<button class="btn btn-sm btn-success" type="button" data-request-approve'
-                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Freigeben</button>'
+                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '"'
+                    . ($isSeriesSummary ? ' data-request-series="true"' : '') . '>Freigeben</button>'
                     . '<form method="post" action="/?action=booking-reject" data-confirm-action="reject"><input type="hidden" name="_csrf" value="'
                     . Security::escape($csrf) . '">' . $assignmentInputs
                     . '<input type="hidden" name="reason" value=""><button class="btn btn-sm btn-outline-danger"'
                     . ' type="submit">Ablehnen</button></form>';
             } elseif (!$staff && $request['assignment_status'] === 'pending') {
                 $rows .= '<button type="button" class="btn btn-sm btn-outline-primary" data-request-edit'
-                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '">Ändern</button>'
+                    . ' data-occurrence-id="' . (int) $request['occurrence_id'] . '"'
+                    . ($isSeriesSummary ? ' data-request-series="true"' : '') . '>Ändern</button>'
                     . '<form method="post" action="/?action=booking-delete" data-confirm-action="delete"><input type="hidden" name="_csrf" value="'
                     . Security::escape($csrf) . '">' . $assignmentInputs
                     . '<button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form>';
@@ -775,25 +813,41 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         array $categories,
         string $csrf,
         string $error = '',
-        string $form = ''
+        string $form = '',
+        string $selectedCategory = ''
     ): string
     {
+        $categoryUrl = $selectedCategory === '' ? '' : '&amp;category=' . rawurlencode($selectedCategory);
+        $categoryField = '<input type="hidden" name="return_category" value="' . Security::escape($selectedCategory) . '">';
+        $createLabel = match ($selectedCategory) {
+            'pitch' => 'Platz anlegen',
+            'bus' => 'Fahrzeug anlegen',
+            'cabin' => 'Kabine anlegen',
+            default => 'Ressource anlegen',
+        };
         $categoryOptions = '';
-        $categoryFilterOptions = '<option value="">Alle Kategorien</option>';
         foreach ($categories as $category) {
             $code = (string) $category['code'];
+            if ($selectedCategory !== '' && $selectedCategory !== $code) {
+                continue;
+            }
             $name = (string) $category['name'];
             $categoryOptions .= '<option value="' . Security::escape($code) . '">' . Security::escape($name) . '</option>';
-            $categoryFilterOptions .= '<option value="' . Security::escape($code) . '">'
-                . Security::escape($name) . '</option>';
         }
 
-        $resourceRows = '';
+        $resourceSections = '';
         foreach ($categories as $category) {
             $code = (string) $category['code'];
-            $label = (string) $category['name'];
-            $resourceRows .= '<tbody data-resource-order-group="' . Security::escape($code)
-                . '" data-csrf-token="' . Security::escape($csrf) . '">';
+            if ($selectedCategory !== '' && $selectedCategory !== $code) {
+                continue;
+            }
+            $label = match ($code) {
+                'pitch' => 'Plätze',
+                'bus' => 'Fahrzeuge',
+                'cabin' => 'Kabinen',
+                default => (string) $category['name'],
+            };
+            $resourceRows = '';
             foreach ($resources as $resource) {
                 if ($resource['type'] !== $code) {
                     continue;
@@ -805,10 +859,10 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                     . '<td><button type="button" class="resource-drag-handle" data-resource-drag-handle draggable="true" '
                     . 'aria-label="Ressource verschieben: ' . Security::escape($resource['name']) . '" '
                     . 'title="Ziehen oder mit den Pfeiltasten verschieben">↕</button> '
-                    . Security::escape($resource['name']) . '</td><td>' . Security::escape($label) . '</td><td>'
+                    . Security::escape($resource['name']) . '</td><td>'
                     . ($active ? 'Aktiv' : 'Deaktiviert') . '</td><td><div class="d-flex flex-wrap gap-2">'
                     . '<form method="post" action="/?action=resource-active"><input type="hidden" name="_csrf" value="'
-                    . Security::escape($csrf) . '"><input type="hidden" name="id" value="' . (int) $resource['id']
+                    . Security::escape($csrf) . '">' . $categoryField . '<input type="hidden" name="id" value="' . (int) $resource['id']
                     . '"><input type="hidden" name="active" value="' . ($active ? '0' : '1')
                     . '"><button class="btn btn-sm btn-outline-secondary" type="submit">'
                     . ($active ? 'Deaktivieren' : 'Aktivieren') . '</button></form>'
@@ -819,59 +873,72 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                     . ' data-resource-id="' . (int) $resource['id'] . '" data-resource-name="'
                     . Security::escape($resource['name']) . '">Löschen</button></div></td></tr>';
             }
-            $resourceRows .= '</tbody>';
-        }
-        if ($resources === []) {
-            $resourceRows = '<tbody data-resource-empty><tr><td colspan="4" class="text-center text-secondary py-4">'
-                . 'Es sind noch keine Ressourcen angelegt.</td></tr></tbody>';
+            if ($resourceRows === '') {
+                $resourceRows = '<tr><td colspan="3" class="text-center text-secondary py-4">'
+                    . 'In dieser Kategorie sind noch keine Ressourcen angelegt.</td></tr>';
+            }
+            $resourceSections .= '<section class="panel-card p-3 mb-3"><h2 class="h5">'
+                . Security::escape($label) . '</h2><div class="table-responsive">'
+                . '<table class="table align-middle mb-0"><thead><tr><th scope="col">Name</th>'
+                . '<th scope="col">Status</th><th scope="col">Aktionen</th></tr></thead>'
+                . '<tbody data-resource-order-group="' . Security::escape($code)
+                . '" data-csrf-token="' . Security::escape($csrf) . '">' . $resourceRows
+                . '</tbody></table></div></section>';
         }
 
         $header = '<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">'
-            . '<h1 class="h3 mb-0">Ressourcen</h1>'
-            . '<details class="user-actions-menu"><summary class="btn btn-primary">Ressourcenaktionen</summary>'
-            . '<div class="user-actions-menu-items"><a href="/?page=resources&amp;form=create">'
-            . 'Ressource anlegen</a></div></details></div>' . self::inlineError($error);
+            . '<h1 class="h3 mb-0">' . Security::escape(match ($selectedCategory) {
+                'pitch' => 'Plätze', 'bus' => 'Fahrzeuge', 'cabin' => 'Kabinen', default => 'Ressourcen',
+            }) . '</h1>'
+            . '<a class="btn btn-primary" href="/?page=resources' . $categoryUrl . '&amp;form=create" '
+            . 'aria-label="' . Security::escape($createLabel) . '" title="' . Security::escape($createLabel)
+            . '"><span aria-hidden="true">+</span></a>'
+            . '</div>' . self::inlineError($error);
 
         if ($form === 'create') {
             return $header . '<section class="panel-card p-3"><div class="d-flex justify-content-between '
-                . 'align-items-center gap-3 mb-3"><h2 class="h5 mb-0">Ressource anlegen</h2>'
-                . '<a class="btn btn-outline-secondary btn-sm" href="/?page=resources">Zurück</a></div>'
+                . 'align-items-center gap-3 mb-3"><h2 class="h5 mb-0">' . Security::escape($createLabel) . '</h2>'
+                . '<a class="btn btn-outline-secondary btn-sm" href="/?page=resources' . $categoryUrl . '">Zurück</a></div>'
                 . '<form method="post" action="/?action=resource-save"><input type="hidden" name="_csrf" value="'
-                . Security::escape($csrf) . '"><div class="mb-3"><label class="form-label">Kategorie</label>'
-                . '<select class="form-select" name="type">' . $categoryOptions . '</select></div>'
+                . Security::escape($csrf) . '">' . $categoryField
+                . ($selectedCategory !== ''
+                    ? '<input type="hidden" name="type" value="' . Security::escape($selectedCategory) . '">'
+                    : '<div class="mb-3"><label class="form-label">Kategorie</label>'
+                        . '<select class="form-select" name="type">' . $categoryOptions . '</select></div>')
                 . '<div class="mb-3"><label class="form-label">Name</label><input class="form-control" '
                 . 'name="name" maxlength="120" required></div><button class="btn btn-primary" type="submit">'
                 . 'Anlegen</button></form><p class="small text-secondary mt-3 mb-0">Ressourcen können deaktiviert '
                 . 'oder gelöscht werden. Beim Löschen werden auch die verknüpften Buchungen entfernt.</p></section>';
         }
 
-        return $header . '
-<section class="panel-card p-3"><div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-2"><h2 class="h5 mb-0">Alle Ressourcen</h2><div><label class="form-label mb-1" for="resource-category-filter">Kategorie filtern</label><select id="resource-category-filter" class="form-select form-select-sm">' . $categoryFilterOptions . '</select></div></div><p id="resource-order-status" class="small text-secondary" role="status" aria-live="polite">Ziehe eine Ressource am Griff, um die Reihenfolge zu ändern. Die Reihenfolge gilt auch im Kalender.</p><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Kategorie</th><th>Status</th><th>Aktionen</th></tr></thead>' . $resourceRows . '</table></div></section>'
-            . self::resourceEditDialog($csrf) . self::resourceDeleteDialog($csrf);
+        return $header . '<p id="resource-order-status" class="small text-secondary" role="status" aria-live="polite">'
+            . 'Ziehe eine Ressource am Griff, um die Reihenfolge innerhalb ihrer Kategorie zu ändern. '
+            . 'Die Reihenfolge gilt auch im Kalender.</p>' . $resourceSections
+            . self::resourceEditDialog($csrf, $categoryField) . self::resourceDeleteDialog($csrf, $categoryField);
     }
 
-    private static function resourceEditDialog(string $csrf): string
+    private static function resourceEditDialog(string $csrf, string $categoryField): string
     {
         return '<dialog id="resource-edit-dialog" aria-labelledby="resource-edit-title"><form method="post" '
             . 'action="/?action=resource-save" id="resource-edit-form"><div class="dialog-header">'
             . '<h2 id="resource-edit-title" class="h5 mb-0">Ressource bearbeiten</h2>'
             . '<button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>'
             . '<div class="dialog-body"><input type="hidden" name="_csrf" value="'
-            . Security::escape($csrf) . '"><input type="hidden" name="id">'
+            . Security::escape($csrf) . '">' . $categoryField . '<input type="hidden" name="id">'
             . '<label class="form-label" for="resource-edit-name">Name</label><input class="form-control" '
             . 'id="resource-edit-name" name="name" maxlength="120" required></div><div class="dialog-footer">'
             . '<button type="button" class="btn btn-outline-secondary" data-dialog-close>Abbrechen</button>'
             . '<button type="submit" class="btn btn-primary">Speichern</button></div></form></dialog>';
     }
 
-    private static function resourceDeleteDialog(string $csrf): string
+    private static function resourceDeleteDialog(string $csrf, string $categoryField): string
     {
         return '<dialog id="resource-delete-dialog" aria-labelledby="resource-delete-title">'
             . '<form method="post" action="/?action=resource-delete"><div class="dialog-header">'
             . '<h2 id="resource-delete-title" class="h5 mb-0">Ressource löschen</h2>'
             . '<button type="button" class="btn-close" aria-label="Schließen" data-dialog-close></button></div>'
             . '<div class="dialog-body"><input type="hidden" name="_csrf" value="'
-            . Security::escape($csrf) . '"><input type="hidden" name="id">'
+            . Security::escape($csrf) . '">' . $categoryField . '<input type="hidden" name="id">'
             . '<p>Möchten Sie die Ressource <strong id="resource-delete-name"></strong> dauerhaft löschen?</p>'
             . '<p class="mb-0">Alle Buchungen, die diese Ressource verwenden, werden vollständig einschließlich '
             . 'ihrer weiteren Ressourcenzuordnungen gelöscht. Es werden keine E-Mails versendet. Dieser Vorgang '

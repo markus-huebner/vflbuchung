@@ -184,9 +184,9 @@ final class Application
                 'profile-update' => '/?page=profile',
                 'user-update', 'user-password', 'user-role', 'user-deactivate', 'user-delete' => '/?page=users',
                 'resource-save' => trim((string) ($_POST['id'] ?? '')) === ''
-                    ? '/?page=resources&form=create'
-                    : '/?page=resources',
-                'resource-active', 'resource-delete' => '/?page=resources',
+                    ? $this->resourceReturnUrl() . '&form=create'
+                    : $this->resourceReturnUrl(),
+                'resource-active', 'resource-delete' => $this->resourceReturnUrl(),
                 'booking-type-save', 'booking-type-status', 'booking-type-remove' => '/?page=booking-types',
                 'booking-approve', 'booking-reject', 'booking-delete', 'request-edit' => '/?page=dashboard',
                 default => '/',
@@ -305,7 +305,8 @@ final class Application
         if ($api === 'request-details' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $actor = $this->requireRole(['admin', 'manager', 'trainer']);
             echo json_encode($this->bookings->editablePendingRequest(
-                $this->positiveId($_GET['occurrence_id'] ?? null), $actor
+                $this->positiveId($_GET['occurrence_id'] ?? null), $actor,
+                ($_GET['scope'] ?? '') === 'all' ? 'all' : 'one'
             ), JSON_THROW_ON_ERROR);
             return;
         }
@@ -519,7 +520,7 @@ final class Application
                     'type' => 'success',
                     'message' => $resourceId === '' ? 'Die Ressource wurde angelegt.' : 'Die Ressource wurde geändert.',
                 ];
-                $this->redirect('/?page=resources');
+                $this->redirect($this->resourceReturnUrl());
 
             case 'booking-type-save':
                 $this->requireRole(['admin']);
@@ -577,7 +578,7 @@ final class Application
                 }
                 $this->resources->setActive($this->positiveId($_POST['id'] ?? null), $active === '1');
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Der Ressourcenstatus wurde geändert.'];
-                $this->redirect('/?page=resources');
+                $this->redirect($this->resourceReturnUrl());
 
             case 'resource-delete':
                 $this->requireRole(['admin']);
@@ -591,11 +592,15 @@ final class Application
                     'type' => 'success',
                     'message' => $message,
                 ];
-                $this->redirect('/?page=resources');
+                $this->redirect($this->resourceReturnUrl());
 
             case 'booking-approve':
                 $actor = $this->requireRole(['admin', 'manager']);
-                $result = $this->bookings->approve($this->postedAssignmentIds(), $actor);
+                $cabinIds = $_POST['cabin_ids'] ?? [];
+                if (!is_array($cabinIds)) {
+                    throw new RuntimeException('Die Kabinenauswahl ist ungültig.');
+                }
+                $result = $this->bookings->approve($this->postedAssignmentIds(), $actor, $cabinIds);
                 $_SESSION['_flash'] = [
                     'type' => $result['mail_errors'] !== [] ? 'warning' : 'success',
                     'message' => 'Die Anfrage wurde freigegeben.'
@@ -646,6 +651,27 @@ final class Application
                     'message' => $message,
                 ];
                 $this->redirect('/?page=dashboard');
+
+            case 'booking-delete-period':
+                $actor = $this->requireRole(['admin']);
+                if (($_POST['confirmed'] ?? '') !== 'yes') {
+                    throw new RuntimeException('Bitte bestätige die Zeitraum-Löschung zweimal.');
+                }
+                $result = $this->bookings->deleteInPeriod(
+                    (string) ($_POST['from'] ?? ''),
+                    (string) ($_POST['until'] ?? ''),
+                    (string) ($_POST['selection'] ?? ''),
+                    $actor
+                );
+                $_SESSION['_flash'] = [
+                    'type' => 'success',
+                    'message' => $result['affected'] === 0
+                        ? 'Im gewählten Zeitraum wurden keine passenden Termine gefunden.'
+                        : 'Die Löschung betrifft ' . $result['affected'] . ' Termin(e). '
+                            . $result['assignments'] . ' Platz-/Fahrzeugzuordnung(en) wurden gelöscht. '
+                            . 'Es wurden keine E-Mails versendet.',
+                ];
+                $this->redirect('/');
 
             case 'booking-cancel':
                 $actor = $this->requireRole(['admin', 'manager']);
@@ -783,12 +809,19 @@ final class Application
 
             case 'resources':
                 $this->requireRole(['admin']);
+                $category = (string) ($_GET['category'] ?? '');
+                if ($category !== '' && !in_array($category, ['pitch', 'bus', 'cabin'], true)) {
+                    http_response_code(404);
+                    $content = '<section class="panel-card p-4"><h1 class="h3">Seite nicht gefunden</h1></section>';
+                    break;
+                }
                 $content = Views::resources(
                     $this->resources->all(true),
                     $this->resources->categories(),
                     $this->csrf,
                     '',
-                    (string) ($_GET['form'] ?? '')
+                    (string) ($_GET['form'] ?? ''),
+                    $category
                 );
                 break;
 
@@ -892,6 +925,12 @@ final class Application
 
     private function postedAssignmentIds(): array
     {
+        if (($_POST['request_scope'] ?? '') === 'series') {
+            $actor = $this->requireRole(['admin', 'manager', 'trainer']);
+            return $this->bookings->pendingSeriesAssignmentIds(
+                $this->positiveId($_POST['occurrence_id'] ?? null), $actor
+            );
+        }
         $values = $_POST['assignment_ids'] ?? [];
         if (!is_array($values)) {
             throw new RuntimeException('Die Auswahl der Buchungsplätze ist ungültig.');
@@ -917,6 +956,14 @@ final class Application
             $message = 'Die Anfrage konnte nicht verarbeitet werden.';
         }
         echo json_encode(['error' => $message], JSON_THROW_ON_ERROR);
+    }
+
+    private function resourceReturnUrl(): string
+    {
+        $category = $_POST['return_category'] ?? '';
+        return is_string($category) && in_array($category, ['pitch', 'bus', 'cabin'], true)
+            ? '/?page=resources&category=' . $category
+            : '/?page=resources';
     }
 
     private function pageTitle(string $page): string

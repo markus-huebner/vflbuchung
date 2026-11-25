@@ -28,6 +28,19 @@ Eine ausführliche Anleitung zur Bedienung für öffentliche Besucher, Trainer, 
 
 Die lokale Oberfläche läuft auf Port `8100`; phpMyAdmin ist unter `http://localhost:8101` und Mailpit unter `http://localhost:8103` erreichbar. MySQL ist auf Host-Port `8102` erreichbar. E-Mails werden lokal abgefangen und nicht an echte Empfänger versendet.
 
+### PHP-Debugging mit Xdebug
+
+Die optionale Debug-Instanz läuft getrennt vom normalen Webcontainer und verwendet dieselbe Datenbank und Konfiguration. Änderungen an Buchungen oder anderen Daten wirken sich daher auf beide Instanzen aus.
+
+```powershell
+docker compose build web
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build -d web-debug
+```
+
+In der JetBrains-IDE unter **PHP → Servers** einen Server `vflbuchung-debug` mit Host `localhost`, Port `8104` und der Pfadzuordnung des Projektverzeichnisses `www` auf `/var/www/app/www` anlegen. Unter **PHP → Debug** den Xdebug-Port `9003` verwenden und **Listen for Debug Connections** einschalten. Einen Haltepunkt setzen und die Debug-Instanz unter `http://localhost:8104` mit dem Abfrageparameter `XDEBUG_TRIGGER=1` oder einer Xdebug-Browsererweiterung aufrufen. Xdebug startet nur bei gesetztem Trigger.
+
+Nach Änderungen an PHP-Dateien zuerst `docker compose build web` und anschließend den obigen `up --build`-Befehl erneut ausführen. Zum Beenden nur der Debug-Instanz `docker compose -f docker-compose.yml -f docker-compose.debug.yml stop web-debug` verwenden.
+
 Die Entwicklungsumgebung auf `8100` erhält lokale Anwendungsvorgaben ausschließlich aus `docker-compose.yml`: `APP_ENV=local`, URL `http://localhost:8100` und Datenbank `db:3306` mit `belegungsplan`/`webuser`. PHP `mail()` übergibt E-Mails lokal an `msmtp`; die ausschließlich lokal eingebundene Datei `docker/php-mail.ini` leitet sie an Mailpit auf Port `1025` weiter. Nach der Umstellung muss das Web-Image mit `docker compose build web` neu gebaut werden. Beim Hoster übernimmt dessen PHP-/Mail-Konfiguration den Versand.
 
 Die separate Umgebung unter `D:\projects\vflbuchung_www` läuft auf `http://localhost:8200` als Hoster-Nachbildung: Ihr Webcontainer bekommt keine `APP_*`-, `DB_*`- oder `MAIL_*`-Variablen aus Docker Compose. Das Host-Verzeichnis `D:\projects\vflbuchung_www\www\config` ist direkt eingebunden; die Anwendung liest und der Einrichtungsassistent schreibt dort die Datei `.env`. Änderungen an dieser Datei werden beim nächsten Request eingelesen. Die Anwendung wird ansonsten aus dem Image statt über Quellcode-Bind-Mounts bereitgestellt. Codeänderungen dort erfordern `docker compose up --build -d web`. MySQL (`8202`), phpMyAdmin (`8201`) und Mailpit (`8203`) bleiben getrennte Hilfsdienste; Schema und Ressourcen werden bei neuen Datenbank-Volumes nicht automatisch importiert. Bestehende Datenbanken bleiben unverändert.

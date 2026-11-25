@@ -26,6 +26,7 @@ const eventCardSource = source.slice(source.indexOf('function eventCard('), sour
 const bookingCardSource = source.slice(source.indexOf('function isRecurring('), source.indexOf('function showEvent('));
 const bookingTitleSource = source.slice(source.indexOf('function syncCombinedTitle('), source.indexOf('function renderResourceChoices('));
 const bookingFeedbackSource = source.slice(source.indexOf('function bookingError('), source.indexOf('async function submitBooking('));
+const recurrenceFieldsSource = source.slice(source.indexOf('function updateRecurrenceFields('), source.indexOf('function bookingError('));
 const submitBookingSource = source.slice(source.indexOf('async function submitBooking('), source.indexOf('async function saveResourceOrder('));
 const pendingRequestEditorSource = source.slice(
   source.indexOf('async function openPendingRequestEditor('),
@@ -39,6 +40,76 @@ const bookingEditorSource = source.slice(
   source.indexOf('const openBookingEditor = async'),
   source.indexOf("detailsDialog?.querySelector('[data-edit-event]')"),
 );
+
+test('recurrence fields follow the selected frequency and limit', () => {
+  const label = { textContent: '' };
+  const visibility = () => ({
+    hidden: false,
+    toggleAttribute(name, hidden) {
+      assert.equal(name, 'hidden');
+      this.hidden = hidden;
+    },
+  });
+  const interval = { ...visibility(), querySelector: () => label };
+  const options = visibility();
+  const weekdays = visibility();
+  const weekday = { value: '' };
+  const legacy = { hidden: true, textContent: '' };
+  const date = { value: '2026-10-24' };
+  const limits = [
+    { dataset: { recurrenceLimit: 'until' }, hidden: false },
+    { dataset: { recurrenceLimit: 'count' }, hidden: false },
+  ];
+  const bookingForm = {
+    elements: { frequency: { value: 'none' }, limit_type: { value: 'until' } },
+    querySelector: () => date,
+  };
+  const document = {
+    querySelector(selector) {
+      return {
+        '[data-recurrence-interval]': interval,
+        '[data-recurrence-options]': options,
+        '#weekday-choices': weekdays,
+        '#recurrence-weekday': weekday,
+        '[data-legacy-weekdays]': legacy,
+      }[selector];
+    },
+    querySelectorAll: () => limits,
+  };
+  const context = vm.createContext({ bookingForm, document, editingRequest: null, editingBooking: null });
+  vm.runInContext(recurrenceFieldsSource, context);
+
+  for (const [frequency, expected] of [
+    ['daily', 'Alle … Tage'], ['weekly', 'Alle … Wochen'],
+    ['monthly', 'Alle … Monate'], ['yearly', 'Alle … Jahre'],
+  ]) {
+    bookingForm.elements.frequency.value = frequency;
+    context.updateRecurrenceFields();
+    assert.equal(label.textContent, expected);
+    assert.equal(interval.hidden, false);
+    assert.equal(options.hidden, false);
+    assert.equal(weekdays.hidden, frequency !== 'weekly');
+    assert.equal(weekday.value, 'Samstag');
+    assert.deepEqual(limits.map(field => field.hidden), [false, true]);
+  }
+  date.value = '2026-10-26';
+  context.updateRecurrenceFields();
+  assert.equal(weekday.value, 'Montag');
+  date.value = '';
+  context.updateRecurrenceFields();
+  assert.equal(weekday.value, '');
+  context.editingBooking = { recurrence_rule: { weekdays: ['MO', 'WE'] } };
+  context.updateRecurrenceFields();
+  assert.equal(legacy.hidden, false);
+  assert.match(legacy.textContent, /Mo, Mi/);
+  bookingForm.elements.limit_type.value = 'count';
+  context.updateRecurrenceFields();
+  assert.deepEqual(limits.map(field => field.hidden), [true, false]);
+  bookingForm.elements.frequency.value = 'none';
+  context.updateRecurrenceFields();
+  assert.equal(interval.hidden, true);
+  assert.equal(options.hidden, true);
+});
 
 function setup() {
   const fields = new Map();
@@ -170,7 +241,8 @@ function setupBookingSubmission({ kind = 'booking-edit', success = true, request
       resource_mode: { value: 'pitch' },
     },
     reportValidity: () => true,
-    querySelector: selector => selector === '[data-booking-submit]' ? submit : {},
+    querySelector: selector => selector === '[data-booking-submit]' ? submit
+      : selector.includes('data-resource-kind="cabin"') ? null : {},
   };
   const dialog = new EventTarget();
   dialog.open = true;
@@ -728,7 +800,7 @@ test('booking requests are grouped and review opens the editable dialog', () => 
   assert.match(requestQuery, /GROUP_CONCAT\(DISTINCT CASE WHEN a\.status = 'pending' THEN a\.id END ORDER BY a\.id SEPARATOR ','\)\s+AS pending_assignment_ids/);
   assert.match(requestQuery, /COUNT\(DISTINCT o\.id\) AS occurrence_count/);
   assert.match(requestQuery, /GROUP BY \{\$requestEntryKey\}/);
-  assert.match(requestQuery, /g\.recurrence_rule IS NOT NULL AND o\.status = 'confirmed'/);
+  assert.match(requestQuery, /g\.recurrence_rule IS NOT NULL/);
   assert.match(views, /data-request-approve/);
   assert.match(views, /\$request\['is_series_summary'\]/);
   assert.match(views, /Serientermine/);
@@ -812,7 +884,7 @@ test('booking-access authentication replaces an existing session with the email 
   assert.match(application, /'message' => 'Du bist als ' \. \$user\['email'\]/);
 });
 
-test('booking requests cannot reserve cabins and retain creation fields while editing', () => {
+test('only staff can attach cabins when approving requests', () => {
   assert.match(bookingService, /Buchungsanfragen können keine Kabinen belegen/);
   assert.match(application, /request-details/);
   assert.match(application, /editablePendingRequest/);
@@ -820,16 +892,52 @@ test('booking requests cannot reserve cabins and retain creation fields while ed
   assert.doesNotMatch(source, /data-request-edit-hidden/);
   assert.match(source, /editingRequest\?\.resource_ids/);
   assert.match(source, /editingRequest\.approve/);
+  assert.match(source, /editingRequest\.can_approve/);
+  assert.match(source, /Kabinen können nur beim Freigeben zugeordnet werden/);
+  assert.match(source, /data-event-approve.*addEventListener\('submit'/);
 });
 
-test('admin management links stay inside the role-gated account menu', () => {
+test('cabin choices are available only for staff reviewing pitch requests', () => {
+  const renderSource = source.slice(source.indexOf('function renderResourceChoices()'), source.indexOf('function updateBookingFields()'));
+  const createElement = () => ({
+    children: [], className: '', classList: { add() {} },
+    append(...children) { this.children.push(...children); },
+    replaceChildren() { this.children = []; },
+  });
+  const target = createElement();
+  const bookingForm = {
+    dataset: { allowCabins: 'true' },
+    elements: { event_type: { value: 'training' }, resource_mode: { value: 'pitch' } },
+  };
+  const context = vm.createContext({
+    bookingForm, editingBooking: null, editingRequest: null,
+    state: { resources: [{ id: 1, type: 'pitch' }, { id: 2, type: 'cabin' }] },
+    document: { querySelector: () => target, createElement },
+    createResourceChip: (resource, fieldName) => ({ resource, fieldName }),
+  });
+  vm.runInContext(renderSource, context);
+  for (const [request, expected] of [
+    [{ can_approve: true, resource_ids: [1] }, true],
+    [{ can_approve: false, resource_ids: [1] }, false],
+  ]) {
+    context.editingRequest = request;
+    context.renderResourceChoices();
+    assert.equal(target.children.some(child => child.className.includes('cabin-choice-group')), expected);
+  }
+  context.bookingForm.elements.event_type.value = 'bus';
+  context.editingRequest = { can_approve: true, resource_ids: [] };
+  context.renderResourceChoices();
+  assert.equal(target.children.some(child => child.className.includes('cabin-choice-group')), false);
+});
+
+test('admin management links stay inside the role-gated settings menu', () => {
   const layoutSource = views.slice(
     views.indexOf('public static function layout('),
     views.indexOf('private static function actionConfirmationDialog('),
   );
   assert.match(
     layoutSource,
-    /if \(\$user\['role'\] === 'admin'\) \{\s*\$nav \.= '<a href="\/\?page=resources">Ressourcenverwaltung<\/a>'[\s\S]*?href="\/\?page=users">Benutzerverwaltung<\/a>[\s\S]*?href="\/\?page=booking-types">Buchungsarten<\/a>'[\s\S]*?<hr class="my-1">';\s*\}\s*\$nav \.= '<a href="\/\?page=profile">Mein Profil<\/a>'/,
+    /id="user-menu"[\s\S]*?if \(\$user\['role'\] === 'admin'\) \{[\s\S]*?id="settings-menu"[\s\S]*?category=pitch">Plätze<\/a>[\s\S]*?category=bus">Fahrzeuge<\/a>[\s\S]*?category=cabin">Kabinen<\/a>[\s\S]*?page=users">Benutzerverwaltung<\/a>[\s\S]*?page=booking-types">Buchungsarten<\/a>[\s\S]*?data-delete-period-open/,
   );
   assert.doesNotMatch(application, /case 'settings':/);
   assert.match(application, /case 'users':\s*\$this->requireRole\(\['admin'\]\)/);

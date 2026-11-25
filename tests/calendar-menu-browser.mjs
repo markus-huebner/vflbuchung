@@ -173,13 +173,8 @@ try {
     assert.equal(await evaluate(`document.querySelector('#user-menu > summary svg circle') !== null`), true);
     await evaluate(`document.querySelector('#user-menu > summary').click()`);
     await waitFor(`document.querySelector('#user-menu').open`);
-    assert.deepEqual(
-      await evaluate(`Array.from(document.querySelectorAll('#user-menu a')).map(link => link.getAttribute('href'))`),
-      role === 'admin'
-        ? ['/?page=resources', '/?page=users', '/?page=booking-types', '/?page=profile']
-        : ['/?page=profile'],
-    );
-    assert.equal(await evaluate(`document.querySelectorAll('#user-menu hr').length`), role === 'admin' ? 1 : 0);
+    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('#user-menu a')).map(link => link.getAttribute('href'))`), ['/?page=profile']);
+    assert.equal(await evaluate(`document.querySelector('#settings-menu') !== null`), role === 'admin');
     assert.equal(await evaluate(`document.querySelector('#user-menu form').getAttribute('method')`), 'post');
     assert.equal(await evaluate(`document.querySelector('#user-menu form input[name="_csrf"]').value`), 'test-csrf');
     assert.equal(await evaluate(`(() => { const r=document.querySelector('#user-menu .user-actions-menu-items').getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth; })()`), true);
@@ -189,6 +184,25 @@ try {
     assert.equal(await evaluate(`document.activeElement === document.querySelector('#user-menu > summary')`), true);
     await evaluate(`document.querySelector('#user-menu > summary').click(); document.querySelector('main').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));`);
     assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
+    if (role === 'admin') {
+      assert.equal(await evaluate(`document.querySelector('#settings-menu > summary').getAttribute('aria-label')`), 'Einstellungen');
+      assert.equal(await evaluate(`document.querySelector('#user-menu').getBoundingClientRect().right <= document.querySelector('#settings-menu').getBoundingClientRect().left`), true);
+      assert.equal(await evaluate(`document.querySelector('.user-account').lastElementChild.id`), 'settings-menu');
+      await evaluate(`document.querySelector('#settings-menu > summary').click()`);
+      await waitFor(`document.querySelector('#settings-menu').open`);
+      assert.deepEqual(
+        await evaluate(`Array.from(document.querySelectorAll('#settings-menu a')).map(link => link.getAttribute('href'))`),
+        ['/?page=resources&category=pitch', '/?page=resources&category=bus', '/?page=resources&category=cabin', '/?page=users', '/?page=booking-types'],
+      );
+      assert.equal(await evaluate(`document.querySelector('#settings-menu [data-delete-period-open]') !== null`), true);
+      assert.equal(await evaluate(`(() => { const r=document.querySelector('#settings-menu .user-actions-menu-items').getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth; })()`), true);
+      await evaluate(`document.querySelector('#settings-menu > summary').focus()`);
+      await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await waitFor(`!document.querySelector('#settings-menu').open`);
+      assert.equal(await evaluate(`document.activeElement === document.querySelector('#settings-menu > summary')`), true);
+      await evaluate(`document.querySelector('#settings-menu > summary').click(); document.querySelector('main').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));`);
+      assert.equal(await evaluate(`document.querySelector('#settings-menu').open`), false);
+    }
   };
   for (const role of ['public', 'trainer', 'manager', 'admin']) {
     const user = role === 'public' ? 'null' : `['role'=>'${role}','first_name'=>'Menu','last_name'=>'Test']`;

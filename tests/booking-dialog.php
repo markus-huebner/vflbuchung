@@ -130,6 +130,10 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     $xpath = new DOMXPath($document);
     $form = '//*[@id="booking-form"]';
     $trainer = $role === 'trainer';
+    check(
+        $xpath->query('//*[@id="delete-period-form" or @data-delete-period-open]')->length === 0,
+        "$role: Period deletion belongs in the shared account menu, not the calendar."
+    );
 
     check(
         $xpath->evaluate('string(' . $form . '//*[@id="booking-dialog-title"])')
@@ -191,6 +195,20 @@ foreach (['trainer', 'manager', 'admin'] as $role) {
     );
     checkDateTimeFields($xpath, $form);
     checkRequiredTitle($xpath, $form);
+    check(
+        $xpath->query($form . '//*[@id="recurrence-fields"]/div[contains(@class, "row")][./div[1][contains(@class, "col-sm-4")]//*[@id="frequency"]][./div[2][@data-recurrence-interval][contains(@class, "col-sm-4")]//*[@id="interval"]][./div[3][@id="weekday-choices"][contains(@class, "col-sm-4")]//*[@id="recurrence-weekday"]]')->length === 1
+            && $xpath->query($form . '//*[@data-recurrence-interval][@hidden]')->length === 1,
+        "$role: Frequency, interval and weekday must share a row in that order, with the interval initially hidden."
+    );
+    check(
+        $xpath->query($form . '//*[@data-recurrence-options]/div[contains(@class, "row")][./div[1][contains(@class, "col-sm-4")]//*[@id="limit-type"]][./div[2][contains(@class, "col-sm-4")]//*[@id="until"]][./div[3][contains(@class, "col-sm-4")]//*[@id="count"]]')->length === 1,
+        "$role: The series end selector and its fields must share a separate row."
+    );
+    check(
+        $xpath->query($form . '//input[@id="recurrence-weekday"][@readonly]')->length === 1
+            && $xpath->query($form . '//*[@name="weekdays[]"]')->length === 0,
+        "$role: The weekly weekday must be displayed read-only without weekday selection."
+    );
     check(
         $xpath->query('//*[@id="booking-dialog"]//*[@data-booking-error][@aria-live]')->length === 1,
         "$role: Show booking feedback inside the booking dialog."
@@ -270,6 +288,24 @@ $request = [
     'starts_at' => '2026-10-24 13:07:00',
     'ends_at' => '2026-10-24 15:03:00',
 ];
+$seriesRequest = array_merge($request, [
+    'group_id' => 5, 'is_series_summary' => 1, 'occurrence_count' => 3,
+    'occurrence_ids' => '9,10,11',
+]);
+foreach (['trainer', 'manager'] as $role) {
+    $seriesDocument = new DOMDocument();
+    $seriesDocument->loadHTML(
+        '<?xml encoding="UTF-8">' . Views::dashboard(['role' => $role], [$seriesRequest], 'test-csrf'),
+        LIBXML_NOERROR | LIBXML_NOWARNING
+    );
+    $seriesXpath = new DOMXPath($seriesDocument);
+    check($seriesXpath->query('//button[@data-request-series="true"]')->length === 1,
+        "$role: The series editor must use the complete series.");
+    check($seriesXpath->query('//form/input[@name="request_scope" and @value="series"]')->length === 1,
+        "$role: The request action must target all open series assignments.");
+    check(str_contains($seriesDocument->textContent, '3 Serientermine'),
+        "$role: Series requests must display their occurrence count.");
+}
 $document = new DOMDocument();
 $document->loadHTML(
     '<?xml encoding="UTF-8">' . Views::dashboard(['role' => 'trainer'], [$request], 'test-csrf'),
@@ -424,6 +460,11 @@ foreach ([null, 'trainer', 'manager', 'admin'] as $role) {
         LIBXML_NOERROR | LIBXML_NOWARNING
     );
     $accountXPath = new DOMXPath($accountDocument);
+    check(
+        $accountXPath->query('//nav//details[@id="settings-menu"]//button[@data-delete-period-open]')->length === ($role === 'admin' ? 1 : 0)
+            && $accountXPath->query('//dialog[@id="delete-period-dialog"]//form[@id="delete-period-form"]')->length === ($role === 'admin' ? 1 : 0),
+        'Only admins may access period deletion from the settings menu on every page.'
+    );
     if ($role === null) {
         check(
             $accountXPath->query('//nav//*[@id="user-menu"]')->length === 0
@@ -444,12 +485,18 @@ foreach ([null, 'trainer', 'manager', 'admin'] as $role) {
             && $accountXPath->query('//nav//a[@href="/?page=login"]')->length === 0,
         "$role: Account actions must be inside a closed icon-and-name menu with protected logout."
     );
-    foreach (['resources', 'users'] as $page) {
+    foreach (['resources&category=pitch', 'resources&category=bus', 'resources&category=cabin', 'users', 'booking-types'] as $page) {
         check(
-            $accountXPath->query($accountMenu . '//a[@href="/?page=' . $page . '"]')->length === ($role === 'admin' ? 1 : 0),
-            "$role: Only admins may see $page in the account menu."
+            $accountXPath->query('//nav//details[@id="settings-menu"]//a[@href="/?page=' . $page . '"]')->length === ($role === 'admin' ? 1 : 0)
+                && $accountXPath->query($accountMenu . '//a[@href="/?page=' . $page . '"]')->length === 0,
+            "$role: Only admins may see $page in the settings menu."
         );
     }
+    check(
+        $accountXPath->query('//nav//details[@id="settings-menu"]/summary[@aria-label="Einstellungen"]//*[local-name()="svg"]')->length === ($role === 'admin' ? 1 : 0)
+            && $accountXPath->query('//nav//details[@id="user-menu"]/following-sibling::details[@id="settings-menu" and not(following-sibling::*)]')->length === ($role === 'admin' ? 1 : 0),
+        "$role: Only admins may see the settings icon."
+    );
 }
 $profileDocument = new DOMDocument();
 $profileDocument->loadHTML(

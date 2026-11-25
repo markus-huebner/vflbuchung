@@ -54,7 +54,7 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 - Im Burger-Menü wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**. Nach einer Auswahl schließt sich das Menü automatisch.
 - Im selben Menü wählst du auf Handy und Desktop per Radiobutton zwischen **Tag** und **Woche**. **Ganzen Tag anzeigen** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
 - Angemeldet öffnet der separate **+**-Button die Auswahl für neue Platz- oder Fahrzeugeinträge. Trainer stellen darüber Buchungsanfragen, Verwalter und Admins legen Buchungen an.
-- Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins finden dort zuerst **Ressourcenverwaltung**, **Benutzerverwaltung** und **Buchungsarten**; eine Trennlinie grenzt diese Verwaltungspunkte von **Mein Profil** und **Abmelden** ab. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
+- Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins sehen daneben ein Zahnrad für die **Einstellungen** mit den Verwaltungsfunktionen. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
 - Mit den Pfeilen oder einer horizontalen Wischgeste im Kalender wechselst du zum vorherigen oder nächsten Zeitraum. In der Tagesansicht wechselst du dabei um einen Tag, in der Wochenansicht um eine Woche. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - Das Datumsfeld ist kompakt, behält für Tages- und Wochenwerte dieselbe Breite und ist genauso hoch wie die benachbarten Pfeilbuttons.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
@@ -107,12 +107,12 @@ Wähle das Fahrzeug und gib **Mannschaft / Hinweis** und den Zeitraum ein. Die b
 
 ### 4.3 Wiederholungen
 
-Bei einer Platzbelegung kannst du eine Wiederholung festlegen: täglich, wöchentlich, monatlich oder jährlich. Je nach Regel lassen sich Intervall, Wochentage und Enddatum oder Anzahl der Termine einstellen. Eine Serie ist auf höchstens 5.000 Termine begrenzt.
+Bei einer Platzbelegung kannst du eine Wiederholung festlegen: täglich, wöchentlich, monatlich oder jährlich. Daneben bestimmst du das Intervall, beispielsweise alle zwei Wochen; bei wöchentlicher Wiederholung erscheint anschließend der Wochentag des ausgewählten Datums. In der nächsten Zeile wählst du, ob die Serie an einem Enddatum oder nach einer Anzahl von Terminen endet. Bei älteren Serien mit mehreren Wochentagen bleiben diese erhalten, solange die Wiederholungsregel nicht geändert wird. Eine Serie ist auf höchstens 5.000 Termine begrenzt.
 
 ## Kapitel 5: Anfrage durch Verwalter prüfen und freigeben
 
 1. Öffne in der Anfrageübersicht den offenen Eintrag. Der Eintrag zeigt **Freigeben** und **Ablehnen**.
-2. Prüfe die Angaben im Buchungsdialog und passe sie bei Bedarf an.
+2. Prüfe die Angaben im Buchungsdialog und passe sie bei Bedarf an. Bei Platzanfragen kannst du optional Kabinen auswählen; diese werden erst beim Freigeben zugeordnet.
 3. Wähle **Freigeben**, um die Anfrage mit den angezeigten Angaben zu bestätigen.
 
 ![Screenshot der Anfrageübersicht eines Verwalters mit einer offenen Anfrage und Freigeben-Schaltfläche](bilder/genehmigung-01-verwalter.png)
@@ -123,7 +123,9 @@ Bei einer Platzbelegung kannst du eine Wiederholung festlegen: täglich, wöchen
 
 *Abbildung: Vor der Freigabe können die Angaben geprüft werden. Bei Bedarf lassen sie sich hier ändern.*
 
-Bei Anfragen mit mehreren Plätzen betrifft die Freigabe alle noch offenen Platzzuordnungen des angezeigten Termins. Bei einer Serie werden genehmigte Termine in **Alle Anfragen** je Serie als ein Eintrag mit Anzahl und Zeitraum zusammengefasst. Offene Termine bleiben einzeln sichtbar.
+Bei Anfragen mit mehreren Plätzen betrifft die Freigabe alle noch offenen Platzzuordnungen. Serien erscheinen als ein Eintrag mit Anzahl und Zeitraum. Änderungen, Freigabe, Ablehnung und Löschen betreffen alle noch offenen Termine der Serie, auch ältere; bereits entschiedene Termine bleiben unverändert.
+
+Du kannst eine offene Platzanfrage auch im Kalender öffnen und dort **Freigeben** wählen. Im folgenden Dialog lassen sich optional Kabinen für diesen Termin ergänzen; freigegeben wird dabei die ausgewählte Platzzuordnung.
 
 Nach der Freigabe verschwindet der Eintrag aus der Liste der offenen Anfragen. Über **Alle Anfragen anzeigen** lässt sich der neue Status **Bestätigt** aufrufen.
 
@@ -147,11 +149,13 @@ Nach erfolgreichem **Speichern** schließt sich der Bearbeitungsdialog automatis
 
 Zum Löschen wählst du im Termindialog **Löschen**. Bei Serienterminen wird zuerst der Umfang abgefragt, danach erscheint eine eigene Bestätigungsabfrage. Kabinen lassen sich ebenfalls aus der Buchung entfernen. Wird der letzte Platz eines Termins gelöscht, wird der Termin samt seinen Kabinenzuordnungen entfernt.
 
+Admins können über **Einstellungen → Zeitraum löschen** alle Termine, nur bestätigte Buchungen oder nur offene Anfragen löschen. Maßgeblich ist der Beginn des Termins zwischen dem Von- und Bis-Datum, einschließlich beider Tage. Die Auswahl gilt für Plätze und Fahrzeuge. Bei gemischten Anfragen bleiben nicht ausgewählte Platzzuordnungen erhalten. Serientermine außerhalb des Zeitraums werden nicht verändert. Vor der endgültigen Löschung sind zwei Bestätigungen erforderlich. Die Löschung ist dauerhaft und versendet keine E-Mails.
+
 ## Kapitel 8: Einstellungen für Admins
 
-![Benutzermenü für Admins mit den Verwaltungspunkten, Trennlinie, Mein Profil und Abmelden](bilder/einstellungen-menue.svg)
+![Einstellungsmenü für Admins mit den Verwaltungspunkten](bilder/einstellungen-menue.svg)
 
-Admins öffnen über das **Kopfsymbol neben ihrem Namen** das Benutzermenü und wählen dort **Ressourcenverwaltung**, **Benutzerverwaltung** oder **Buchungsarten**. **Mein Profil** und **Abmelden** stehen allen angemeldeten Benutzern unterhalb der Trennlinie im selben Menü zur Verfügung.
+Admins öffnen über das **Zahnrad neben ihrem Namen** die Einstellungen und wählen dort **Plätze**, **Fahrzeuge**, **Kabinen**, **Benutzerverwaltung**, **Buchungsarten** oder **Zeitraum löschen**. **Mein Profil** und **Abmelden** stehen allen angemeldeten Benutzern im separaten Menü unter dem Kopfsymbol zur Verfügung.
 
 ### Benutzerverwaltung
 
@@ -168,7 +172,7 @@ Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachn
 
 ### Ressourcenverwaltung
 
-- Plätze, Kabinen und Fahrzeuge anlegen, umbenennen, deaktivieren oder wieder aktivieren.
+- Die Einstellungen enthalten für Plätze, Fahrzeuge und Kabinen jeweils einen eigenen Menüpunkt. Über **+** legst du eine Ressource in der ausgewählten Kategorie an; bestehende Ressourcen kannst du umbenennen, deaktivieren oder wieder aktivieren.
 - Ressourcen innerhalb ihrer Kategorie per Drag-and-drop sortieren. Der Sortiergriff kann auch mit den Pfeiltasten bedient werden.
 - Beim Löschen einer Ressource werden auch Buchungen entfernt, die sie verwenden. Prüfe deshalb vor dem Löschen, ob die Ressource noch benötigt wird.
 
