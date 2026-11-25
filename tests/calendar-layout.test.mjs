@@ -203,11 +203,11 @@ test('day calendar headings stay on one line with pitch suffixes below', () => {
   assert.match(calendarJs, /resourceHeadingObserver\.observe\(grid\)/);
 });
 
-test('pitch columns have 40 percent smaller minimums without reducing vehicle widths', () => {
-  assert.match(calendarCss, /#pitch-day \.resource-column\s*\{[^}]*min-width:\s*3\.6rem/s);
-  assert.match(calendarCss, /#pitch-week \.resource-week-table\s*\{[^}]*min-width:\s*36rem/s);
-  assert.match(calendarCss, /#pitch-week \.resource-week-resource-column\s*\{[^}]*width:\s*100\.8px/s);
-  assert.match(calendarCss, /@media\s*\(max-width:\s*375px\)[\s\S]*#pitch-week \.resource-week-resource-column\s*\{[^}]*width:\s*67\.2px/s);
+test('pitch and cabin columns have 40 percent smaller minimums without reducing vehicle widths', () => {
+  assert.match(calendarCss, /#pitch-day \.resource-column,\s*#cabin-day \.resource-column\s*\{[^}]*min-width:\s*3\.6rem/s);
+  assert.match(calendarCss, /#pitch-week \.resource-week-table,\s*#cabin-week \.resource-week-table\s*\{[^}]*min-width:\s*36rem/s);
+  assert.match(calendarCss, /#pitch-week \.resource-week-resource-column,\s*#cabin-week \.resource-week-resource-column\s*\{[^}]*width:\s*100\.8px/s);
+  assert.match(calendarCss, /@media\s*\(max-width:\s*375px\)[\s\S]*#pitch-week \.resource-week-resource-column,\s*#cabin-week \.resource-week-resource-column\s*\{[^}]*width:\s*67\.2px/s);
 });
 
 test('calendar date briefly highlights after the displayed range changes', () => {
@@ -345,9 +345,11 @@ test('calendar dashboard has an adjustable split that remains usable on narrow s
 
 test('calendar resource selection persists in the current window session', () => {
   assert.match(calendarJs, /sessionStorage\.getItem\(calendarResourceTypeStorageKey\)/);
-  assert.match(calendarJs, /savedResourceType === 'pitch' \|\| savedResourceType === 'bus'/);
+  assert.match(calendarJs, /new URLSearchParams\(window\.location\.search\)\.get\('calendar'\)/);
+  assert.doesNotMatch(views, /data-calendar-link/);
+  assert.match(calendarJs, /\['pitch', 'bus', 'cabin'\]\.includes\(savedResourceType\)/);
   assert.match(calendarJs, /sessionStorage\.setItem\(calendarResourceTypeStorageKey, state\.resourceType\)/);
-  assert.match(views, /id="calendar-actions-menu"[\s\S]*?id="calendar-resource-controls"[\s\S]*?data-calendar-resource="pitch"[\s\S]*?data-calendar-resource="bus"/);
+  assert.match(views, /id="calendar-actions-menu"[\s\S]*?id="calendar-resource-controls"[\s\S]*?data-calendar-resource="pitch"[\s\S]*?data-calendar-resource="cabin"[\s\S]*?data-calendar-resource="bus"/);
   assert.match(views, /data-calendar-menu-option/);
   assert.doesNotMatch(views, /id="calendar-resource-switcher"/);
   assert.match(calendarJs, /option\.checked = option\.dataset\.calendarResource === state\.resourceType/);
@@ -362,6 +364,14 @@ test('calendar resource selection persists in the current window session', () =>
   assert.match(calendarJs, /data-dashboard-jump/);
   assert.match(calendarJs, /data-event-approve/);
   assert.match(calendarJs, /data-event-reject/);
+});
+
+test('club interface uses the football site palette without overriding event colors', () => {
+  assert.match(calendarCss, /--club-navy:\s*#16120f/);
+  assert.match(calendarCss, /--club-red:\s*#e1141b/);
+  assert.match(calendarCss, /--canvas:\s*#eef0ec/);
+  assert.match(calendarCss, /\.navbar-club\s*\{[^}]*background:\s*#141210;[^}]*border-bottom:\s*3px solid var\(--club-red\)/s);
+  assert.match(calendarCss, /\.booking-card\s*\{[^}]*background-color:\s*var\(--event-color/s);
 });
 
 test('identical bookings and requests receive separate equally wide columns', () => {

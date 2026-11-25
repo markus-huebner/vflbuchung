@@ -16,7 +16,7 @@ final class Views
     ): string {
         $assetRoot = dirname(__DIR__) . '/assets/build';
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
-        $nav = '<a class="navbar-brand fw-semibold" href="/"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
+        $nav = '<a class="navbar-brand fw-semibold" href="/?calendar=pitch"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
             $name = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
             $nav .= '<div class="user-account"><span class="user-account-name">' . Security::escape($name) . '</span>'
@@ -197,6 +197,7 @@ final class Views
         <fieldset class="calendar-option-group" id="calendar-resource-controls">
           <legend class="calendar-option-heading">Kalender</legend>
           <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-resource" value="pitch" data-calendar-resource="pitch" checked><span>Platzbelegung</span></label>
+          <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-resource" value="cabin" data-calendar-resource="cabin"><span>Kabinenbelegung</span></label>
           <label class="calendar-option" data-calendar-menu-option><input type="radio" name="calendar-resource" value="bus" data-calendar-resource="bus"><span>Fahrzeugkalender</span></label>
         </fieldset>
       </section>
@@ -237,9 +238,14 @@ final class Views
     <div id="bus-day" class="resource-day-scroll"></div>
     <div id="bus-week" class="resource-week-scroll" hidden></div>
   </div>
+  <div data-calendar-view="cabin" hidden>
+    <div id="cabin-day" class="resource-day-scroll"></div>
+    <div id="cabin-week" class="resource-week-scroll" hidden></div>
+  </div>
   <div class="calendar-legend">
     <div class="calendar-legend-items" data-calendar-legend="pitch">' . $bookingLegend . '</div>
     <div class="calendar-legend-items" data-calendar-legend="bus" hidden>' . $vehicleLegend . '</div>
+    <div class="calendar-legend-items" data-calendar-legend="cabin" hidden>' . $bookingLegend . '</div>
     <span class="legend-recurring"><span aria-hidden="true">↻</span> Regeltermin</span>
   </div>
 </section>
@@ -382,7 +388,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
     private static function eventDialog(?array $user, string $csrf): string
     {
         $cancel = in_array($user['role'] ?? '', ['admin', 'manager'], true)
-            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form data-confirm-action="delete"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Löschen</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form data-confirm-action="delete" hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Kabinenbelegung löschen</button></form>'
+            ? '<form method="post" action="/?action=booking-cancel" data-cancel-form data-confirm-action="delete"><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="assignment_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Löschen</button></form><form method="post" action="/?action=booking-cabin-cancel" data-cancel-cabin-form data-confirm-action="delete" hidden><input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '"><input type="hidden" name="occurrence_id" value=""><input type="hidden" name="cabin_id" value=""><input type="hidden" name="scope" value="one"><button class="btn btn-outline-danger" type="submit">Löschen</button></form>'
             : '';
         $edit = in_array($user['role'] ?? '', ['admin', 'manager'], true)
             ? '<button type="button" class="btn btn-outline-primary" data-edit-event>Ändern</button>'
@@ -398,7 +404,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '<input type="hidden" name="reason" value="">'
                 . '<button class="btn btn-outline-danger" type="submit">Ablehnen</button></form>'
             : '';
-        $privateDetails = in_array($user['role'] ?? '', ['admin', 'manager'], true)
+        $privateDetails = $user !== null
             ? '<dt class="col-sm-4" data-event-notes-field>Interne Notiz</dt><dd class="col-sm-8 event-notes" data-event-notes-field data-event-notes></dd>'
             : '';
         $approvalDialog = in_array($user['role'] ?? '', ['admin', 'manager'], true)

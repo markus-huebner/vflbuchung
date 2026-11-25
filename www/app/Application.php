@@ -208,7 +208,8 @@ final class Application
                     (string) ($_GET['start'] ?? ''),
                     (string) ($_GET['end'] ?? ''),
                     (string) ($_GET['type'] ?? ''),
-                    $includePrivate
+                    $includePrivate,
+                    $user !== null
                 ),
                 JSON_THROW_ON_ERROR
             );

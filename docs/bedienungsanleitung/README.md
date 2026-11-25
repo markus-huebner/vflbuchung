@@ -33,7 +33,7 @@ Die Diagramme in dieser Anleitung sind **schematische Darstellungen**. Die Scree
 | Verwalter | Buchungen direkt anlegen, Anfragen prüfen, genehmigen oder ablehnen und bestätigte Buchungen bearbeiten oder löschen. |
 | Admin | Alle Verwalterfunktionen sowie Benutzer und Ressourcen verwalten. |
 
-Die öffentliche Ansicht zeigt keine internen Notizen. Diese Angaben sind Verwaltern und Admins vorbehalten.
+Die öffentliche Ansicht zeigt keine internen Notizen. Angemeldete Benutzer einschließlich Trainer sehen sie im Kalender und in den Buchungsdetails.
 
 ### Öffentliche Ansicht (ohne Anmeldung)
 
@@ -51,14 +51,15 @@ Die öffentliche Ansicht ist schreibgeschützt: Es gibt dort keine Anfrageübers
 
 ### Kalender auswählen und navigieren
 
-- Im Burger-Menü wechselst du zwischen **Platzbelegung** und **Fahrzeugkalender**. Nach einer Auswahl schließt sich das Menü automatisch.
+- Im Burger-Menü wechselst du zwischen **Platzbelegung**, **Kabinenbelegung** und **Fahrzeugkalender**. Nach einer Auswahl schließt sich das Menü automatisch. Direkte Links zu den Ansichten stehen in der [README](../../README.md#direktlinks-zu-den-belegungsansichten).
+- Ein Klick auf das Vereinslogo oder den Anwendungsnamen führt jederzeit zur Platzbelegung zurück.
 - Im selben Menü wählst du auf Handy und Desktop per Radiobutton zwischen **Tag** und **Woche**. **Ganzen Tag anzeigen** bleibt eine Checkbox und ist nur in der Tagesansicht aktiv.
 - Angemeldet öffnet der separate **+**-Button die Auswahl für neue Platz- oder Fahrzeugeinträge. Trainer stellen darüber Buchungsanfragen, Verwalter und Admins legen Buchungen an.
 - Angemeldet öffnet ein Klick auf das Kopfsymbol neben deinem Namen das Benutzermenü mit **Mein Profil** und **Abmelden**. Admins sehen daneben ein Zahnrad für die **Einstellungen** mit den Verwaltungsfunktionen. Ohne Anmeldung steht nur **Anmelden** zur Verfügung.
 - Mit den Pfeilen oder einer horizontalen Wischgeste im Kalender wechselst du zum vorherigen oder nächsten Zeitraum. In der Tagesansicht wechselst du dabei um einen Tag, in der Wochenansicht um eine Woche. **Heute** springt zum aktuellen Datum; das Datum selbst öffnet die Datumsauswahl.
 - Das Datumsfeld ist kompakt, behält für Tages- und Wochenwerte dieselbe Breite und ist genauso hoch wie die benachbarten Pfeilbuttons.
 - **Tag** zeigt einen Tagesplan, **Woche** eine Wochenübersicht.
-- Im Tagesplan bleibt „Platz 5“ einzeilig lesbar. Zusätze wie „Süd“, „West“ oder „Nord“ stehen in einer zweiten Überschriftszeile. Die Platzbelegung verwendet in Tages- und Wochenansicht kompaktere Spalten; bei ausreichend Platz füllt sie weiterhin die gesamte verfügbare Breite aus. Auf schmalen Bildschirmen lassen sich die Spalten horizontal scrollen. Eine neue Wischgeste am rechten Scrollrand nach links wechselt zum nächsten Zeitraum; am linken Scrollrand nach rechts zum vorherigen Zeitraum. Eine Geste, die erst beim Scrollen den Rand erreicht, wechselt noch nicht den Zeitraum.
+- Im Tagesplan bleibt „Platz 5“ einzeilig lesbar. Zusätze wie „Süd“, „West“ oder „Nord“ stehen in einer zweiten Überschriftszeile. Die Platz- und Kabinenbelegung verwenden in Tages- und Wochenansicht kompaktere Spalten; bei ausreichend Platz füllen sie weiterhin die gesamte verfügbare Breite aus. Auf schmalen Bildschirmen lassen sich die Spalten horizontal scrollen. Eine neue Wischgeste am rechten Scrollrand nach links wechselt zum nächsten Zeitraum; am linken Scrollrand nach rechts zum vorherigen Zeitraum. Eine Geste, die erst beim Scrollen den Rand erreicht, wechselt noch nicht den Zeitraum.
 - Erreicht der Kalender beim vertikalen Scrollen sein Ende, setzt sich dieselbe Wisch- oder Mausradbewegung unmittelbar auf der Seite fort, beispielsweise zu den Buchungsanfragen unter dem Kalender. Das gilt auch nach mehreren Wischbewegungen durch den Kalender; eine zusätzliche Seitenanimation verzögert den Übergang nicht. Du musst dafür weder neu ansetzen noch den Zeiger aus dem Kalender bewegen. Beim Zurückscrollen wird zuerst der Kalender wieder vollständig sichtbar, danach scrollt sein Inhalt nach oben. Schnelle Wischgesten laufen nach dem Loslassen weiter.
 - Der Schalter **Ganzen Tag anzeigen** zeigt bei Bedarf Zeiten außerhalb des Standardbereichs von 09:00 bis 21:00 Uhr. Die Stundenzeilen sind für eine kompaktere Darstellung um 20 % verkleinert.
 - Ein Klick auf einen Kalendereintrag öffnet die Details. Dort siehst du unter anderem Kategorie, Ressourcen, Beginn, Ende, Wiederholung und – falls vorhanden – zugeordnete Kabinen.
@@ -187,10 +188,10 @@ Prüfe, ob du angemeldet bist und ob **Alle Anfragen anzeigen** ausgewählt ist.
 Die Liste enthält Anfragen. Direkt angelegte Buchungen von Verwaltern und Admins erscheinen dort nicht, bleiben aber im Kalender sichtbar.
 
 **Warum kann ich keine Kabine auswählen?**  
-Kabinen können nur Verwalter und Admins einer Platzbuchung zuordnen. Traineranfragen können keine Kabinen belegen.
+Kabinen können nur Verwalter und Admins einer Platzbuchung zuordnen. Traineranfragen können keine Kabinen belegen. Die Kabinenbelegung ist für alle im Kalender einsehbar.
 
 **Verhindert der Kalender Überschneidungen?**  
 Nein. Zeitliche Überschneidungen sind möglich. Prüfe daher vor dem Speichern die Belegung und die ausgewählten Ressourcen.
 
 **Wer sieht interne Notizen?**
-Nur Verwalter und Admins. Öffentliche Kalenderansichten geben diese Angaben nicht aus.
+Alle angemeldeten Benutzer sehen sie im Kalender und in den Buchungsdetails. Öffentliche Kalenderansichten geben diese Angaben nicht aus.

@@ -431,8 +431,17 @@ $directAssignments->execute([$directApprovalId]);
 $directIds = array_map('intval', $directAssignments->fetchAll(PDO::FETCH_COLUMN));
 fails(fn() => $service->approve([$directIds[0]], $actors['trainer'], [$resources['cabin'][0]]), 'Rechte');
 fails(fn() => $service->approve([$directIds[0]], $manager, [$resources['pitch'][0]]), 'ungültig');
-$service->approve([$directIds[0]], $manager, [$resources['cabin'][0]]);
-$service->approve([$directIds[1]], $manager, [$resources['cabin'][0], $resources['cabin'][1]]);
+$service->approve([$directIds[1]], $manager, [$resources['cabin'][0]]);
+$partlyApprovedCabins = array_values(array_filter(
+    $service->events('2031-03-06', '2031-03-07', 'cabin', false),
+    static fn(array $event): bool => $event['occurrence_id'] === $directApprovalId
+));
+check(
+    count($partlyApprovedCabins) === 1 && $partlyApprovedCabins[0]['status'] === 'confirmed'
+        && $partlyApprovedCabins[0]['assignment_id'] === $directIds[1],
+    'A cabin attached to a partially approved booking must represent the confirmed assignment.'
+);
+$service->approve([$directIds[0]], $manager, [$resources['cabin'][0], $resources['cabin'][1]]);
 foreach ($resources['cabin'] as $cabinId) {
     $seriesCabins->execute([$directApprovalId, $cabinId]);
     check((int) $seriesCabins->fetchColumn() === 1, 'Direct approval must preserve existing cabins without duplicates.');
@@ -498,6 +507,25 @@ foreach ($publicEvents as $event) {
     check($event['private_notes'] === null && !array_key_exists('driver_name', $event), 'Public event details must not leak private or removed fields.');
     check($event['resource_names'] === 'pitch1, pitch2', 'Public details must also list every booked pitch.');
 }
+foreach (['pitch', 'cabin'] as $calendarType) {
+    $trainerEvents = $service->events('2031-04-01', '2031-04-02', $calendarType, false, true);
+    check(count($trainerEvents) > 0, 'The authenticated calendar must include the booking.');
+    foreach ($trainerEvents as $event) {
+        check($event['private_notes'] === 'Updated note', 'Authenticated trainers must see internal notes.');
+        check($event['cabin_ids'] === [], 'Staff-only cabin ID metadata must not be exposed to trainers.');
+    }
+}
+$cabinEvents = $service->events('2031-04-01', '2031-04-02', 'cabin', false);
+check(
+    count($cabinEvents) === 1 && $cabinEvents[0]['occurrence_id'] === $id
+        && $cabinEvents[0]['resource_id'] === $resources['cabin'][1]
+        && $cabinEvents[0]['is_attached_cabin']
+        && $cabinEvents[0]['resource_names'] === 'pitch1, pitch2'
+        && $cabinEvents[0]['private_notes'] === null,
+    'The cabin calendar must show each assigned cabin once per booking without private notes.'
+);
+$staffCabinEvents = $service->events('2031-04-01', '2031-04-02', 'cabin', true);
+check($staffCabinEvents[0]['private_notes'] === 'Updated note', 'Staff cabin calendar details retain private notes.');
 fails(fn() => $service->editableOccurrence($id, $actors['trainer']), 'Rechte');
 fails(fn() => $service->editOccurrence($id, editData($id), $actors['trainer']), 'Rechte');
 

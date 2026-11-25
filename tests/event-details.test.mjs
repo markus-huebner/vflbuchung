@@ -197,7 +197,7 @@ function setupBookingCard() {
   vm.runInContext(`${eventCardSource}; ${bookingCardSource}; eventCard; fillBookingCard`, context);
   return {
     fill: (event) => context.fillBookingCard(wrapper, event),
-    create: (event) => context.eventCard(event),
+    create: (event, compact = false) => context.eventCard(event, compact),
     text: (selector) => wrapper.querySelector(selector).textContent,
     hidden: (selector) => wrapper.querySelector(selector).hidden,
     styles: () => stylesApplied,
@@ -406,7 +406,7 @@ test('booking feedback omits success alerts but still shows warnings inside the 
 });
 
 test('application branding shows the VfL crest and new name', () => {
-  assert.match(views, /class="navbar-brand fw-semibold" href="\/"><img class="navbar-brand-logo" src="\/assets\/images\/vfl-kaufering-wappen\.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung<\/a>/);
+  assert.match(views, /class="navbar-brand fw-semibold" href="\/\?calendar=pitch"><img class="navbar-brand-logo" src="\/assets\/images\/vfl-kaufering-wappen\.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung<\/a>/);
   assert.match(views, /<title>' \. Security::escape\(\$title\) \. ' · Platz- und Busbelegung<\/title>/);
   assert.match(styles, /\.navbar-brand-logo\s*\{[^}]*object-fit:\s*contain;/s);
 });
@@ -453,6 +453,20 @@ test('calendar cards show occupied cabins without a prefix', () => {
   const card = setupBookingCard();
   card.fill(pitch);
   assert.equal(card.text('.booking-cabin'), 'Kabine 1, Kabine 2');
+});
+
+test('calendar cards display internal notes as text in both regular and compact cards', () => {
+  const card = setupBookingCard();
+  for (const compact of [false, true]) {
+    const element = card.create(pitch, compact);
+    assert.equal(card.text('.booking-notes'), pitch.private_notes);
+    assert.equal(card.hidden('.booking-notes'), false);
+    assert.match(element.attributes['aria-label'], /Interne Notiz: Zeile 1/);
+  }
+  card.fill({ ...pitch, private_notes: null });
+  assert.equal(card.hidden('.booking-notes'), true);
+  assert.doesNotMatch(card.description(), /Interne Notiz/);
+  assert.match(application, /\$includePrivate,\s*\$user !== null/);
 });
 
 test('calendar cards preserve line breaks in multiline titles', () => {
@@ -1035,13 +1049,13 @@ test('deleting a booking or cabin requires custom confirmation after choosing se
   assert.equal([...views.matchAll(/data-cancel-cabin-form data-confirm-action="delete"/g)].length, 1);
   assert.match(views, /action="\/\?action=booking-delete" data-confirm-action="delete"/);
   assert.match(source, /form\.dataset\.scopeConfirmed !== 'true'[\s\S]*?requestRecurrenceScope\('delete', form\)/);
-  assert.match(source, /Möchten Sie diese Kabinenbelegung wirklich löschen\?/);
+  assert.doesNotMatch(source, /Möchten Sie diese Kabinenbelegung wirklich löschen\?/);
   assert.match(source, /Möchten Sie diese Buchung wirklich löschen\?/);
 });
 
 test('booking removal uses deletion wording throughout the UI and feedback', () => {
   assert.match(views, />Löschen<\/button>/);
-  assert.match(views, />Kabinenbelegung löschen<\/button>/);
+  assert.match(views, /data-cancel-cabin-form[\s\S]*?<button class="btn btn-outline-danger" type="submit">Löschen<\/button>/);
   assert.match(application, /Die Buchung wurde gelöscht/);
   assert.match(application, /Die Kabinenbelegung wurde gelöscht/);
   assert.match(source, /action === 'edit' \? 'Änderung' : 'Löschung'/);

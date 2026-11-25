@@ -127,7 +127,13 @@ final class BookingService
         ];
     }
 
-    public function events(string $startValue, string $endValue, string $resourceType, bool $includePrivate): array
+    public function events(
+        string $startValue,
+        string $endValue,
+        string $resourceType,
+        bool $includePrivate,
+        bool $includeNotes = false
+    ): array
     {
         if (!in_array($resourceType, ['pitch', 'bus', 'cabin'], true)) {
             throw new RuntimeException('Kalenderansicht ungültig.');
@@ -140,13 +146,13 @@ final class BookingService
                 FROM booking_resource_assignments a2
                 JOIN resources r2 ON r2.id = a2.resource_id
                 WHERE a2.occurrence_id = o.id AND a2.status IN ('confirmed', 'pending')) AS resource_names";
-        $privateFields = $includePrivate
-            ? ", o.private_notes,
-               (SELECT GROUP_CONCAT(bca.cabin_id ORDER BY c.name)
+        $privateFields = $includePrivate || $includeNotes ? ', o.private_notes' : ', NULL AS private_notes';
+        $privateFields .= $includePrivate
+            ? ", (SELECT GROUP_CONCAT(bca.cabin_id ORDER BY c.name)
                 FROM booking_cabin_assignments bca
                 JOIN resources c ON c.id = bca.cabin_id
                 WHERE bca.occurrence_id = o.id) AS cabin_ids_raw"
-            : ', NULL AS private_notes, NULL AS cabin_ids_raw';
+            : ', NULL AS cabin_ids_raw';
         if ($resourceType === 'cabin') {
             $sql = "SELECT a.id AS assignment_id, o.id AS occurrence_id, g.id AS group_id,
                            r.id AS resource_id, r.name AS resource_name, rc.code AS resource_type,
@@ -171,7 +177,8 @@ final class BookingService
                     FROM booking_cabin_assignments bca
                     JOIN booking_occurrences o ON o.id = bca.occurrence_id
                     JOIN (
-                        SELECT a.occurrence_id, MIN(a.id) AS assignment_id
+                        SELECT a.occurrence_id,
+                               COALESCE(MIN(CASE WHEN a.status = 'confirmed' THEN a.id END), MIN(a.id)) AS assignment_id
                         FROM booking_resource_assignments a
                         JOIN resources p ON p.id = a.resource_id
                         JOIN resource_categories pc ON pc.id = p.category_id AND pc.code = 'pitch'

@@ -99,7 +99,7 @@ try {
     const last = fullDay ? 24 : 21;
     assert.deepEqual(metrics.labels, Array.from({ length: last - first }, (_, index) => `${String(first + index).padStart(2, '0')}:00`));
     const hourHeight = Math.max(64 * 0.8, (metrics.viewportHeight - metrics.headingHeight - 4) / (last - first));
-    assert.ok(Math.abs(metrics.rowHeight - hourHeight) < 0.05);
+    assert.ok(Math.abs(metrics.rowHeight - hourHeight) < 0.05, JSON.stringify(metrics));
     assert.ok(Math.abs(metrics.lineHeight - hourHeight) < 0.05);
     assert.ok(Math.abs(metrics.laneHeight - (last - first) * hourHeight) < 0.1);
   };
@@ -168,11 +168,13 @@ try {
     assert.equal(await evaluate(`document.querySelector('.user-account-name').closest('#user-menu')`), null);
     assert.equal(await evaluate(`document.querySelector('.user-account-name').getBoundingClientRect().right <= document.querySelector('#user-menu').getBoundingClientRect().left`), true);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('#user-menu > summary')).borderTopWidth`), '0px');
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('#user-menu > summary'), '::after').display`), 'none');
     await evaluate(`document.querySelector('.user-account-name').click()`);
     assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
     assert.equal(await evaluate(`document.querySelector('#user-menu > summary svg circle') !== null`), true);
     await evaluate(`document.querySelector('#user-menu > summary').click()`);
     await waitFor(`document.querySelector('#user-menu').open`);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('#user-menu > summary'), '::after').display`), 'none');
     assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('#user-menu a')).map(link => link.getAttribute('href'))`), ['/?page=profile']);
     assert.equal(await evaluate(`document.querySelector('#settings-menu') !== null`), role === 'admin');
     assert.equal(await evaluate(`document.querySelector('#user-menu form').getAttribute('method')`), 'post');
@@ -186,10 +188,12 @@ try {
     assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
     if (role === 'admin') {
       assert.equal(await evaluate(`document.querySelector('#settings-menu > summary').getAttribute('aria-label')`), 'Einstellungen');
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector('#settings-menu > summary'), '::after').display`), 'none');
       assert.equal(await evaluate(`document.querySelector('#user-menu').getBoundingClientRect().right <= document.querySelector('#settings-menu').getBoundingClientRect().left`), true);
       assert.equal(await evaluate(`document.querySelector('.user-account').lastElementChild.id`), 'settings-menu');
       await evaluate(`document.querySelector('#settings-menu > summary').click()`);
       await waitFor(`document.querySelector('#settings-menu').open`);
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector('#settings-menu > summary'), '::after').display`), 'none');
       assert.deepEqual(
         await evaluate(`Array.from(document.querySelectorAll('#settings-menu a')).map(link => link.getAttribute('href'))`),
         ['/?page=resources&category=pitch', '/?page=resources&category=bus', '/?page=resources&category=cabin', '/?page=users', '/?page=booking-types'],
@@ -204,6 +208,27 @@ try {
       assert.equal(await evaluate(`document.querySelector('#settings-menu').open`), false);
     }
   };
+  for (const type of ['pitch', 'bus', 'cabin']) {
+    await resize(320);
+    await command('Page.navigate', { url: `http://localhost:8100/?calendar=${type}` });
+    await waitFor(`new URL(location.href).searchParams.get('calendar') === '${type}' && document.querySelector('[data-calendar-view="${type}"]')?.hidden === false && document.querySelector('#${type}-day .resource-time-axis') && document.querySelector('[data-calendar-resource="${type}"]:checked')`);
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= 320`), true);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-calendar-link]').length`), 0);
+  }
+  await evaluate(`document.querySelector('.navbar-brand').click()`);
+  await waitFor(`new URL(location.href).searchParams.get('calendar') === 'pitch' && document.querySelector('[data-calendar-view="pitch"]')?.hidden === false && document.querySelector('[data-calendar-resource="pitch"]:checked')`);
+  await command('Page.navigate', { url: 'http://localhost:8100/?calendar=bus' });
+  await waitFor(`new URL(location.href).searchParams.get('calendar') === 'bus' && document.querySelector('[data-calendar-view="bus"]')?.hidden === false`);
+  await evaluate(`document.querySelector('.navbar-brand img').click()`);
+  await waitFor(`new URL(location.href).searchParams.get('calendar') === 'pitch' && document.querySelector('[data-calendar-view="pitch"]')?.hidden === false && document.querySelector('[data-calendar-resource="pitch"]:checked')`);
+  await command('Page.navigate', { url: 'http://localhost:8100/?calendar=cabin' });
+  await waitFor(`new URL(location.href).searchParams.get('calendar') === 'cabin' && document.querySelector('[data-calendar-view="cabin"]')?.hidden === false`);
+  await open();
+  await evaluate(`document.querySelector('[data-calendar-resource="pitch"]').click()`);
+  await waitFor(`!document.querySelector('[data-calendar-view="pitch"]').hidden && !document.querySelector('#calendar-actions-menu').open`);
+  assert.equal(await evaluate(`new URL(location.href).searchParams.get('calendar')`), 'pitch');
+  await command('Page.reload');
+  await waitFor(`document.querySelector('[data-calendar-view="pitch"]')?.hidden === false && document.querySelector('[data-calendar-resource="pitch"]:checked')`);
   for (const role of ['public', 'trainer', 'manager', 'admin']) {
     const user = role === 'public' ? 'null' : `['role'=>'${role}','first_name'=>'Menu','last_name'=>'Test']`;
     fixtures.set(role, execFileSync('docker', ['exec', '-i', 'php_apache_web', 'php'], {
@@ -213,6 +238,8 @@ try {
     await resize(390);
     await command('Page.navigate', { url: `http://localhost:8100/?menu-test=${role}` });
     await waitFor(`document.querySelector('#calendar-range')?.textContent && document.querySelector('#calendar-actions')?.parentElement.matches('.calendar-heading-toolbar')`);
+    assert.equal(await evaluate(`new URL(location.href).searchParams.get('calendar')`), await evaluate(`document.querySelector('[data-calendar-resource]:checked').dataset.calendarResource`));
+    assert.equal(await evaluate(`new URL(location.href).searchParams.get('menu-test')`), role);
     await checkHourGrid(await evaluate(`document.querySelector('[data-calendar-resource]:checked').dataset.calendarResource`));
     await checkCalendarHeight();
     await checkDateControl();
@@ -231,11 +258,12 @@ try {
     assert.ok(width.document <= 390 && width.viewport <= 390, `${role}: mobile layout must not exceed the 390px device width`);
     assert.equal(await evaluate(`document.querySelector('#calendar-actions-menu').open`), false);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('[data-calendar-actions-panel]')).display`), 'none');
-    assert.equal(await evaluate(`document.querySelectorAll('#calendar-actions-menu [data-calendar-resource]').length`), 2);
+    assert.equal(await evaluate(`document.querySelectorAll('#calendar-actions-menu [data-calendar-resource]').length`), 3);
+    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('#calendar-resource-controls [data-calendar-resource]'), option => option.dataset.calendarResource)`), ['pitch', 'cabin', 'bus']);
     assert.equal(await evaluate(`document.querySelectorAll('#calendar-actions-menu [data-calendar-resource]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('#calendar-resource-controls').closest('#calendar-actions-menu') !== null`), true);
     assert.equal(await evaluate(`document.querySelector('#calendar-resource-switcher')`), null);
-    assert.equal(await evaluate(`document.querySelectorAll('#calendar-resource-controls input[type="radio"]').length`), 2);
+    assert.equal(await evaluate(`document.querySelectorAll('#calendar-resource-controls input[type="radio"]').length`), 3);
     assert.equal(await evaluate(`document.querySelectorAll('#calendar-view-controls input[type="radio"]').length`), 2);
     assert.equal(await evaluate(`document.querySelectorAll('#calendar-view-controls input:checked').length`), 1);
     await checkAccountMenu(role);
@@ -257,6 +285,7 @@ try {
     for (const row of rows) assert.deepEqual(row, rows[0], `${role}: all menu rows must share one presentation`);
     await evaluate(`document.querySelector('[data-calendar-resource="bus"]').click()`);
     await waitFor(`!document.querySelector('[data-calendar-view="bus"]').hidden && document.querySelector('[data-calendar-resource="bus"]:checked') && !document.querySelector('[data-calendar-resource="bus"]').disabled && !document.querySelector('#calendar-actions-menu').open`);
+    assert.equal(await evaluate(`new URL(location.href).searchParams.get('calendar')`), 'bus');
     await checkHourGrid('bus');
     await checkCalendarHeight();
     assert.equal(await evaluate(`document.querySelectorAll('[data-calendar-resource]:checked').length`), 1);
@@ -285,6 +314,25 @@ try {
     assert.equal(await evaluate(`document.querySelectorAll('[data-view]:checked').length`), 1);
     assert.equal(await evaluate(`document.querySelector('#full-day-toggle-wrap').hidden`), false);
     assert.equal(await evaluate(`document.querySelector('#calendar-actions-menu').open`), false);
+    await open();
+    await evaluate(`document.querySelector('[data-calendar-resource="cabin"]').click()`);
+    await waitFor(`!document.querySelector('[data-calendar-view="cabin"]').hidden && !document.querySelector('#cabin-week').hidden && !document.querySelector('#calendar-actions-menu').open`);
+    assert.equal(await evaluate(`new URL(location.href).searchParams.get('calendar')`), 'cabin');
+    assert.equal(await evaluate(`document.querySelector('#cabin-week table thead th').textContent`), 'Kabine');
+    assert.equal(await evaluate(`sessionStorage.getItem('vflbuchung:calendar-resource-type')`), 'cabin');
+    await open();
+    await evaluate(`document.querySelector('[data-view="day"]').click()`);
+    await waitFor(`!document.querySelector('#cabin-day').hidden && !document.querySelector('#calendar-view-controls').disabled`);
+    await checkHourGrid('cabin');
+    await command('Page.reload');
+    await waitFor(`document.querySelector('[data-calendar-resource="cabin"]:checked') && !document.querySelector('[data-calendar-view="cabin"]').hidden && document.querySelector('#cabin-day .resource-time-axis')`);
+    assert.equal(await evaluate(`document.querySelector('[data-calendar-legend="cabin"]').hidden`), false);
+    await open();
+    await evaluate(`document.querySelector('[data-calendar-resource="bus"]').click()`);
+    await waitFor(`!document.querySelector('[data-calendar-view="bus"]').hidden && !document.querySelector('#calendar-actions-menu').open`);
+    await open();
+    await evaluate(`document.querySelector('[data-view="week"]').click()`);
+    await waitFor(`!document.querySelector('#bus-week').hidden && !document.querySelector('#calendar-view-controls').disabled`);
     if (role !== 'public') {
       for (const mode of ['pitch', 'bus']) {
         await evaluate(`document.querySelector('#booking-create-menu > summary').click()`);
@@ -341,6 +389,33 @@ try {
   }
   const appSource = readFileSync(new URL('../www/assets/js/app.js', import.meta.url), 'utf8');
   const daySource = appSource.slice(appSource.indexOf('function renderResourceDay('), appSource.indexOf('function renderResourceWeek('));
+  for (const width of [320, 390, 1200]) {
+    await resize(width);
+    for (const type of ['pitch', 'cabin', 'bus']) {
+      const sizes = await evaluate(`(() => {
+        const day = document.querySelector('#${type}-day');
+        const week = document.querySelector('#${type}-week');
+        const column = document.createElement('div');
+        column.className = 'resource-column';
+        day.append(column);
+        const table = document.createElement('table');
+        table.className = 'resource-week-table';
+        const col = document.createElement('col');
+        col.className = 'resource-week-resource-column';
+        table.append(col);
+        week.append(table);
+        const result = {
+          day: getComputedStyle(column).minWidth,
+          week: getComputedStyle(table).minWidth,
+        };
+        column.remove();
+        table.remove();
+        return result;
+      })()`);
+      assert.equal(sizes.day, type === 'bus' ? '96px' : '57.6px');
+      assert.equal(sizes.week, type === 'bus' ? '960px' : '576px');
+    }
+  }
   for (const width of [280, 390, 1200]) {
     for (const [resourceType, fontSize] of [['pitch', 16], ['pitch', 24], ['bus', 16], ['bus', 24]]) {
       const minimumRem = resourceType === 'pitch' ? 3.6 : 6;

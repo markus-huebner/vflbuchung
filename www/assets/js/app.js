@@ -29,7 +29,11 @@ const dashboardMainShareMin = 35;
 const dashboardMainShareMax = 85;
 const dashboardMainShareDefault = 75;
 const savedResourceType = sessionStorage.getItem(calendarResourceTypeStorageKey);
-if (savedResourceType === 'pitch' || savedResourceType === 'bus') {
+const linkedResourceType = new URLSearchParams(window.location.search).get('calendar');
+if (['pitch', 'bus', 'cabin'].includes(linkedResourceType)) {
+  state.resourceType = linkedResourceType;
+  sessionStorage.setItem(calendarResourceTypeStorageKey, linkedResourceType);
+} else if (['pitch', 'bus', 'cabin'].includes(savedResourceType)) {
   state.resourceType = savedResourceType;
 }
 
@@ -220,6 +224,13 @@ function initDashboardResizer() {
 }
 
 function renderCalendar() {
+  if (document.querySelector('[data-calendar-dashboard-layout]')) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('calendar') !== state.resourceType) {
+      url.searchParams.set('calendar', state.resourceType);
+      window.history.replaceState(window.history.state, '', url);
+    }
+  }
   document.querySelectorAll('[data-calendar-view]').forEach((element) => {
     element.hidden = element.dataset.calendarView !== state.resourceType;
   });
@@ -302,7 +313,7 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
     minute: '2-digit',
   }).format(new Date(value));
   const cabin = event.cabins || (event.resource_type === 'cabin' ? event.resource_name : '');
-  wrapper.innerHTML = `<span class="booking-category"></span><strong class="booking-title"></strong><span class="booking-time"></span><span class="booking-cabin"></span>`;
+  wrapper.innerHTML = `<span class="booking-category"></span><strong class="booking-title"></strong><span class="booking-time"></span><span class="booking-cabin"></span><span class="booking-notes"></span>`;
   const recurrenceMarker = document.createElement('span');
   recurrenceMarker.className = 'booking-recurring-marker';
   recurrenceMarker.textContent = '↻';
@@ -324,12 +335,16 @@ function fillBookingCard(wrapper, event, visibleRange = null) {
   const cabinLabel = wrapper.querySelector('.booking-cabin');
   cabinLabel.textContent = cabin;
   cabinLabel.hidden = !cabin;
+  const notesLabel = wrapper.querySelector('.booking-notes');
+  notesLabel.textContent = event.private_notes || '';
+  notesLabel.hidden = !notesLabel.textContent.trim();
   wrapper.title = [
     wrapper.querySelector('.booking-category').textContent,
     isRecurring(event) ? 'Regeltermin' : '',
     wrapper.querySelector('strong').textContent,
     wrapper.querySelector('.booking-time').textContent,
     cabinLabel.textContent,
+    notesLabel.hidden ? '' : `Interne Notiz: ${notesLabel.textContent}`,
   ].filter(Boolean).join(' · ');
   wrapper.setAttribute('aria-label', wrapper.title);
 }
@@ -1643,7 +1658,6 @@ function initControls() {
 
     const action = form.dataset.confirmAction;
     const rejecting = action === 'reject';
-    const cabinDeletion = form.matches('[data-cancel-cabin-form]');
     const requestDeletion = form.action.includes('booking-delete');
     const seriesRequest = form.elements.namedItem('request_scope')?.value === 'series';
     const bookingTypeRemoval = form.action.includes('booking-type-remove');
@@ -1658,9 +1672,7 @@ function initControls() {
         : 'Möchten Sie diese Buchungsanfrage wirklich ablehnen?'
       : bookingTypeRemoval
         ? `Möchten Sie "${bookingTypeName}" wirklich entfernen? Bei vorhandenen Terminen wird die Buchungsart archiviert.`
-      : cabinDeletion
-        ? 'Möchten Sie diese Kabinenbelegung wirklich löschen?'
-        : requestDeletion
+      : requestDeletion
           ? seriesRequest ? 'Möchten Sie alle offenen Termine dieser Serienanfrage wirklich löschen?'
             : 'Möchten Sie diese Buchungsanfrage wirklich löschen?'
           : 'Möchten Sie diese Buchung wirklich löschen?';
