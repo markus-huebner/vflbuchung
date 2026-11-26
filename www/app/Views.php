@@ -16,7 +16,7 @@ final class Views
     ): string {
         $assetRoot = dirname(__DIR__) . '/assets/build';
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
-        $nav = '<a class="navbar-brand fw-semibold" href="/?calendar=pitch"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
+        $nav = '<a class="navbar-brand fw-semibold" href="/?calendar=pitch"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering"><span class="navbar-brand-title">Platz- und Busbelegung</span></a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
             $name = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
             $nav .= '<div class="user-account"><span class="user-account-name">' . Security::escape($name) . '</span>'

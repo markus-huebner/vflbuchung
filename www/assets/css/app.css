@@ -83,8 +83,15 @@ body {
   display: inline-flex;
   align-items: center;
   gap: .5rem;
+  flex: 1 1 0;
+  min-width: min-content;
   font-size: clamp(.85rem, 3vw, 1.25rem);
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.navbar-brand-title {
+  min-width: min-content;
+  line-height: 1.2;
 }
 
 .navbar-brand-logo {
@@ -93,6 +100,10 @@ body {
   width: 2.15rem;
   height: 2.5rem;
   object-fit: contain;
+}
+
+.navbar-club .navbar-nav {
+  min-width: 0;
 }
 
 .navbar-club .navbar-brand,
@@ -1393,6 +1404,10 @@ dialog::backdrop {
   font-size: .875rem;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.user-account-name.is-hidden-for-space {
+  display: none;
 }
 
 .user-account-menu:not([open]) > .user-actions-menu-items {

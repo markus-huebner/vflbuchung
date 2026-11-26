@@ -1331,6 +1331,26 @@ function initBookingTypeEditor() {
   });
 }
 
+function initHeaderName() {
+  const container = document.querySelector('.navbar-club > .container-fluid');
+  const name = container?.querySelector('.user-account-name');
+  if (!name) return;
+
+  const update = () => {
+    name.classList.remove('is-hidden-for-space');
+    const range = document.createRange();
+    range.selectNodeContents(name);
+    const lines = new Set(Array.from(range.getClientRects(), (rect) => rect.top));
+    const containerRect = container.getBoundingClientRect();
+    const navigationRect = container.querySelector('.navbar-nav').getBoundingClientRect();
+    name.classList.toggle('is-hidden-for-space', lines.size > 2 || navigationRect.right > containerRect.right);
+  };
+  new ResizeObserver(update).observe(container);
+  new MutationObserver(update).observe(name, { childList: true, characterData: true, subtree: true });
+  document.fonts.ready.then(update);
+  update();
+}
+
 function initControls() {
   document.querySelectorAll('[data-username-suggestion]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -1340,6 +1360,7 @@ function initControls() {
       username.focus();
     });
   });
+  initHeaderName();
   initUserMenu();
   initBookingTypeColorPickers();
   initBookingTypeEditor();

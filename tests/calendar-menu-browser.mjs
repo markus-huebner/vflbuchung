@@ -166,11 +166,15 @@ try {
     assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
     assert.equal(await evaluate(`document.querySelector('.user-account-name').textContent`), 'Menu Test');
     assert.equal(await evaluate(`document.querySelector('.user-account-name').closest('#user-menu')`), null);
-    assert.equal(await evaluate(`document.querySelector('.user-account-name').getBoundingClientRect().right <= document.querySelector('#user-menu').getBoundingClientRect().left`), true);
+    const nameVisible = await evaluate(`getComputedStyle(document.querySelector('.user-account-name')).display !== 'none'`);
+    if (await evaluate(`innerWidth === 1200`)) assert.equal(nameVisible, true, `${role}: name visible on desktop`);
+    if (nameVisible) {
+      assert.equal(await evaluate(`document.querySelector('.user-account-name').getBoundingClientRect().right <= document.querySelector('#user-menu').getBoundingClientRect().left`), true);
+      await evaluate(`document.querySelector('.user-account-name').click()`);
+      assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
+    }
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('#user-menu > summary')).borderTopWidth`), '0px');
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('#user-menu > summary'), '::after').display`), 'none');
-    await evaluate(`document.querySelector('.user-account-name').click()`);
-    assert.equal(await evaluate(`document.querySelector('#user-menu').open`), false);
     assert.equal(await evaluate(`document.querySelector('#user-menu > summary svg circle') !== null`), true);
     await evaluate(`document.querySelector('#user-menu > summary').click()`);
     await waitFor(`document.querySelector('#user-menu').open`);
@@ -207,6 +211,33 @@ try {
       await evaluate(`document.querySelector('#settings-menu > summary').click(); document.querySelector('main').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));`);
       assert.equal(await evaluate(`document.querySelector('#settings-menu').open`), false);
     }
+  };
+  const checkBrand = async (wrapped, label) => {
+    const metrics = await evaluate(`(() => {
+      const brand = document.querySelector('.navbar-brand');
+      const title = document.querySelector('.navbar-brand-title');
+      const logo = document.querySelector('.navbar-brand-logo').getBoundingClientRect();
+      const navigation = document.querySelector('.navbar-nav').getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(title);
+      const lines = [...range.getClientRects()];
+      const rect = title.getBoundingClientRect();
+      return {
+        text: title.textContent,
+        lines: lines.length,
+        logoRight: logo.right,
+        titleLeft: rect.left,
+        brandRight: brand.getBoundingClientRect().right,
+        navigationLeft: navigation.left,
+        navigationRight: navigation.right,
+        viewport: innerWidth,
+        document: document.documentElement.scrollWidth,
+      };
+    })()`);
+    assert.equal(metrics.text, 'Platz- und Busbelegung');
+    if (wrapped !== null) assert.equal(metrics.lines > 1, wrapped, `${label}: title wrapping ${JSON.stringify(metrics)}`);
+    assert.ok(metrics.logoRight <= metrics.titleLeft && metrics.brandRight <= metrics.navigationLeft, `${label}: header elements must not overlap`);
+    assert.ok(metrics.navigationRight <= metrics.viewport && metrics.document <= metrics.viewport, `${label}: header must fit the viewport`);
   };
   for (const type of ['pitch', 'bus', 'cabin']) {
     await resize(320);
@@ -347,6 +378,7 @@ try {
     }
     await resize(1200);
     await waitFor(`document.querySelector('#calendar-actions').parentElement.matches('.calendar-heading-toolbar')`);
+    await checkBrand(false, `${role}: desktop`);
     await checkDateControl();
     await checkCalendarHeight();
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('#calendar-actions-menu')).display`), 'block');
@@ -368,6 +400,15 @@ try {
     }
     await resize(320);
     await waitFor(`document.querySelector('#calendar-actions').parentElement.matches('.calendar-heading-toolbar')`);
+    if (role === 'admin') {
+      await checkBrand(true, `${role}: narrow header`);
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector('.user-account-name')).display !== 'none'`), true, 'short name stays visible beside the two-line title');
+      await evaluate(`document.querySelector('.user-account-name').textContent = 'Ein besonders langer Benutzername'`);
+      await waitFor(`getComputedStyle(document.querySelector('.user-account-name')).display === 'none'`);
+      await checkBrand(null, `${role}: narrow header with long name`);
+      await evaluate(`document.querySelector('.user-account-name').textContent = 'Menu Test'`);
+      await waitFor(`getComputedStyle(document.querySelector('.user-account-name')).display !== 'none'`);
+    }
     await checkCalendarHeight();
     await checkDateControl();
     assert.equal(await evaluate(`document.documentElement.scrollWidth <= 320 && innerWidth <= 320`), true, `${role}: 320px width regression`);

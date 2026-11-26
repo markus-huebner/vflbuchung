@@ -406,7 +406,7 @@ test('booking feedback omits success alerts but still shows warnings inside the 
 });
 
 test('application branding shows the VfL crest and new name', () => {
-  assert.match(views, /class="navbar-brand fw-semibold" href="\/\?calendar=pitch"><img class="navbar-brand-logo" src="\/assets\/images\/vfl-kaufering-wappen\.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung<\/a>/);
+  assert.match(views, /class="navbar-brand fw-semibold" href="\/\?calendar=pitch"><img class="navbar-brand-logo" src="\/assets\/images\/vfl-kaufering-wappen\.png" alt="Wappen des VfL Kaufering"><span class="navbar-brand-title">Platz- und Busbelegung<\/span><\/a>/);
   assert.match(views, /<title>' \. Security::escape\(\$title\) \. ' · Platz- und Busbelegung<\/title>/);
   assert.match(styles, /\.navbar-brand-logo\s*\{[^}]*object-fit:\s*contain;/s);
 });
