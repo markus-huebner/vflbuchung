@@ -74,33 +74,25 @@ final class UserService
     private function sendInvitation(string $email, string $username, string $firstName, string $token, bool $updated): void
     {
         $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=invite&token=' . rawurlencode($token);
-        $heading = $updated ? 'Aktualisierte Einladung' : 'Einladung zum Vereins-Buchungssystem';
-        $subject = $updated ? 'Aktualisierte Einladung zum Vereins-Buchungssystem' : $heading;
+        $heading = $updated ? 'Aktualisierte Einladung' : 'Einladung';
+        $subject = $updated ? 'Aktualisierte Einladung zur Platz- und Busbelegung - VfL Kaufering' : $heading;
         $this->mailer->send(
             $email,
             $subject,
-            '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-            . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
-            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
-            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
-            . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
-            . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
-            . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
-            . Mailer::icon('invitation') . Security::escape($heading) . '</h1></td></tr>'
+            Mailer::header($heading, 'invitation')
             . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
-            . Security::escape($firstName) . ',</p><p style="color:#536158;margin:0 0 24px">'
-            . 'Richte dein Konto über den folgenden Link ein.</p>'
-            . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px;line-height:1.6">'
+            . Security::escape($firstName) . ',</p><p style="color:#514c48;margin:0 0 24px">'
+            . 'richte dein Konto über den folgenden Link ein.</p>'
+            . '<div style="padding:20px;background:#f5f4f2;border:1px solid #dedbd8;border-radius:12px;line-height:1.6">'
             . 'Dein Benutzername: <strong>' . Security::escape($username) . '</strong><br>'
             . 'Der Einladungslink ist 5 Tage gültig und kann nur einmal verwendet werden.</div>'
             . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
-            . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
-            . 'text-decoration:none;font-weight:bold;border-radius:8px">Konto einrichten</a></div></td></tr>'
-            . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
-            . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
-            "Hallo {$firstName},\n\nDein Benutzername lautet: {$username}\n\n"
-            . "Richte dein Konto über diesen Link ein (5 Tage gültig, einmal verwendbar):\n{$url}"
+            . '" style="display:inline-block;padding:13px 24px;background:#e1141b;color:#fff;'
+            . 'text-decoration:none;font-weight:bold;border-radius:999px">Konto einrichten</a></div></td></tr>'
+            . '<tr><td style="padding:18px 32px;background:#f5f4f2;color:#6f6863;font-size:12px">'
+            . 'Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering</td></tr></table></td></tr></table></body></html>',
+            "Hallo {$firstName},\n\nrichte dein Konto über diesen Link ein (5 Tage gültig, einmal verwendbar):\n{$url}\n\n"
+            . "Dein Benutzername lautet: {$username}"
         );
     }
 
@@ -133,7 +125,7 @@ final class UserService
 
         try {
             $admins = $this->pdo->query(
-                "SELECT id, email, first_name, last_name FROM users WHERE role = 'admin' AND status = 'active'"
+                "SELECT id, email, first_name FROM users WHERE role = 'admin' AND status = 'active'"
             )->fetchAll();
         } catch (\PDOException $exception) {
             error_log('Registration notification lookup failed: ' . $exception->getMessage());
@@ -159,33 +151,26 @@ final class UserService
                      VALUES (:user_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 DAY))'
                 )->execute(['user_id' => $admin['id'], 'token_hash' => Security::tokenHash($token)]);
                 $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=registration-access&token=' . rawurlencode($token);
-                $adminName = AuthService::fullName((string) $admin['first_name'], (string) $admin['last_name']);
+                $adminName = (string) $admin['first_name'];
                 $this->mailer->send(
                     (string) $admin['email'],
                     'Neue Registrierungsanfrage',
-                    '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-                    . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
-                    . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-                    . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
-                    . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
-                    . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
-                    . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
-                    . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">' . Mailer::icon('registration') . 'Neue Registrierungsanfrage</h1></td></tr>'
+                    Mailer::header('Neue Registrierungsanfrage', 'registration')
                     . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
-                    . Security::escape($adminName) . ',</p><p style="color:#536158;margin:0 0 24px">'
-                    . 'Eine neue Registrierungsanfrage wartet auf Bearbeitung.</p>'
-                    . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px">'
-                    . '<table role="presentation" cellspacing="0" cellpadding="0" style="font-size:14px;line-height:1.7;color:#36443a">'
-                    . '<tr><td style="padding-right:14px;color:#647268">Name</td><td>' . Security::escape($name) . '</td></tr>'
-                    . '<tr><td style="padding-right:14px;color:#647268">E-Mail</td><td>' . Security::escape($email) . '</td></tr>'
-                    . '<tr><td style="padding-right:14px;color:#647268">Benutzername</td><td>' . Security::escape($username) . '</td></tr>'
+                    . Security::escape($adminName) . ',</p><p style="color:#514c48;margin:0 0 24px">'
+                    . 'eine neue Registrierungsanfrage wartet auf Bearbeitung.</p>'
+                    . '<div style="padding:20px;background:#f5f4f2;border:1px solid #dedbd8;border-radius:12px">'
+                    . '<table role="presentation" cellspacing="0" cellpadding="0" style="font-size:14px;line-height:1.7;color:#16120f">'
+                    . '<tr><td style="padding-right:14px;color:#6f6863">Name</td><td>' . Security::escape($name) . '</td></tr>'
+                    . '<tr><td style="padding-right:14px;color:#6f6863">E-Mail</td><td>' . Security::escape($email) . '</td></tr>'
+                    . '<tr><td style="padding-right:14px;color:#6f6863">Benutzername</td><td>' . Security::escape($username) . '</td></tr>'
                     . '</table></div><p>Der Link ist 5 Tage gültig. Die Anmeldung erfolgt wie gewohnt.</p>'
                     . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
-                    . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
-                    . 'text-decoration:none;font-weight:bold;border-radius:8px">Registrierungen bearbeiten</a></div></td></tr>'
-                    . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
-                    . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
-                    "Hallo {$adminName},\n\nEine neue Registrierungsanfrage wartet auf Bearbeitung.\n\nName: {$name}\nE-Mail: {$email}"
+                    . '" style="display:inline-block;padding:13px 24px;background:#e1141b;color:#fff;'
+                    . 'text-decoration:none;font-weight:bold;border-radius:999px">Registrierungen bearbeiten</a></div></td></tr>'
+                    . '<tr><td style="padding:18px 32px;background:#f5f4f2;color:#6f6863;font-size:12px">'
+                    . 'Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering</td></tr></table></td></tr></table></body></html>',
+                    "Hallo {$adminName},\n\neine neue Registrierungsanfrage wartet auf Bearbeitung.\n\nName: {$name}\nE-Mail: {$email}"
                     . "\nBenutzername: {$username}\n\nDer Link ist 5 Tage gültig. Die Anmeldung erfolgt wie gewohnt."
                     . "\nRegistrierungen bearbeiten: {$url}"
                 );
@@ -280,19 +265,12 @@ final class UserService
             $this->mailer->send(
                 $request['email'],
                 'Deine Registrierungsanfrage',
-                '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-                . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
-                . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-                . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
-                . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
-                . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
-                . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
-                . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">' . Mailer::icon('registration') . 'Registrierungsanfrage abgelehnt</h1></td></tr>'
+                Mailer::header('Registrierungsanfrage abgelehnt', 'registration')
                 . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
-                . Security::escape($firstName) . ',</p><p style="color:#536158;margin:0">'
+                . Security::escape($firstName) . ',</p><p style="color:#514c48;margin:0">'
                 . 'deine Registrierungsanfrage wurde leider abgelehnt. Bei Fragen wende dich bitte an einen Verwalter oder Admin.</p></td></tr>'
-                . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
-                . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
+                . '<tr><td style="padding:18px 32px;background:#f5f4f2;color:#6f6863;font-size:12px">'
+                . 'Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering</td></tr></table></td></tr></table></body></html>',
                 "Hallo {$firstName},\n\ndeine Registrierungsanfrage wurde leider abgelehnt. "
                 . 'Bei Fragen wende dich bitte an einen Verwalter oder Admin.'
             );
@@ -388,7 +366,7 @@ final class UserService
     {
         $email = AuthService::normalizeEmail($email);
         $statement = $this->pdo->prepare(
-            "SELECT id, first_name, last_name FROM users WHERE email = :email AND status = 'active' LIMIT 1"
+            "SELECT id, first_name FROM users WHERE email = :email AND status = 'active' LIMIT 1"
         );
         $statement->execute(['email' => $email]);
         $user = $statement->fetch();
@@ -408,30 +386,23 @@ final class UserService
         ]);
 
         $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=reset&token=' . rawurlencode($token);
-        $fullName = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
-        $name = Security::escape($fullName);
+        $firstName = (string) $user['first_name'];
+        $name = Security::escape($firstName);
         $this->mailer->send(
             $email,
             'Passwort zurücksetzen',
-            '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-            . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
-            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
-            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
-            . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
-            . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
-            . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">' . Mailer::icon('password') . 'Passwort zurücksetzen</h1></td></tr>'
+            Mailer::header('Passwort zurücksetzen', 'password')
             . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo ' . $name . ',</p>'
-            . '<p style="color:#536158;margin:0 0 24px">Über den folgenden Link kannst du ein neues Passwort festlegen.</p>'
-            . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px;line-height:1.6">'
+            . '<p style="color:#514c48;margin:0 0 24px">über den folgenden Link kannst du ein neues Passwort festlegen.</p>'
+            . '<div style="padding:20px;background:#f5f4f2;border:1px solid #dedbd8;border-radius:12px;line-height:1.6">'
             . 'Der Link ist 5 Tage gültig und kann nur einmal verwendet werden. '
             . 'Wenn du das Zurücksetzen nicht angefordert hast, kannst du diese E-Mail ignorieren.</div>'
             . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
-            . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
-            . 'text-decoration:none;font-weight:bold;border-radius:8px">Passwort zurücksetzen</a></div></td></tr>'
-            . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
-            . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
-            "Hallo {$fullName},\n\nSetze dein Passwort über diesen Link zurück (5 Tage gültig, einmal verwendbar):\n{$url}"
+            . '" style="display:inline-block;padding:13px 24px;background:#e1141b;color:#fff;'
+            . 'text-decoration:none;font-weight:bold;border-radius:999px">Passwort zurücksetzen</a></div></td></tr>'
+            . '<tr><td style="padding:18px 32px;background:#f5f4f2;color:#6f6863;font-size:12px">'
+            . 'Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering</td></tr></table></td></tr></table></body></html>',
+            "Hallo {$firstName},\n\nsetze dein Passwort über diesen Link zurück (5 Tage gültig, einmal verwendbar):\n{$url}"
             . "\n\nWenn du das Zurücksetzen nicht angefordert hast, kannst du diese E-Mail ignorieren."
         );
     }
@@ -474,7 +445,7 @@ final class UserService
     public function all(): array
     {
         return $this->pdo->query(
-            'SELECT id, email, username, first_name, last_name, role, status, created_at
+            'SELECT id, email, username, first_name, last_name, role, status, created_at, password_hash IS NOT NULL AS has_password
              FROM users ORDER BY first_name, last_name'
         )->fetchAll();
     }
@@ -485,13 +456,20 @@ final class UserService
         string $firstName,
         string $lastName,
         string $role,
-        string $status
+        string $status,
+        int $actorId
     ): void {
         if (!in_array($role, ['admin', 'manager', 'trainer'], true)) {
             throw new RuntimeException('Rolle ungültig.');
         }
         if (!in_array($status, ['invited', 'active', 'inactive'], true)) {
             throw new RuntimeException('Kontostatus ungültig.');
+        }
+        if ($id === $actorId && $status === 'inactive') {
+            throw new RuntimeException('Du kannst dein eigenes Benutzerkonto nicht deaktivieren.');
+        }
+        if ($id === $actorId && $role !== 'admin') {
+            throw new RuntimeException('Du kannst deine eigene Administratorrolle nicht ändern.');
         }
 
         $email = trim($email) === '' ? null : AuthService::normalizeEmail($email);
@@ -644,8 +622,12 @@ final class UserService
         }
     }
 
-    public function deactivate(int $id): void
+    public function deactivate(int $id, int $actorId): void
     {
+        if ($id === $actorId) {
+            throw new RuntimeException('Du kannst dein eigenes Benutzerkonto nicht deaktivieren.');
+        }
+
         $this->pdo->beginTransaction();
         try {
             $target = $this->pdo->prepare('SELECT id, role, status FROM users WHERE id = :id FOR UPDATE');
@@ -678,8 +660,12 @@ final class UserService
         }
     }
 
-    public function delete(int $id): void
+    public function delete(int $id, int $actorId): void
     {
+        if ($id === $actorId) {
+            throw new RuntimeException('Du kannst dein eigenes Benutzerkonto nicht löschen.');
+        }
+
         $this->pdo->beginTransaction();
         try {
             $target = $this->pdo->prepare('SELECT id, role, status FROM users WHERE id = :id FOR UPDATE');
@@ -721,10 +707,13 @@ final class UserService
         }
     }
 
-    public function changeRole(int $id, string $role): void
+    public function changeRole(int $id, string $role, int $actorId): void
     {
         if (!in_array($role, ['admin', 'manager', 'trainer'], true)) {
             throw new RuntimeException('Rolle ungültig.');
+        }
+        if ($id === $actorId && $role !== 'admin') {
+            throw new RuntimeException('Du kannst deine eigene Administratorrolle nicht ändern.');
         }
 
         $this->pdo->beginTransaction();

@@ -906,7 +906,7 @@ test('linked request status is announced once using the latest state', async () 
   }
 });
 
-test('booking request emails include request details and state-specific colors', () => {
+test('booking request emails include request details and a consistent club layout', () => {
   assert.match(bookingService, /requester\.email AS requester_email/);
   assert.match(bookingService, /\['Ressource', trim\(\(string\) \(\$details\['resource_names'\]/);
   assert.match(bookingService, /\['Mannschaft', trim\(\(string\) \(\$details\['team_name'\]/);
@@ -917,9 +917,8 @@ test('booking request emails include request details and state-specific colors',
   assert.match(bookingService, /notifyRequesterOfRequest\(\$details, 'gelöscht'\)/);
   assert.match(bookingService, /if \(\$email === ''\) \{\s*return \[\];/);
   assert.doesNotMatch(bookingService, /notifyGroupRequester/);
-  assert.match(bookingService, /\$accentColor = \$action === 'deleted' \? '#b42318' : '#14532d'/);
-  assert.match(bookingService, /'abgelehnt' => \[[\s\S]*?'color' => '#b42318'/);
-  assert.match(bookingService, /'gelöscht' => \[[\s\S]*?'color' => '#b42318'/);
+  assert.match(bookingService, /Mailer::header\(\$label\['heading'\], \$icon\)/);
+  assert.match(bookingService, /Mailer::header\(\$heading, \$icon\)/);
 });
 
 test('editing a booking request does not notify approvers', () => {
@@ -1009,7 +1008,7 @@ test('admin management links stay inside the role-gated settings menu', () => {
     /id="user-menu"[\s\S]*?if \(\$user\['role'\] === 'admin'\) \{[\s\S]*?id="settings-menu"[\s\S]*?category=pitch">Plätze<\/a>[\s\S]*?category=bus">Fahrzeuge<\/a>[\s\S]*?category=cabin">Kabinen<\/a>[\s\S]*?page=users">Benutzerverwaltung<\/a>[\s\S]*?page=booking-types">Buchungsarten<\/a>[\s\S]*?data-delete-period-open/,
   );
   assert.doesNotMatch(application, /case 'settings':/);
-  assert.match(application, /case 'users':\s*\$this->requireRole\(\['admin'\]\)/);
+  assert.match(application, /case 'users':\s*\$user = \$this->requireRole\(\['admin'\]\)/);
   assert.match(application, /case 'resources':\s*\$this->requireRole\(\['admin'\]\)/);
 });
 
@@ -1058,6 +1057,58 @@ test('admins can edit user details without changing the username', () => {
   assert.doesNotMatch(styles, /\.user-management-table tbody tr\s*\{[^}]*border-radius/s);
   assert.match(source, /document\.querySelector\('#user-edit-dialog'\)[\s\S]*?userEditDialog\.showModal\(\)/);
   assert.match(source, /firstNameField\.value = button\.dataset\.userFirstName/);
+});
+
+test('user editor locks unavailable status and the signed-in administrator role', () => {
+  const snippet = source.slice(
+    source.indexOf("  const userEditDialog = document.querySelector('#user-edit-dialog');"),
+    source.indexOf("  const resourceOptions = [...document.querySelectorAll('[data-calendar-resource]')];"),
+  );
+  const fields = Object.fromEntries([
+    '[name="id"]', '[name="first_name"]', '[name="last_name"]', '[name="email"]',
+    '#user-edit-username', '[name="role"]',
+  ].map(key => [key, { value: '', focus() {} }]));
+  const options = ['active', 'invited', 'inactive'].map(value => ({ value, hidden: false, disabled: false }));
+  fields['[name="status"]'] = { value: '', querySelectorAll: () => options };
+  fields['#user-edit-locked-role'] = { value: '', disabled: true };
+  fields['#user-edit-locked-status'] = { value: '', disabled: true };
+  fields['#user-edit-self-role-hint'] = { hidden: true };
+  fields['#user-edit-self-status-hint'] = { hidden: true };
+  fields['#user-edit-password-status-hint'] = { hidden: true };
+  const listeners = [];
+  const scenarios = [
+    { self: 'true', status: 'active', password: 'true', statusLocked: true },
+    { self: 'false', status: 'active', password: 'true', statusLocked: false },
+    { self: 'false', status: 'inactive', password: 'false', statusLocked: true },
+    { self: 'false', status: 'invited', password: 'false', statusLocked: false },
+    { self: 'true', status: 'active', password: 'true', statusLocked: true },
+  ];
+  const buttons = scenarios.map(({ self, status, password }) => ({
+    dataset: { userId: '1', userFirstName: 'Name', userLastName: '', userEmail: '',
+      userUsername: 'user', userRole: 'admin', userStatus: status, userSelf: self, userHasPassword: password },
+    addEventListener: (_, listener) => listeners.push(listener),
+  }));
+  const dialog = { showModal() {} };
+  const form = { querySelector: key => fields[key] };
+  const document = {
+    querySelector: key => key === '#user-edit-dialog' ? dialog : form,
+    querySelectorAll: () => buttons,
+  };
+  vm.runInNewContext(snippet, { document });
+  listeners.forEach((listener, index) => {
+    listener();
+    const scenario = scenarios[index];
+    assert.equal(fields['[name="status"]'].disabled, scenario.statusLocked);
+    assert.equal(fields['#user-edit-locked-status'].disabled, !scenario.statusLocked);
+    assert.equal(fields['#user-edit-locked-status'].value, scenario.status);
+    assert.equal(fields['[name="status"]'].value, scenario.status);
+    assert.equal(fields['[name="role"]'].disabled, scenario.self === 'true');
+    assert.equal(fields['#user-edit-locked-role'].disabled, scenario.self !== 'true');
+    assert.equal(fields['#user-edit-locked-role'].value, 'admin');
+    assert.equal(fields['#user-edit-self-status-hint'].hidden, scenario.self !== 'true');
+    assert.equal(fields['#user-edit-self-role-hint'].hidden, scenario.self !== 'true');
+    assert.equal(fields['#user-edit-password-status-hint'].hidden, scenario.password !== 'false' || scenario.status !== 'inactive');
+  });
 });
 
 test('login view includes a button to return to the calendar', () => {

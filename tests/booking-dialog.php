@@ -673,8 +673,8 @@ check(
         && !str_contains($schemaRepairHtml, 'name="email"'),
     'An existing admin must only be offered a non-destructive schema repair.'
 );
-$inviteHtml = Views::users([], 'test-csrf', '', 'invite');
-$createHtml = Views::users([], 'test-csrf', '', 'create');
+$inviteHtml = Views::users([], 'test-csrf', 1, '', 'invite');
+$createHtml = Views::users([], 'test-csrf', 1, '', 'create');
 check(
     str_contains($inviteHtml, 'name="first_name"')
         && str_contains($inviteHtml, 'name="last_name"')
@@ -714,9 +714,9 @@ foreach (['training', 'match', 'external', 'bus'] as $eventType) {
 
 $buttonPages = [
     Views::calendar(['role' => 'admin'], 'test-csrf', []),
-    Views::users([], 'test-csrf'),
-    Views::users([], 'test-csrf', '', 'invite'),
-    Views::users([], 'test-csrf', '', 'create'),
+    Views::users([], 'test-csrf', 1),
+    Views::users([], 'test-csrf', 1, '', 'invite'),
+    Views::users([], 'test-csrf', 1, '', 'create'),
     Views::resources([], [], 'test-csrf'),
     Views::resources([], [], 'test-csrf', '', 'create'),
     Views::bookingTypes(BookingTypeService::defaults(), 'test-csrf'),

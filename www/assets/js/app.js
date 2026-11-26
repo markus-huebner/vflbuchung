@@ -1405,8 +1405,13 @@ function initControls() {
       const usernameField = userEditForm?.querySelector('#user-edit-username');
       const roleField = userEditForm?.querySelector('[name="role"]');
       const statusField = userEditForm?.querySelector('[name="status"]');
+      const lockedRole = userEditForm?.querySelector('#user-edit-locked-role');
+      const lockedStatus = userEditForm?.querySelector('#user-edit-locked-status');
+      const selfRoleHint = userEditForm?.querySelector('#user-edit-self-role-hint');
+      const selfStatusHint = userEditForm?.querySelector('#user-edit-self-status-hint');
+      const passwordStatusHint = userEditForm?.querySelector('#user-edit-password-status-hint');
       if (!userEditDialog || !idField || !firstNameField || !lastNameField
-        || !emailField || !usernameField || !roleField || !statusField) return;
+        || !emailField || !usernameField || !roleField || !statusField || !lockedRole || !lockedStatus) return;
 
       idField.value = button.dataset.userId;
       firstNameField.value = button.dataset.userFirstName;
@@ -1414,10 +1419,21 @@ function initControls() {
       emailField.value = button.dataset.userEmail;
       usernameField.value = button.dataset.userUsername;
       roleField.value = button.dataset.userRole;
+      const isSelf = button.dataset.userSelf === 'true';
+      const requiresPassword = button.dataset.userStatus === 'inactive' && button.dataset.userHasPassword !== 'true';
+      roleField.disabled = isSelf;
+      lockedRole.disabled = !isSelf;
+      lockedRole.value = button.dataset.userRole;
+      statusField.disabled = isSelf || requiresPassword;
+      lockedStatus.disabled = !statusField.disabled;
+      lockedStatus.value = button.dataset.userStatus;
       statusField.querySelectorAll('option').forEach((option) => {
         option.hidden = (option.value === 'active' && button.dataset.userStatus === 'invited')
           || (option.value === 'invited' && button.dataset.userStatus !== 'invited');
       });
+      if (selfRoleHint) selfRoleHint.hidden = !isSelf;
+      if (selfStatusHint) selfStatusHint.hidden = !isSelf;
+      if (passwordStatusHint) passwordStatusHint.hidden = !requiresPassword;
       statusField.value = button.dataset.userStatus;
       userEditDialog.showModal();
       firstNameField.focus();

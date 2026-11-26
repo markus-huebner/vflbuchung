@@ -1779,6 +1779,7 @@ final class BookingService
                     COALESCE(bt.name, CASE WHEN o.event_type = 'bus' THEN 'Fahrzeugbuchung' ELSE 'Buchung' END) AS type_name,
                     g.recurrence_rule,
                     TRIM(CONCAT(requester.first_name, ' ', requester.last_name)) AS requester_name,
+                    requester.first_name AS requester_first_name,
                     requester.id AS requester_id,
                     requester.email AS requester_email,
                     requester.status AS requester_status,
@@ -1809,9 +1810,15 @@ final class BookingService
             ->setTimezone(new DateTimeZone('Europe/Berlin'));
         $end = Recurrence::fromDatabase($details['ends_at'])
             ->setTimezone(new DateTimeZone('Europe/Berlin'));
-        $dateLabel = $start->format('d.m.Y H:i') . ' – ' . $end->format('d.m.Y H:i') . ' Uhr';
+        $dateLabel = $start->format('d.m.Y');
+        if ($start->format('Y-m-d') !== $end->format('Y-m-d')) {
+            $dateLabel .= ' – ' . $end->format('d.m.Y');
+        }
+        $dateField = !empty($details['recurrence_rule']) || (int) ($details['affected_count'] ?? 1) > 1
+            ? 'Datum (erster betroffener Termin)' : 'Datum';
         $fields = [
-            [!empty($details['recurrence_rule']) || (int) ($details['affected_count'] ?? 1) > 1 ? 'Erster betroffener Termin' : 'Termin', $dateLabel],
+            [$dateField, $dateLabel],
+            ['Uhrzeit', $start->format('H:i') . ' – ' . $end->format('H:i') . ' Uhr'],
             ['Kategorie', (string) $details['type_name']],
             ['Ressource', trim((string) ($details['resource_names'] ?? '')) ?: 'Keine Ressource angegeben'],
             ['Kabinen', trim((string) ($details['cabin_names'] ?? ''))],
@@ -1846,7 +1853,7 @@ final class BookingService
             if ($value === '') {
                 continue;
             }
-            $htmlRows .= '<tr><td style="padding-right:14px;color:#647268">'
+            $htmlRows .= '<tr><td style="padding-right:14px;color:#6f6863">'
                 . Security::escape($label) . '</td><td>' . nl2br(Security::escape($value), false) . '</td></tr>';
             $textLines[] = $label . ': ' . $value;
         }
@@ -1881,14 +1888,14 @@ final class BookingService
         }
 
         $recipients = $this->pdo->query(
-            "SELECT DISTINCT id, email, TRIM(CONCAT(first_name, ' ', last_name)) AS display_name
+            "SELECT DISTINCT id, email, first_name
              FROM users
              WHERE status = 'active' AND email IS NOT NULL AND email <> ''
                AND role IN ('admin', 'manager')"
         )->fetchAll();
         $errors = [];
         $emailDetails = $this->requestEmailDetails($details, true);
-        $icon = Mailer::icon(($details['event_type'] ?? '') === 'bus' ? 'vehicle' : 'pitch');
+        $icon = ($details['event_type'] ?? '') === 'bus' ? 'vehicle' : 'pitch';
         $title = $emailDetails['title'];
         $actionLabels = [
             'created' => ['subject' => 'Neue Buchungsanfrage', 'heading' => 'Neue Buchungsanfrage'],
@@ -1896,8 +1903,6 @@ final class BookingService
             'deleted' => ['subject' => 'Buchungsanfrage gelöscht', 'heading' => 'Buchungsanfrage gelöscht'],
         ];
         $label = $actionLabels[$action];
-        $accentColor = $action === 'deleted' ? '#b42318' : '#14532d';
-        $buttonColor = $action === 'deleted' ? '#b42318' : '#198754';
         $safeTitle = Security::escape($title);
         $safeType = Security::escape($emailDetails['type_name']);
         $safeRequester = Security::escape((string) ($details['requester_name'] ?? ''));
@@ -1906,43 +1911,36 @@ final class BookingService
         $ctaLabel = $action === 'deleted' && $targetOccurrenceId === null
             ? 'Zu den Buchungsanfragen'
             : 'Anfrage direkt öffnen';
+        $intro = $action === 'deleted'
+            ? ($affectedCount === 1
+                ? 'eine Buchungsanfrage wurde gelöscht.'
+                : 'eine Buchungsanfrage mit ' . $affectedCount . ' Terminen wurde gelöscht.')
+            : ($action === 'created'
+                ? 'eine neue Buchungsanfrage wartet auf Bearbeitung.'
+                : 'eine Buchungsanfrage wurde geändert.');
         foreach ($recipients as $recipient) {
             try {
                 $url = $this->bookingAccessUrl((int) $recipient['id'], $targetOccurrenceId);
-                $html = '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-                    . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
-                    . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-                    . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
-                    . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
-                    . '<tr><td style="padding:28px 32px;background:' . $accentColor . ';color:#fff">'
-                    . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">'
-                    . 'Vereins-Buchungssystem</div><h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
-                    . $icon . Security::escape($label['heading']) . '</h1></td></tr>'
+                $html = Mailer::header($label['heading'], $icon)
                     . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
-                    . Security::escape((string) $recipient['display_name']) . ',</p><p style="color:#536158;margin:0 0 24px">'
-                    . ($action === 'deleted'
-                        ? ($affectedCount === 1
-                            ? 'Eine Buchungsanfrage wurde gelöscht.'
-                            : 'Eine Buchungsanfrage mit ' . $affectedCount . ' Terminen wurde gelöscht.')
-                        : ($action === 'created'
-                            ? 'Eine neue Buchungsanfrage wartet auf Bearbeitung.'
-                            : 'Eine Buchungsanfrage wurde geändert.'))
-                    . '</p><div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px">'
-                    . '<div style="font-size:12px;color:#5d6b62;text-transform:uppercase;letter-spacing:1px">'
+                    . Security::escape((string) $recipient['first_name']) . ',</p><p style="color:#514c48;margin:0 0 24px">'
+                    . $intro
+                    . '</p><div style="padding:20px;background:#f5f4f2;border:1px solid #dedbd8;border-radius:12px">'
+                    . '<div style="font-size:12px;color:#6f6863;text-transform:uppercase;letter-spacing:1px">'
                     . $safeType . '</div><div style="font-size:20px;font-weight:bold;margin:7px 0 16px">'
                     . $safeTitle . '</div><table role="presentation" cellspacing="0" cellpadding="0"'
-                    . ' style="font-size:14px;line-height:1.7;color:#36443a">' . $emailDetails['html_rows']
-                    . '<tr><td style="padding-right:14px;color:#647268">Angefragt von</td><td>'
+                    . ' style="font-size:14px;line-height:1.7;color:#16120f">' . $emailDetails['html_rows']
+                    . '<tr><td style="padding-right:14px;color:#6f6863">Angefragt von</td><td>'
                     . ($safeRequester !== '' ? $safeRequester : '—') . '</td></tr></table></div>'
                     . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
-                    . '" style="display:inline-block;padding:13px 24px;background:' . $buttonColor . ';color:#fff;'
-                    . 'text-decoration:none;font-weight:bold;border-radius:8px">'
+                    . '" style="display:inline-block;padding:13px 24px;background:#e1141b;color:#fff;'
+                    . 'text-decoration:none;font-weight:bold;border-radius:999px">'
                     . Security::escape($ctaLabel) . '</a></div>'
-                    . '<p style="font-size:12px;line-height:1.6;color:#738078;text-align:center;margin:14px 0 0">'
+                    . '<p style="font-size:12px;line-height:1.6;color:#6f6863;text-align:center;margin:14px 0 0">'
                     . 'Der Anmeldelink ist 5 Tage gültig und kann innerhalb dieses Zeitraums mehrfach verwendet werden.</p></td></tr>'
-                    . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
-                    . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>';
-                $text = "Hallo {$recipient['display_name']},\n\n"
+                    . '<tr><td style="padding:18px 32px;background:#f5f4f2;color:#6f6863;font-size:12px">'
+                    . 'Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering</td></tr></table></td></tr></table></body></html>';
+                $text = "Hallo {$recipient['first_name']},\n\n{$intro}\n\n"
                     . $label['heading'] . "\n{$title}\n{$emailDetails['text']}\n"
                     . 'Angefragt von: ' . ($plainRequester !== '' ? $plainRequester : '—') . "\n\n"
                     . "{$ctaLabel} und melde dich dabei automatisch an (5 Tage gültig und mehrfach verwendbar):\n{$url}";
@@ -1970,29 +1968,19 @@ final class BookingService
 
         $stateLabels = [
             'freigegeben' => [
-                'message' => 'Deine Buchungsanfrage wurde freigegeben.',
-                'color' => '#14532d',
-                'button_color' => '#198754',
+                'message' => 'deine Buchungsanfrage wurde freigegeben.',
             ],
             'abgelehnt' => [
-                'message' => 'Deine Buchungsanfrage wurde abgelehnt.',
-                'color' => '#b42318',
-                'button_color' => '#b42318',
+                'message' => 'deine Buchungsanfrage wurde abgelehnt.',
             ],
             'gelöscht' => [
-                'message' => 'Deine Buchungsanfrage wurde gelöscht.',
-                'color' => '#b42318',
-                'button_color' => '#b42318',
+                'message' => 'deine Buchungsanfrage wurde gelöscht.',
             ],
             'Ressource entfernt' => [
-                'message' => 'Die angegebene Ressource wurde aus deiner Buchung entfernt.',
-                'color' => '#b42318',
-                'button_color' => '#b42318',
+                'message' => 'die angegebene Ressource wurde aus deiner Buchung entfernt.',
             ],
             'Kabine entfernt' => [
-                'message' => 'Die angegebene Kabine wurde aus deiner Buchung entfernt.',
-                'color' => '#b42318',
-                'button_color' => '#b42318',
+                'message' => 'die angegebene Kabine wurde aus deiner Buchung entfernt.',
             ],
         ];
         if (!isset($stateLabels[$state])) {
@@ -2000,8 +1988,8 @@ final class BookingService
         }
 
         $emailDetails = $this->requestEmailDetails($details, ($details['requester_status'] ?? '') === 'active');
-        $icon = Mailer::icon($state === 'Kabine entfernt' ? 'cabin' : (($details['event_type'] ?? '') === 'bus' ? 'vehicle' : 'pitch'));
-        $name = trim((string) ($details['requester_name'] ?? ''));
+        $icon = $state === 'Kabine entfernt' ? 'cabin' : (($details['event_type'] ?? '') === 'bus' ? 'vehicle' : 'pitch');
+        $name = trim((string) ($details['requester_first_name'] ?? ''));
         $greeting = $name === '' ? 'Hallo,' : 'Hallo ' . Security::escape($name) . ',';
         $plainGreeting = $name === '' ? 'Hallo,' : "Hallo {$name},";
         $safeType = Security::escape($emailDetails['type_name']);
@@ -2023,30 +2011,23 @@ final class BookingService
             $this->mailer->send(
                 $email,
                 $heading,
-                '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-                    . 'font-family:Arial,Helvetica,sans-serif;color:#24312a"><table role="presentation" width="100%"'
-                    . ' cellspacing="0" cellpadding="0"><tr><td align="center"><table role="presentation" width="600"'
-                    . ' cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#fff;'
-                    . 'border-radius:16px;overflow:hidden"><tr><td style="padding:28px 32px;background:'
-                    . $label['color'] . ';color:#fff"><div style="font-size:13px;letter-spacing:1.5px;'
-                    . 'text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div><h1 style="font-size:24px;'
-                    . 'line-height:1.3;margin:10px 0 0">' . $icon . Security::escape($heading)
-                    . '</h1></td></tr><tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">'
-                    . $greeting . '</p><p style="color:#536158;margin:0 0 24px">'
-                    . Security::escape($label['message']) . '</p><div style="padding:20px;background:#f4f7f5;'
-                    . 'border:1px solid #e1e9e3;border-radius:12px"><div style="font-size:12px;color:#5d6b62;'
+                Mailer::header($heading, $icon)
+                    . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">'
+                    . $greeting . '</p><p style="color:#514c48;margin:0 0 24px">'
+                    . Security::escape($label['message']) . '</p><div style="padding:20px;background:#f5f4f2;'
+                    . 'border:1px solid #dedbd8;border-radius:12px"><div style="font-size:12px;color:#6f6863;'
                     . 'text-transform:uppercase;letter-spacing:1px">' . $safeType
                     . '</div><div style="font-size:20px;font-weight:bold;margin:7px 0 16px">' . $safeTitle
                     . '</div><table role="presentation" cellspacing="0" cellpadding="0"'
-                    . ' style="font-size:14px;line-height:1.7;color:#36443a">'
+                    . ' style="font-size:14px;line-height:1.7;color:#16120f">'
                     . $emailDetails['html_rows'] . '</table>' . $reasonHtml . '</div>'
                     . '<div style="text-align:center;padding:26px 0 8px"><a href="'
-                    . Security::escape($url) . '" style="display:inline-block;padding:13px 24px;background:'
-                    . $label['button_color'] . ';color:#fff;text-decoration:none;font-weight:bold;border-radius:8px">'
-                    . 'Zum Dashboard</a></div><p style="font-size:12px;line-height:1.6;color:#738078;text-align:center">'
+                    . Security::escape($url) . '" style="display:inline-block;padding:13px 24px;background:#e1141b;'
+                    . 'color:#fff;text-decoration:none;font-weight:bold;border-radius:999px">'
+                    . 'Zum Dashboard</a></div><p style="font-size:12px;line-height:1.6;color:#6f6863;text-align:center">'
                     . 'Der Anmeldelink ist 5 Tage gültig und meldet dich mit deinem Empfängerkonto an.'
-                    . '</p></td></tr><tr><td style="padding:18px 32px;background:#f8faf8;'
-                    . 'color:#738078;font-size:12px">Automatische Benachrichtigung des Vereins-Buchungssystems'
+                    . '</p></td></tr><tr><td style="padding:18px 32px;background:#f5f4f2;'
+                    . 'color:#6f6863;font-size:12px">Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering'
                     . '</td></tr></table></td></tr></table></body></html>',
                 "{$plainGreeting}\n\n{$label['message']}\n{$emailDetails['title']}\n"
                     . "{$emailDetails['text']}{$reasonText}\n\n"

@@ -666,7 +666,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
 ' . ($embedded ? '' : '<p class="mt-3 mb-0"><a class="btn btn-outline-secondary" href="/">Belegungsplan</a></p>') . '</aside>';
     }
 
-    public static function users(array $users, string $csrf, string $error = '', string $form = ''): string
+    public static function users(array $users, string $csrf, int $actorId, string $error = '', string $form = ''): string
     {
         $rows = '';
         foreach ($users as $user) {
@@ -697,6 +697,8 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '" data-user-username="' . Security::escape((string) $user['username'])
                 . '" data-user-role="' . Security::escape((string) $user['role'])
                 . '" data-user-status="' . Security::escape((string) $user['status'])
+                . '" data-user-has-password="' . ((bool) $user['has_password'] ? 'true' : 'false')
+                . '" data-user-self="' . ($id === $actorId ? 'true' : 'false')
                 . '">Ändern</button>'
                 . '<details><summary class="btn btn-sm btn-outline-secondary text-nowrap">Passwort ändern</summary>'
                 . '<form method="post" action="/?action=user-password" class="user-password-form mt-2">'
@@ -709,9 +711,10 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '<input class="form-control form-control-sm mb-2" id="confirm-password-' . $id
                 . '" type="password" name="password_confirm" minlength="12" maxlength="200" autocomplete="new-password" required>'
                 . '<button class="btn btn-sm btn-success" type="submit">Speichern</button></form></details>'
-                . '<button class="btn btn-sm btn-outline-danger text-nowrap" type="button" data-delete-user'
-                . ' data-user-id="' . $id . '" data-user-name="' . Security::escape($fullName)
-                . '">Löschen</button></div></td></tr>';
+                . ($id === $actorId ? '' : '<button class="btn btn-sm btn-outline-danger text-nowrap" type="button" data-delete-user'
+                    . ' data-user-id="' . $id . '" data-user-name="' . Security::escape($fullName)
+                    . '">Löschen</button>')
+                . '</div></td></tr>';
         }
 
         $empty = $rows === '' ? '<tr><td colspan="10" class="text-center text-secondary py-4">'
@@ -776,10 +779,15 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             . '<select class="form-select mb-2" id="user-edit-role" name="role">'
             . '<option value="admin">Admin</option><option value="manager">Verwalter</option>'
             . '<option value="trainer">Trainer</option></select>'
+            . '<input type="hidden" name="role" id="user-edit-locked-role" disabled>'
+            . '<div id="user-edit-self-role-hint" class="form-text" hidden>Du kannst deine eigene Administratorrolle nicht ändern.</div>'
             . '<label class="form-label" for="user-edit-status">Status</label>'
             . '<select class="form-select" id="user-edit-status" name="status">'
             . '<option value="active">Aktiv</option><option value="invited">Eingeladen</option>'
-            . '<option value="inactive">Deaktiviert</option></select></div>'
+            . '<option value="inactive">Deaktiviert</option></select>'
+            . '<input type="hidden" name="status" id="user-edit-locked-status" disabled>'
+            . '<div id="user-edit-self-status-hint" class="form-text" hidden>Du kannst dein eigenes Benutzerkonto nicht deaktivieren.</div>'
+            . '<div id="user-edit-password-status-hint" class="form-text" hidden>Für die Aktivierung muss zuerst ein Passwort festgelegt werden.</div></div>'
             . '<div class="dialog-footer"><button type="button" class="btn btn-outline-secondary" data-dialog-close>'
             . 'Abbrechen</button><button type="submit" class="btn btn-success">Speichern</button></div>'
             . '</form></dialog>';

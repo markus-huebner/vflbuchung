@@ -519,33 +519,34 @@ final class Application
                 $this->redirect('/?page=users');
 
             case 'user-update':
-                $this->requireRole(['admin']);
+                $actor = $this->requireRole(['admin']);
                 $this->users->updateDetails(
                     $this->positiveId($_POST['id'] ?? null),
                     (string) ($_POST['email'] ?? ''),
                     (string) ($_POST['first_name'] ?? ''),
                     (string) ($_POST['last_name'] ?? ''),
                     (string) ($_POST['role'] ?? ''),
-                    (string) ($_POST['status'] ?? '')
+                    (string) ($_POST['status'] ?? ''),
+                    (int) $actor['id']
                 );
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Benutzerdaten wurden gespeichert.'];
                 $this->redirect('/?page=users');
 
             case 'user-role':
-                $this->requireRole(['admin']);
-                $this->users->changeRole($this->positiveId($_POST['id'] ?? null), (string) ($_POST['role'] ?? ''));
+                $actor = $this->requireRole(['admin']);
+                $this->users->changeRole($this->positiveId($_POST['id'] ?? null), (string) ($_POST['role'] ?? ''), (int) $actor['id']);
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Die Rolle wurde geändert.'];
                 $this->redirect('/?page=users');
 
             case 'user-deactivate':
-                $this->requireRole(['admin']);
-                $this->users->deactivate($this->positiveId($_POST['id'] ?? null));
+                $actor = $this->requireRole(['admin']);
+                $this->users->deactivate($this->positiveId($_POST['id'] ?? null), (int) $actor['id']);
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Konto wurde deaktiviert.'];
                 $this->redirect('/?page=users');
 
             case 'user-delete':
-                $this->requireRole(['admin']);
-                $this->users->delete($this->positiveId($_POST['id'] ?? null));
+                $actor = $this->requireRole(['admin']);
+                $this->users->delete($this->positiveId($_POST['id'] ?? null), (int) $actor['id']);
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Der Benutzer wurde gelöscht. Zugehörige Reservierungen bleiben erhalten.'];
                 $this->redirect('/?page=users');
 
@@ -849,10 +850,11 @@ final class Application
                 break;
 
             case 'users':
-                $this->requireRole(['admin']);
+                $user = $this->requireRole(['admin']);
                 $content = Views::users(
                     $this->users->all(),
                     $this->csrf,
+                    (int) $user['id'],
                     '',
                     (string) ($_GET['form'] ?? '')
                 );

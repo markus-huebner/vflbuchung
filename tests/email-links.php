@@ -165,8 +165,8 @@ $bookings = new BookingService($pdo, $mailer, $config);
 $actors = [];
 foreach (['admin', 'manager', 'trainer'] as $role) {
     $pdo->prepare(
-        "INSERT INTO users (username, email, first_name, password_hash, role, status)
-         VALUES (:username, :email, :first_name, :password_hash, :role, 'active')"
+        "INSERT INTO users (username, email, first_name, last_name, password_hash, role, status)
+         VALUES (:username, :email, :first_name, 'Nachname', :password_hash, :role, 'active')"
     )->execute([
         'username' => 'email-link-' . $role,
         'email' => $role . '@example.test',
@@ -175,6 +175,114 @@ foreach (['admin', 'manager', 'trainer'] as $role) {
         'role' => $role,
     ]);
     $actors[$role] = ['id' => (int) $pdo->lastInsertId(), 'role' => $role];
+}
+
+$pdo->exec("INSERT INTO users (username, email, first_name, last_name, role, status)
+    VALUES ('delete-second-admin', 'delete-second@example.test', 'Zweiter', 'Admin', 'admin', 'active')");
+$secondAdminId = (int) $pdo->lastInsertId();
+$userRoute = static function (string $method, string $target, int $userId, array $data = []): array {
+    return json_decode(runChild('--registration-route', ['REGISTRATION_ROUTE' => json_encode([
+        'method' => $method, 'target' => $target, 'user_id' => $userId, 'data' => $data,
+    ], JSON_THROW_ON_ERROR)]), true, 512, JSON_THROW_ON_ERROR);
+};
+$userPage = $userRoute('GET', 'users', $actors['admin']['id']);
+$userDocument = new DOMDocument();
+expect($userDocument->loadHTML('<?xml encoding="UTF-8">' . $userPage['html'], LIBXML_NOERROR | LIBXML_NOWARNING), 'The user page must render valid HTML.');
+$userXPath = new DOMXPath($userDocument);
+expect($userXPath->query('//button[@data-delete-user and @data-user-id="' . $actors['admin']['id'] . '"]')->length === 0,
+    'The signed-in user must not have a delete button.');
+expect($userXPath->query('//button[@data-delete-user and @data-user-id="' . $secondAdminId . '"]')->length === 1,
+    'The signed-in administrator must still be able to delete another user.');
+expect($userXPath->query('//button[@data-edit-user and @data-user-id="' . $actors['admin']['id'] . '" and @data-user-self="true"]')->length === 1
+    && $userXPath->query('//button[@data-edit-user and @data-user-id="' . $secondAdminId . '" and @data-user-self="false"]')->length === 1,
+    'User editing must distinguish the signed-in account from other accounts.');
+$selfRoleUpdate = $userRoute('POST', 'user-update', $actors['admin']['id'], [
+    'id' => $actors['admin']['id'], 'email' => 'admin@example.test', 'first_name' => 'Changed',
+    'last_name' => 'Nachname', 'role' => 'manager', 'status' => 'active',
+]);
+$selfRoleAction = $userRoute('POST', 'user-role', $actors['admin']['id'], ['id' => $actors['admin']['id'], 'role' => 'trainer']);
+foreach ([$selfRoleUpdate, $selfRoleAction] as $attempt) {
+    expect(($attempt['flash']['type'] ?? '') === 'danger'
+        && str_contains($attempt['flash']['message'], 'eigene Administratorrolle nicht ändern'),
+        'Each self-demotion route must reject the signed-in administrator even when another admin exists.');
+}
+expect($pdo->query("SELECT role FROM users WHERE username = 'email-link-admin'")->fetchColumn() === 'admin',
+    'Rejected self-demotion must leave the administrator role unchanged.');
+$selfUpdate = $userRoute('POST', 'user-update', $actors['admin']['id'], [
+    'id' => $actors['admin']['id'], 'email' => 'admin@example.test', 'first_name' => 'Changed',
+    'last_name' => 'Nachname', 'role' => 'admin', 'status' => 'inactive',
+]);
+$selfDeactivate = $userRoute('POST', 'user-deactivate', $actors['admin']['id'], ['id' => $actors['admin']['id']]);
+foreach ([$selfUpdate, $selfDeactivate] as $attempt) {
+    expect(($attempt['flash']['type'] ?? '') === 'danger'
+        && str_contains($attempt['flash']['message'], 'eigenes Benutzerkonto nicht deaktivieren'),
+        'Each self-deactivation route must reject the signed-in user.');
+}
+$adminState = $pdo->query("SELECT status, first_name FROM users WHERE username = 'email-link-admin'")->fetch();
+expect($adminState['status'] === 'active' && $adminState['first_name'] === 'Admin',
+    'Rejected self-deactivation must not change any account details.');
+$ownEdit = $userRoute('POST', 'user-update', $actors['admin']['id'], [
+    'id' => $actors['admin']['id'], 'email' => 'admin@example.test', 'first_name' => 'Admin',
+    'last_name' => 'Nachname', 'role' => 'admin', 'status' => 'active',
+]);
+expect(($ownEdit['flash']['type'] ?? '') === 'success', 'Other edits to the signed-in account must remain possible.');
+$otherRoleUpdate = $userRoute('POST', 'user-role', $actors['admin']['id'], ['id' => $actors['trainer']['id'], 'role' => 'manager']);
+expect(($otherRoleUpdate['flash']['type'] ?? '') === 'success'
+    && $pdo->query("SELECT role FROM users WHERE username = 'email-link-trainer'")->fetchColumn() === 'manager',
+    'An administrator must still be able to change another user role.');
+$userRoute('POST', 'user-role', $actors['admin']['id'], ['id' => $actors['trainer']['id'], 'role' => 'trainer']);
+$otherDeactivate = $userRoute('POST', 'user-deactivate', $actors['admin']['id'], ['id' => $actors['trainer']['id']]);
+expect(($otherDeactivate['flash']['type'] ?? '') === 'success'
+    && $pdo->query("SELECT status FROM users WHERE username = 'email-link-trainer'")->fetchColumn() === 'inactive',
+    'An administrator must still be able to deactivate another account.');
+$otherReactivate = $userRoute('POST', 'user-update', $actors['admin']['id'], [
+    'id' => $actors['trainer']['id'], 'email' => 'trainer@example.test', 'first_name' => 'Trainer',
+    'last_name' => 'Nachname', 'role' => 'trainer', 'status' => 'active',
+]);
+expect(($otherReactivate['flash']['type'] ?? '') === 'success', 'Other accounts must still be reactivatable.');
+$otherUpdateDeactivate = $userRoute('POST', 'user-update', $actors['admin']['id'], [
+    'id' => $actors['trainer']['id'], 'email' => 'trainer@example.test', 'first_name' => 'Trainer',
+    'last_name' => 'Nachname', 'role' => 'trainer', 'status' => 'inactive',
+]);
+expect(($otherUpdateDeactivate['flash']['type'] ?? '') === 'success'
+    && $pdo->query("SELECT status FROM users WHERE username = 'email-link-trainer'")->fetchColumn() === 'inactive',
+    'Deactivation through user editing must remain available for other users.');
+$userRoute('POST', 'user-update', $actors['admin']['id'], [
+    'id' => $actors['trainer']['id'], 'email' => 'trainer@example.test', 'first_name' => 'Trainer',
+    'last_name' => 'Nachname', 'role' => 'trainer', 'status' => 'active',
+]);
+$selfDelete = $userRoute('POST', 'user-delete', $actors['admin']['id'], ['id' => $actors['admin']['id']]);
+expect(($selfDelete['flash']['type'] ?? '') === 'danger'
+    && str_contains($selfDelete['flash']['message'], 'eigenes Benutzerkonto nicht löschen'),
+    'A forged self-delete request must be rejected even when another administrator exists.');
+expect((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'email-link-admin'")->fetchColumn() === 1,
+    'A rejected self-delete must leave the account intact.');
+$deleteOther = $userRoute('POST', 'user-delete', $actors['admin']['id'], ['id' => $secondAdminId]);
+expect(($deleteOther['flash']['type'] ?? '') === 'success'
+    && (int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'delete-second-admin'")->fetchColumn() === 0,
+    'Deleting another administrator must remain possible.');
+$lastAdminDeletion = $userRoute('POST', 'user-delete', $actors['manager']['id'], ['id' => $actors['admin']['id']]);
+expect(($lastAdminDeletion['flash']['type'] ?? '') === 'danger'
+    && (int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'email-link-admin'")->fetchColumn() === 1,
+    'A non-administrator must not be able to delete an administrator.');
+try {
+    $users->delete($actors['admin']['id'], $secondAdminId);
+    throw new LogicException('The last active administrator must not be deleted.');
+} catch (RuntimeException $exception) {
+    expect(str_contains($exception->getMessage(), 'letzte aktive Administrator'), 'The last administrator must remain protected.');
+}
+foreach ([
+    static fn() => $users->deactivate($actors['admin']['id'], $secondAdminId),
+    static fn() => $users->changeRole($actors['admin']['id'], 'trainer', $secondAdminId),
+    static fn() => $users->updateDetails($actors['admin']['id'], 'admin@example.test', 'Admin', 'Nachname', 'manager', 'active', $secondAdminId),
+] as $attempt) {
+    try {
+        $attempt();
+        throw new LogicException('The last active administrator must not be deactivated or demoted.');
+    } catch (RuntimeException $exception) {
+        expect(str_contains($exception->getMessage(), 'letzten aktiven Administrator') || str_contains($exception->getMessage(), 'letzte aktive Administrator'),
+            'The last active administrator must be protected by every service operation.');
+    }
 }
 
 $socket = stream_socket_server('tcp://127.0.0.1:0', $socketError, $socketMessage);
@@ -274,21 +382,36 @@ $capture = static function (callable $send): array {
     }
     $paths = array_values(array_diff(glob($directory . '/*.eml'), $before));
     expect($paths !== [], 'The operation did not send its expected emails.');
-    return array_map(static fn(string $path): string => (string) file_get_contents($path), $paths);
+    return array_map(static function (string $path): string {
+        $message = (string) file_get_contents($path);
+        $decoded = quoted_printable_decode($message);
+        expect(str_contains($decoded, 'Platz- und Busbelegung - VfL Kaufering')
+            && !str_contains($decoded, 'Vereins-Buchungssystem'), 'Every notification must use the correct application name.');
+        expect(str_contains($decoded, 'src="cid:vfl-fussball-logo"')
+            && str_contains($decoded, 'alt="VfL Kaufering Fußball 1948"')
+            && str_contains($decoded, 'width="285"')
+            && str_contains($decoded, 'text-transform:uppercase">Platz- und Busbelegung</div>')
+            && str_contains($decoded, 'Automatische Benachrichtigung von Platz- und Busbelegung - VfL Kaufering</td>')
+            && str_contains($decoded, 'background:#141210')
+            && str_contains($decoded, 'border-bottom:3px solid #e1141b'),
+            'Every notification must use the football website logo and header.');
+        expect(preg_match('/Content-Type:\s*image\/png[^\r\n]*\r?\n(.*?\r?\n)\r?\n(.*?)(?=\r?\n--[^\r\n]+)/is', $message, $image) === 1
+            && str_contains($image[1], 'Content-ID: <vfl-fussball-logo>')
+            && str_contains($image[1], 'Content-Disposition: inline')
+            && base64_decode($image[2], true) === file_get_contents(dirname(__DIR__) . '/www/assets/images/vfl-fussball-logo-email.png'),
+            'Every notification must embed the actual logo as an inline PNG.');
+        return $message;
+    }, $paths);
 };
 $link = static function (string $message, string $page): string {
-    expect(preg_match('/boundary="([^"]+)"/i', $message, $boundary) === 1, 'The notification has no MIME boundary.');
     $parts = [];
-    foreach (explode('--' . $boundary[1], $message) as $part) {
-        $sections = preg_split('/\r?\n\r?\n/', ltrim($part, "\r\n"), 2);
-        if (count($sections) !== 2 || !preg_match('/Content-Type:\s*text\/(plain|html)/i', $sections[0], $type)) {
-            continue;
-        }
-        $parts[$type[1]] = stripos($sections[0], 'Content-Transfer-Encoding: quoted-printable') !== false
-            ? quoted_printable_decode($sections[1])
-            : (stripos($sections[0], 'Content-Transfer-Encoding: base64') !== false
-                ? base64_decode($sections[1], true)
-                : $sections[1]);
+    preg_match_all('/Content-Type:\s*text\/(plain|html)([^\r\n]*(?:\r?\n[^\r\n]+)*)\r?\n\r?\n(.*?)(?=\r?\n--[^\r\n]+)/is', $message, $matches, PREG_SET_ORDER);
+    foreach ($matches as $part) {
+        $parts[strtolower($part[1])] = stripos($part[2], 'Content-Transfer-Encoding: quoted-printable') !== false
+            ? quoted_printable_decode($part[3])
+            : (stripos($part[2], 'Content-Transfer-Encoding: base64') !== false
+                ? base64_decode($part[3], true)
+                : $part[3]);
     }
     expect(isset($parts['html'], $parts['plain']), 'The notification must include HTML and plain text.');
     expect(preg_match_all('/<a\b[^>]*href="([^"]+)"/', $parts['html'], $links) > 0, 'The notification has no HTML link.');
@@ -334,12 +457,16 @@ $approverTokens = [];
 foreach ($messages as $message) {
     $role = str_contains($message, 'To: admin@example.test') ? 'admin' : 'manager';
     $approverTokens[$role] = $assertBookingMail($message, $actors[$role]['id'], $role, $actors['trainer']['id']);
-    $decoded = quoted_printable_decode($message);
+    $decoded = str_replace("\r\n", "\n", quoted_printable_decode($message));
     $assertExpiry('booking_access_tokens', 'expires_at', $approverTokens[$role]);
     expect(str_contains($decoded, '5 Tage gültig'), 'Booking links must state their five-day lifetime.');
-    expect(str_contains($decoded, 'aria-label="Platzbelegung"') && str_contains($decoded, 'Interne &lt;Notiz&gt;')
-        && str_contains($decoded, 'Interne <Notiz>') && str_contains($decoded, '10.01.2038 11:30')
-        && str_contains($decoded, 'Termin: 10.01.2038'),
+    $name = ucfirst($role);
+    expect(str_contains($decoded, "Hallo {$name},") && !str_contains($decoded, "Hallo {$name} Nachname,")
+        && str_contains($decoded, "Hallo {$name},\n\neine neue Buchungsanfrage wartet auf Bearbeitung.")
+        && str_contains($decoded, '</p><p style="color:#514c48;margin:0 0 24px">eine neue Buchungsanfrage')
+        && str_contains($decoded, 'aria-label="Platzbelegung"') && str_contains($decoded, 'Interne &lt;Notiz&gt;')
+        && str_contains($decoded, 'Interne <Notiz>') && str_contains($decoded, "Datum: 10.01.2038\nUhrzeit: 10:00 – 11:30 Uhr")
+        && preg_match('/>Datum<\/td><td>10\.01\.2038<\/td><\/tr><tr><td[^>]*>Uhrzeit<\/td><td>10:00 – 11:30 Uhr<\/td>/', $decoded) === 1,
         'Approver emails must include the pitch icon, escaped multiline notes and the actual end date.');
 }
 $assertLogin($route('booking-access', $approverTokens['manager'], $actors['manager']['id']), $actors['manager']['id'], 'manager');
@@ -351,6 +478,11 @@ $messages = $capture(static fn(): array => $bookings->approve([$assignmentId], $
 expect(count($messages) === 1, 'Approval must notify the requester.');
 $trainerToken = $assertBookingMail($messages[0], $actors['trainer']['id'], 'trainer', $actors['admin']['id']);
 expect(str_contains(quoted_printable_decode($messages[0]), 'Interne &lt;Notiz&gt;'), 'Authenticated requesters must receive internal notes.');
+$approvalMail = str_replace("\r\n", "\n", quoted_printable_decode($messages[0]));
+expect(str_contains($approvalMail, "Hallo Trainer,\n\ndeine Buchungsanfrage wurde freigegeben.")
+    && !str_contains($approvalMail, 'Hallo Trainer Nachname,')
+    && str_contains($approvalMail, "Datum: 10.01.2038\nUhrzeit: 10:00 – 11:30 Uhr"),
+    'Requester notifications must use the first name, lowercase introduction and separate date and time.');
 $messages = $capture(static fn(): array => $bookings->cancel($assignmentId, $actors['manager']));
 $assertBookingMail($messages[0], $actors['trainer']['id'], 'trainer', $actors['admin']['id']);
 expect(str_contains(quoted_printable_decode($messages[0]), 'Interne &lt;Notiz&gt;')
@@ -388,7 +520,8 @@ $messages = $capture(static fn(): array => $bookings->approve([$cabinAssignment]
 $decoded = quoted_printable_decode($messages[0]);
 expect(str_contains($decoded, 'Kabinen') && str_contains($decoded, 'Kabinenhinweis')
     && str_contains($decoded, 'Wiederholung') && str_contains($decoded, '2 Termine')
-    && str_contains($decoded, 'Erster betroffener Termin'),
+    && str_contains($decoded, 'Datum (erster betroffener Termin): 01.02.2038')
+    && str_contains($decoded, 'Uhrzeit: 10:00 – 11:00 Uhr'),
     'Approval emails must include cabins, internal notes and recurrence details.');
 $messages = $capture(static fn(): array => $bookings->cancelCabin((int) $cabinRequest['occurrence_id'], $cabin, $actors['manager']));
 $decoded = quoted_printable_decode($messages[0]);
@@ -415,20 +548,26 @@ expect(str_contains(quoted_printable_decode($messages[0]), 'aria-label="Fahrzeug
     && str_contains(quoted_printable_decode($messages[0]), 'Fahrzeughinweis'), 'Vehicle cancellation must preserve type and details.');
 
 $assertInvitationLayout = static function (string $message, string $heading): void {
-    $decoded = quoted_printable_decode($message);
+    $decoded = str_replace("\r\n", "\n", quoted_printable_decode($message));
+    expect(preg_match('/^Subject: ([^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*)/m', $message, $subject) === 1, 'The invitation must have a subject.');
+    $expectedSubject = $heading === 'Einladung' ? 'Einladung' : 'Aktualisierte Einladung zur Platz- und Busbelegung - VfL Kaufering';
+    expect(iconv_mime_decode(trim($subject[1]), 0, 'UTF-8') === $expectedSubject,
+        'The invitation subject must match its intended wording.');
     expect(str_contains($decoded, 'Content-Type: text/html') && str_contains($decoded, 'Content-Type: text/plain')
-        && str_contains($decoded, 'aria-label="Einladung"') && str_contains($decoded, 'background:#14532d')
-        && str_contains($decoded, 'background:#198754') && str_contains($decoded, $heading)
+        && str_contains($decoded, 'aria-label="Einladung"') && str_contains($decoded, 'background:#141210')
+        && str_contains($decoded, 'background:#e1141b') && str_contains($decoded, '</span> ' . $heading . '</h1>')
         && str_contains($decoded, '&lt;Invitee&gt;') && str_contains($decoded, '<Invitee>')
+        && str_contains($decoded, "Hallo <Invitee>,\n\nrichte dein Konto")
+        && str_contains($decoded, 'Hallo &lt;Invitee&gt;,</p><p style="color:#514c48;margin:0 0 24px">richte')
         && str_contains($decoded, 'email-link-invitee') && str_contains($decoded, '5 Tage'),
         'Invitations must include the styled layout, escaped recipient, username and link expiry in both formats.');
 };
 $messages = $capture(static fn() => $users->invite('invitee@example.test', 'email-link-invitee', '<Invitee>', '', 'trainer'));
-$assertInvitationLayout($messages[0], 'Einladung zum Vereins-Buchungssystem');
+$assertInvitationLayout($messages[0], 'Einladung');
 $inviteToken = $link($messages[0], 'invite');
 $assertExpiry('users', 'invite_expires_at', $inviteToken);
 $invitee = (int) $pdo->query("SELECT id FROM users WHERE username = 'email-link-invitee'")->fetchColumn();
-$messages = $capture(static fn() => $users->updateDetails($invitee, 'updated-invitee@example.test', '<Invitee>', '', 'trainer', 'invited'));
+$messages = $capture(static fn() => $users->updateDetails($invitee, 'updated-invitee@example.test', '<Invitee>', '', 'trainer', 'invited', $actors['admin']['id']));
 $assertInvitationLayout($messages[0], 'Aktualisierte Einladung');
 $oldInvitation = $route('invite', $inviteToken, $actors['admin']['id']);
 expect($oldInvitation['user_id'] === $actors['admin']['id'] && $oldInvitation['error'], 'An invitation replaced by an email change must not switch accounts.');
@@ -450,8 +589,11 @@ expect($replayed['user_id'] === $actors['admin']['id'] && $replayed['error'] && 
 
 $messages = $capture(static fn() => $users->requestPasswordReset('trainer@example.test'));
 expect(str_contains(quoted_printable_decode($messages[0]), 'aria-label="Passwort"'), 'Password reset emails must show a password icon.');
-$resetMail = quoted_printable_decode($messages[0]);
-expect(str_contains($resetMail, 'background:#14532d') && str_contains($resetMail, 'background:#198754')
+$resetMail = str_replace("\r\n", "\n", quoted_printable_decode($messages[0]));
+expect(str_contains($resetMail, 'background:#141210') && str_contains($resetMail, 'background:#e1141b')
+    && str_contains($resetMail, "Hallo Trainer,\n\nsetze dein Passwort")
+    && str_contains($resetMail, 'Hallo Trainer,</p><p style="color:#514c48;margin:0 0 24px">über')
+    && !str_contains($resetMail, 'Hallo Trainer Nachname,')
     && str_contains($resetMail, '5 Tage gültig') && str_contains($resetMail, 'einmal verwendbar'),
     'Password reset emails must use the booking layout and describe the link lifetime in both alternatives.');
 $resetToken = $link($messages[0], 'reset');
@@ -500,7 +642,12 @@ expect(count($messages) === 2, 'Each active admin with email must receive a regi
 expect(count(array_filter($messages, static fn(string $message): bool => str_contains($message, 'To: admin@example.test'))) === 1, 'The first administrator must be notified.');
 expect(count(array_filter($messages, static fn(string $message): bool => str_contains($message, 'To: notify-second@example.test'))) === 1, 'The second administrator must be notified.');
 foreach ($messages as $message) {
-    $decoded = quoted_printable_decode($message);
+    $decoded = str_replace("\r\n", "\n", quoted_printable_decode($message));
+    $adminFirstName = str_contains($message, 'To: admin@example.test') ? 'Admin' : 'Second';
+    expect(str_contains($decoded, "Hallo {$adminFirstName},\n\neine neue Registrierungsanfrage")
+        && str_contains($decoded, "Hallo {$adminFirstName},</p><p style=\"color:#514c48;margin:0 0 24px\">eine neue Registrierungsanfrage")
+        && !str_contains($decoded, "Hallo {$adminFirstName} Nachname,"),
+        'Registration notifications must address administrators by first name and continue lowercase.');
     expect(str_contains($decoded, '&lt;New&gt; Manager &amp; Team') && str_contains($decoded, 'new-manager@example.test')
         && str_contains($decoded, 'new-manager') && str_contains($decoded, '?page=registration-access')
         && str_contains($decoded, '5 Tage gültig'),
@@ -519,7 +666,7 @@ foreach ($messages as $message) {
     expect($expiredRegistrationLink['error'] && $expiredRegistrationLink['user_id'] === null,
         'Expired registration links must be rejected without logging in.');
     expect(str_contains($decoded, 'Content-Type: text/plain') && str_contains($decoded, 'Content-Type: text/html')
-        && str_contains($decoded, 'background:#14532d') && str_contains($decoded, 'background:#198754')
+        && str_contains($decoded, 'background:#141210') && str_contains($decoded, 'background:#e1141b')
         && str_contains($decoded, 'Registrierungen bearbeiten') && str_contains($decoded, 'aria-label="Registrierung"'),
         'Each notification must contain both MIME parts and the booking email styling.');
     expect(!str_contains($decoded, 'notify-inactive@example.test'), 'Inactive administrators must not be notified.');
@@ -662,7 +809,7 @@ $message = quoted_printable_decode($messages[0]);
 expect(str_contains($message, 'Content-Type: text/plain') && str_contains($message, 'Content-Type: text/html')
     && str_contains($message, '&lt;Rejected&gt;') && str_contains($message, '<Rejected>')
     && substr_count($message, 'deine Registrierungsanfrage wurde leider abgelehnt') === 2
-    && str_contains($message, 'background:#14532d') && str_contains($message, 'aria-label="Registrierung"'), 'The rejection notification must contain escaped HTML and matching plain text.');
+    && str_contains($message, 'background:#141210') && str_contains($message, 'aria-label="Registrierung"'), 'The rejection notification must contain escaped HTML and matching plain text.');
 expect(count($users->registrations()) === 0, 'Rejected registrations must be removed.');
 expect((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'rejected-user'")->fetchColumn() === 0, 'Rejected registrations must not create accounts.');
 $duplicateRejection = $registrationRoute('POST', 'registration-reject', $actors['admin']['id'], ['id' => $rejectedId]);

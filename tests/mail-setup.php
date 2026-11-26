@@ -191,15 +191,31 @@ try {
     $testMessage = (string) file_get_contents(array_values(array_diff(glob($directory . '/*.eml'), $messages))[0]);
     expect(str_contains($testMessage, 'To: test@example.test'), 'Setup must send to the separate test recipient, not the sender.');
     $decodedTestMessage = quoted_printable_decode($testMessage);
+    expect(substr_count($decodedTestMessage, 'Platz- und Busbelegung - VfL Kaufering') >= 2
+        && !str_contains($decodedTestMessage, 'Vereins-Buchungssystem'), 'The setup email must use the correct application name.');
     expect(preg_match('/<!doctype html>.*?<\/html>/s', $decodedTestMessage, $htmlPart) === 1, 'The test email must include a complete HTML layout.');
     $document = new DOMDocument();
     expect($document->loadHTML('<?xml encoding="UTF-8">' . $htmlPart[0]), 'The test email layout must be valid HTML.');
     $xpath = new DOMXPath($document);
+    expect($xpath->evaluate('string(//img[@src="cid:vfl-fussball-logo"]/following-sibling::div[1])') === 'Platz- und Busbelegung',
+        'The label below the logo must contain only the short application name.');
+    expect(str_contains($htmlPart[0], 'Automatische Test-E-Mail von Platz- und Busbelegung - VfL Kaufering</td>'),
+        'The setup email footer must retain the full application name.');
     expect(str_contains($xpath->evaluate('string(//h1)'), 'Deine Test-E-Mail ist da!')
         && $xpath->query('//h1//*[@aria-label="Einrichtung"]')->length === 1,
         'The test email must have a clear heading and setup icon.');
     expect($xpath->query('//table[@role="presentation" and @width="600"]')->length === 1, 'The test email must use the booking email card layout.');
-    expect($xpath->query('//td[contains(@style, "background:#14532d")]')->length === 1, 'The test email must use the green booking notification header.');
+    expect($xpath->query('//td[contains(@style, "background:#141210") and contains(@style, "border-bottom:3px solid #e1141b")]')->length === 1, 'The test email must use the football website header.');
+    expect($xpath->query('//img[@src="cid:vfl-fussball-logo" and @alt="VfL Kaufering Fußball 1948" and @width="285"]')->length === 1, 'The test email must display the scaled football logo.');
+    expect(preg_match('/Content-Type:\s*image\/png[^\r\n]*\r?\n(.*?\r?\n)\r?\n(.*?)(?=\r?\n--[^\r\n]+)/is', $testMessage, $image) === 1
+        && str_contains($image[1], 'Content-ID: <vfl-fussball-logo>')
+        && str_contains($image[1], 'Content-Disposition: inline')
+        && base64_decode($image[2], true) === file_get_contents(dirname(__DIR__) . '/www/assets/images/vfl-fussball-logo-email.png'),
+        'The test email must embed the actual logo as an inline PNG.');
+    expect($xpath->query('//a[contains(@style, "background:#e1141b") and contains(@style, "border-radius:999px")]')->length === 1, 'The test email must use the website button style.');
+    expect(str_contains($htmlPart[0], 'Hallo,</p><p style="color:#514c48;margin:0 0 24px">diese Nachricht')
+        && str_contains(str_replace("\r\n", "\n", $decodedTestMessage), "Hallo,\n\ndiese Nachricht"),
+        'The setup email must continue lowercase after the greeting in both formats.');
     expect($xpath->evaluate('string(//a[@href="https://setup.example.test/"])') === 'Zur Anwendung', 'The test email must link back to the configured application.');
     foreach (['Absender', 'Testempfänger', 'Antwortadresse', 'Versandart', 'antwort@example.test', 'PHP mail()'] as $detail) {
         expect(str_contains($document->textContent, $detail), 'The test email omitted ' . $detail);

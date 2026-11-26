@@ -20,7 +20,7 @@ services:
       DB_USER: ${DB_USER:-webuser}
       DB_PASSWORD: ${DB_PASSWORD:-userpasswort}
       MAIL_FROM: ${MAIL_FROM:-buchungssystem@example.test}
-      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Platz- und Busbelegung}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Platz- und Busbelegung - VfL Kaufering}
       MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
     depends_on:
       mailpit:

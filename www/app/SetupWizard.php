@@ -269,43 +269,34 @@ final class SetupWizard
         $htmlRows = '';
         $textRows = '';
         foreach ($details as $label => $value) {
-            $htmlRows .= '<tr><td style="padding-right:14px;color:#647268;vertical-align:top">'
+            $htmlRows .= '<tr><td style="padding-right:14px;color:#6f6863;vertical-align:top">'
                 . Security::escape($label) . '</td><td style="overflow-wrap:anywhere">'
                 . Security::escape($value) . '</td></tr>';
             $textRows .= "{$label}: {$value}\n";
         }
-        $html = '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
-            . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
-            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
-            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
-            . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
-            . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">'
-            . 'Vereins-Buchungssystem</div><h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
-            . Mailer::icon('setup') . 'Deine Test-E-Mail ist da!</h1></td></tr>'
+        $html = Mailer::header('Deine Test-E-Mail ist da!', 'setup')
             . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo,</p>'
-            . '<p style="color:#536158;margin:0 0 24px">Diese Nachricht gehört zur Einrichtung der Platz- und Busbelegung. '
+            . '<p style="color:#514c48;margin:0 0 24px">diese Nachricht gehört zur Einrichtung von Platz- und Busbelegung - VfL Kaufering. '
             . 'Wenn du sie lesen kannst, ist die Test-E-Mail bei dir angekommen.</p>'
-            . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px">'
-            . '<div style="font-size:12px;color:#5d6b62;text-transform:uppercase;letter-spacing:1px">Einrichtung</div>'
+            . '<div style="padding:20px;background:#f5f4f2;border:1px solid #dedbd8;border-radius:12px">'
+            . '<div style="font-size:12px;color:#6f6863;text-transform:uppercase;letter-spacing:1px">Einrichtung</div>'
             . '<div style="font-size:20px;font-weight:bold;margin:7px 0 16px">Deine Mail-Einstellungen</div>'
             . '<table role="presentation" cellspacing="0" cellpadding="0" style="font-size:14px;line-height:1.7;'
-            . 'color:#36443a">' . $htmlRows . '</table></div>'
-            . '<p style="font-size:14px;line-height:1.7;color:#536158;margin:20px 0 0">'
+            . 'color:#16120f">' . $htmlRows . '</table></div>'
+            . '<p style="font-size:14px;line-height:1.7;color:#514c48;margin:20px 0 0">'
             . 'Kehre zur Anwendung zurück und schließe die Einrichtung ab. Mit dieser Test-E-Mail wird keine Buchung angelegt.</p>'
             . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
-            . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
-            . 'text-decoration:none;font-weight:bold;border-radius:8px">Zur Anwendung</a></div>'
-            . '</td></tr><tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
-            . 'Automatische Test-E-Mail des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>';
-        $text = "Hallo,\n\nDeine Test-E-Mail ist da!\n\n"
-            . "Diese Nachricht gehört zur Einrichtung der Platz- und Busbelegung. Wenn du sie lesen kannst, ist die Test-E-Mail bei dir angekommen.\n\n"
+            . '" style="display:inline-block;padding:13px 24px;background:#e1141b;color:#fff;'
+            . 'text-decoration:none;font-weight:bold;border-radius:999px">Zur Anwendung</a></div>'
+            . '</td></tr><tr><td style="padding:18px 32px;background:#f5f4f2;color:#6f6863;font-size:12px">'
+            . 'Automatische Test-E-Mail von Platz- und Busbelegung - VfL Kaufering</td></tr></table></td></tr></table></body></html>';
+        $text = "Hallo,\n\ndiese Nachricht gehört zur Einrichtung von Platz- und Busbelegung - VfL Kaufering. Wenn du sie lesen kannst, ist die Test-E-Mail bei dir angekommen.\n\n"
             . "Deine Mail-Einstellungen\n{$textRows}\n"
             . "Kehre zur Anwendung zurück und schließe die Einrichtung ab. Mit dieser Test-E-Mail wird keine Buchung angelegt.\n\n"
-            . "Zur Anwendung: {$url}\n\nAutomatische Test-E-Mail des Vereins-Buchungssystems";
+            . "Zur Anwendung: {$url}\n\nAutomatische Test-E-Mail von Platz- und Busbelegung - VfL Kaufering";
         (new Mailer($this->config->withOverrides($values)))->send(
             $recipient,
-            'Test-E-Mail: Platz- und Busbelegung',
+            'Test-E-Mail: Platz- und Busbelegung - VfL Kaufering',
             $html,
             $text
         );

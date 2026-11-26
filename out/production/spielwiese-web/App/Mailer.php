@@ -9,6 +9,21 @@ use RuntimeException;
 
 final class Mailer
 {
+    public static function header(string $heading, string $icon): string
+    {
+        return '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#eef0ec;'
+            . 'font-family:Arial,Helvetica,sans-serif;color:#16120f">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+            . '<tr><td style="padding:28px 32px;background:#141210;border-bottom:3px solid #e1141b;color:#fff">'
+            . '<img src="cid:vfl-fussball-logo" alt="VfL Kaufering Fußball 1948" width="285" height="44" '
+            . 'style="display:block;width:285px;max-width:100%;height:auto;margin:0 0 20px">'
+            . '<div style="font-size:13px;letter-spacing:1px;text-transform:uppercase">Platz- und Busbelegung</div>'
+            . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
+            . self::icon($icon) . Security::escape($heading) . '</h1></td></tr>';
+    }
+
     public static function icon(string $type): string
     {
         [$symbol, $label] = match ($type) {
@@ -53,6 +68,15 @@ final class Mailer
             $mail->Subject = $subject;
             $mail->Body = $html;
             $mail->AltBody = $text;
+            if (str_contains($html, 'cid:vfl-fussball-logo')) {
+                $mail->addEmbeddedImage(
+                    dirname(__DIR__) . '/assets/images/vfl-fussball-logo-email.png',
+                    'vfl-fussball-logo',
+                    'vfl-fussball-logo.png',
+                    'base64',
+                    'image/png'
+                );
+            }
             $mail->send();
         } catch (Exception $exception) {
             error_log('Mailversand fehlgeschlagen: ' . $exception->getMessage());
