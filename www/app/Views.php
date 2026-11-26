@@ -945,7 +945,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 $resourceRows = '<tr><td colspan="3" class="text-center text-secondary py-4">'
                     . 'In dieser Kategorie sind noch keine Ressourcen angelegt.</td></tr>';
             }
-            $resourceSections .= '<section class="panel-card p-3 mb-3"><h2 class="h5">'
+            $resourceSections .= '<section class="panel-card p-3 mb-3" data-resource-order-area><h2 class="h5">'
                 . Security::escape($label) . '</h2><div class="table-responsive">'
                 . '<table class="table align-middle mb-0"><thead><tr><th scope="col">Name</th>'
                 . '<th scope="col">Status</th><th scope="col">Aktionen</th></tr></thead>'

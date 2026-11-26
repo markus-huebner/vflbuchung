@@ -1623,6 +1623,11 @@ dialog::backdrop {
   opacity: .45;
 }
 
+.resource-order-active {
+  outline: 2px solid var(--club-navy);
+  outline-offset: -2px;
+}
+
 [data-resource-order-group][aria-busy="true"] {
   opacity: .7;
 }

@@ -1029,6 +1029,7 @@ async function saveResourceOrder(group, previousRows) {
 
 function initResourceOrdering() {
   document.querySelectorAll('[data-resource-order-group]').forEach((group) => {
+    const area = group.closest('[data-resource-order-area]');
     let dragState = null;
 
     group.addEventListener('dragstart', (event) => {
@@ -1047,32 +1048,41 @@ function initResourceOrdering() {
         previousRows: Array.from(group.querySelectorAll('[data-resource-row]')),
       };
       row.classList.add('resource-row-dragging');
+      area.classList.add('resource-order-active');
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', row.dataset.resourceId);
     });
 
-    group.addEventListener('dragover', (event) => {
-      const target = event.target.closest('[data-resource-row]');
-      if (!dragState || !target || target === dragState.row || target.parentElement !== group) return;
+    area.addEventListener('dragover', (event) => {
+      if (!dragState) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      const insertAfter = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
-      const reference = insertAfter ? target.nextElementSibling : target;
-      if (reference !== dragState.row) group.insertBefore(dragState.row, reference);
+      const reference = Array.from(group.querySelectorAll('[data-resource-row]'))
+        .filter((row) => row !== dragState.row)
+        .find((row) => {
+          const rect = row.getBoundingClientRect();
+          return event.clientY < rect.top + rect.height / 2;
+        }) || null;
+      if (dragState.row.nextElementSibling !== reference) group.insertBefore(dragState.row, reference);
     });
 
-    group.addEventListener('drop', (event) => {
+    area.addEventListener('drop', (event) => {
       if (!dragState) return;
       event.preventDefault();
       const { row, previousRows } = dragState;
       row.classList.remove('resource-row-dragging');
+      area.classList.remove('resource-order-active');
       dragState = null;
-      void saveResourceOrder(group, previousRows);
+      const rows = Array.from(group.querySelectorAll('[data-resource-row]'));
+      if (rows.some((current, index) => current !== previousRows[index])) {
+        void saveResourceOrder(group, previousRows);
+      }
     });
 
     group.addEventListener('dragend', () => {
       if (!dragState) return;
       dragState.row.classList.remove('resource-row-dragging');
+      area.classList.remove('resource-order-active');
       dragState.previousRows.forEach((row) => group.append(row));
       dragState = null;
     });

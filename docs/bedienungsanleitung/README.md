@@ -186,7 +186,7 @@ Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachn
 ### Ressourcenverwaltung
 
 - Die Einstellungen enthalten für Plätze, Fahrzeuge und Kabinen jeweils einen eigenen Menüpunkt. Über **+** legst du eine Ressource in der ausgewählten Kategorie an; bestehende Ressourcen kannst du umbenennen, deaktivieren oder wieder aktivieren.
-- Ressourcen innerhalb ihrer Kategorie per Drag-and-drop sortieren. Der Sortiergriff kann auch mit den Pfeiltasten bedient werden.
+- Ressourcen innerhalb ihrer Kategorie per Drag-and-drop sortieren. Der gesamte umrandete Kategorieabschnitt ist ein gültiger Ablagebereich; außerhalb wird die Änderung verworfen. Der Sortiergriff kann auch mit den Pfeiltasten bedient werden.
 - Beim Löschen einer Ressource werden auch Buchungen entfernt, die sie verwenden. Prüfe deshalb vor dem Löschen, ob die Ressource noch benötigt wird.
 
 Der Ressourcentyp einer bereits verwendeten Ressource kann nicht geändert werden.

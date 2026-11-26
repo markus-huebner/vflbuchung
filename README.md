@@ -94,7 +94,7 @@ Nach erfolgreichem Speichern einer Buchung oder Anfrage schließt sich der Bearb
 
 Ein Klick auf einen Kalendereintrag zeigt die Buchungsangaben auch ohne Wechsel in den Bearbeitungsdialog: Mannschaft / Hinweis, Kategorie, die zusammengefasste Liste „Gebuchte Plätze“, Kabinen, Beginn und Ende mit Datum sowie die Wiederholungsregel mit Intervall, Wochentagen und Serienende. Ein zusätzliches Feld „Ressource“ wird nicht angezeigt. Zeilenumbrüche im Feld Mannschaft / Hinweis bleiben in Kalendern, Details und Anfrageübersichten erhalten. Interne Notizen sind für alle angemeldeten Benutzer in den Kalendereinträgen und Buchungsdetails sichtbar, aber nicht in der öffentlichen Ansicht.
 
-Admins können Ressourcen innerhalb ihrer Kategorie per Drag-and-drop in der Ressourcenverwaltung sortieren. Die gespeicherte Reihenfolge wird auch in den Kalendern und Buchungsdialogen verwendet; per Pfeiltasten am Sortiergriff lässt sie sich ebenfalls ändern.
+Admins können Ressourcen innerhalb ihrer Kategorie per Drag-and-drop in der Ressourcenverwaltung sortieren. Der gesamte umrandete Kategorieabschnitt dient als Ablagebereich; außerhalb wird die Änderung verworfen. Die gespeicherte Reihenfolge wird auch in den Kalendern und Buchungsdialogen verwendet; per Pfeiltasten am Sortiergriff lässt sie sich ebenfalls ändern.
 
 Kalenderansichten:
 

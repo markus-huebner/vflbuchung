@@ -26,7 +26,7 @@ $html = Views::resources($resources, $categories, 'csrf-token');
 
 foreach (['pitch' => 'Plätze', 'bus' => 'Fahrzeuge', 'cabin' => 'Kabinen'] as $code => $heading) {
     checkResourceView(
-        preg_match('~<section[^>]*><h2[^>]*>' . $heading . '</h2>.*?'
+        preg_match('~<section[^>]*data-resource-order-area[^>]*><h2[^>]*>' . $heading . '</h2>.*?'
             . '<tbody data-resource-order-group="' . $code . '" data-csrf-token="csrf-token">(.*?)</tbody>~s', $html, $matches) === 1,
         "Missing separate section and ordering group for $heading."
     );
