@@ -27,8 +27,8 @@ checkRegistrationView(str_contains($html, '<div class="table-responsive">'), 'Th
 foreach (['Vorname', 'Nachname', 'E-Mail', 'Benutzername', 'Benutzerrolle', 'Aktionen'] as $label) {
     checkRegistrationView(substr_count($html, '<th scope="col">' . $label . '</th>') === 1, "$label must head a shared column.");
 }
-checkRegistrationView(str_contains($html, '<tr><td>Anna</td><td>&lt;Test&gt;</td><td>anna@example.test</td><td>anna</td>'), 'First registration must appear in one row.');
-checkRegistrationView(str_contains($html, '<tr><td>Ben</td><td></td><td>ben@example.test</td><td>ben</td>'), 'Second registration must appear in one row.');
+checkRegistrationView(str_contains($html, '<tr><td data-label="Vorname">Anna</td><td data-label="Nachname">&lt;Test&gt;</td><td data-label="E-Mail">anna@example.test</td><td data-label="Benutzername">anna</td>'), 'First registration must appear in one row with mobile labels.');
+checkRegistrationView(str_contains($html, '<tr><td data-label="Vorname">Ben</td><td data-label="Nachname"></td><td data-label="E-Mail">ben@example.test</td><td data-label="Benutzername">ben</td>'), 'Second registration must appear in one row with mobile labels.');
 checkRegistrationView(str_contains($html, '&lt;Test&gt;') && !str_contains($html, '<Test>'), 'Registration data must be escaped.');
 checkRegistrationView(!str_contains($html, 'Beantragt:'), 'The requested role must not be displayed.');
 checkRegistrationView(!str_contains($html, '<option value="admin"'), 'Managers must not be able to select the admin role.');
@@ -40,7 +40,7 @@ foreach ([17, 18] as $id) {
     );
 }
 checkRegistrationView(str_contains($html, '<option value="manager" selected>Verwalter</option>'), 'The original role selection must be preserved.');
-checkRegistrationView(substr_count($html, '</select></td><td><div class="d-flex flex-nowrap align-items-center gap-2"><form') === 2, 'The role selection and actions must be in separate cells, with the buttons in one row.');
+checkRegistrationView(substr_count($html, '</select></td><td class="registration-actions-cell" data-label="Aktionen"><div class="registration-actions"><form') === 2, 'The role selection and actions must be in separate cells.');
 checkRegistrationView(str_contains($html, '<label class="visually-hidden" for="registration-role-17">Benutzerrolle für anna</label>'), 'Each role selector must have an accessible label identifying the registration.');
 checkRegistrationView(substr_count($html, 'class="btn btn-success" type="submit">Freigeben') === 2, 'Approval must be green.');
 checkRegistrationView(substr_count($html, 'class="btn btn-outline-danger" type="submit">Ablehnen') === 2, 'Rejection must be red.');

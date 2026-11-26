@@ -16,7 +16,7 @@ final class Views
     ): string {
         $assetRoot = dirname(__DIR__) . '/assets/build';
         $assetVersion = is_file($assetRoot . '/app.js') ? (string) filemtime($assetRoot . '/app.js') : 'dev';
-        $nav = '<a class="navbar-brand fw-semibold" href="/?calendar=pitch"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering">Platz- und Busbelegung</a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
+        $nav = '<a class="navbar-brand fw-semibold" href="/?calendar=pitch"><img class="navbar-brand-logo" src="/assets/images/vfl-kaufering-wappen.png" alt="Wappen des VfL Kaufering"><span class="navbar-brand-title">Platz- und Busbelegung</span></a><div class="navbar-nav ms-auto flex-row align-items-center gap-3">';
         if ($user !== null) {
             $name = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
             $nav .= '<div class="user-account"><span class="user-account-name">' . Security::escape($name) . '</span>'
@@ -485,7 +485,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
         if ($requests === []) {
             return $content . '<p>Keine offenen Registrierungen.</p></section>';
         }
-        $content .= '<div class="table-responsive"><table class="table align-middle"><thead><tr>'
+        $content .= '<div class="table-responsive"><table class="table align-middle registration-table"><thead><tr>'
             . '<th scope="col">Vorname</th><th scope="col">Nachname</th><th scope="col">E-Mail</th>'
             . '<th scope="col">Benutzername</th><th scope="col">Benutzerrolle</th>'
             . '<th scope="col">Aktionen</th></tr></thead><tbody>';
@@ -499,14 +499,14 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 }
                 $options .= '<option value="' . $value . '"' . ($role === $value ? ' selected' : '') . '>' . $label . '</option>';
             }
-            $content .= '<tr><td>' . Security::escape((string) $request['first_name']) . '</td>'
-                . '<td>' . Security::escape((string) $request['last_name']) . '</td>'
-                . '<td>' . Security::escape((string) $request['email']) . '</td>'
-                . '<td>' . Security::escape((string) $request['username']) . '</td>'
-                . '<td><label class="visually-hidden" for="registration-role-' . $id . '">Benutzerrolle für '
+            $content .= '<tr><td data-label="Vorname">' . Security::escape((string) $request['first_name']) . '</td>'
+                . '<td data-label="Nachname">' . Security::escape((string) $request['last_name']) . '</td>'
+                . '<td data-label="E-Mail">' . Security::escape((string) $request['email']) . '</td>'
+                . '<td data-label="Benutzername">' . Security::escape((string) $request['username']) . '</td>'
+                . '<td data-label="Benutzerrolle"><label class="visually-hidden" for="registration-role-' . $id . '">Benutzerrolle für '
                 . Security::escape((string) $request['username']) . '</label>'
-                . '<select class="form-select w-auto" id="registration-role-' . $id . '" name="role" form="registration-approve-' . $id . '">' . $options . '</select>'
-                . '</td><td><div class="d-flex flex-nowrap align-items-center gap-2">'
+                . '<select class="form-select registration-role-select" id="registration-role-' . $id . '" name="role" form="registration-approve-' . $id . '">' . $options . '</select>'
+                . '</td><td class="registration-actions-cell" data-label="Aktionen"><div class="registration-actions">'
                 . '<form method="post" action="/?action=registration-approve" id="registration-approve-' . $id . '">'
                 . '<input type="hidden" name="_csrf" value="' . Security::escape($csrf) . '">'
                 . '<input type="hidden" name="id" value="' . $id . '">'
@@ -681,14 +681,14 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 . '</td><td class="user-desktop-cell">' . Security::escape($roleLabels[$user['role']] ?? $user['role'])
                 . '</td><td class="user-desktop-cell">' . Security::escape($statusLabels[$user['status']] ?? $user['status'])
                 . '</td><td class="user-mobile-cell user-mobile-name">'
-                . '<div>' . Security::escape($user['last_name']) . '</div>'
-                . '<div>' . Security::escape($user['first_name']) . '</div></td>'
+                . '<div data-label="Nachname">' . Security::escape($user['last_name']) . '</div>'
+                . '<div data-label="Vorname">' . Security::escape($user['first_name']) . '</div></td>'
                 . '<td class="user-mobile-cell user-mobile-account">'
-                . '<div>' . Security::escape((string) ($user['username'] ?? '—')) . '</div>'
-                . '<div>' . Security::escape((string) ($user['email'] ?? '—')) . '</div></td>'
+                . '<div data-label="Benutzername">' . Security::escape((string) ($user['username'] ?? '—')) . '</div>'
+                . '<div data-label="E-Mail">' . Security::escape((string) ($user['email'] ?? '—')) . '</div></td>'
                 . '<td class="user-mobile-cell user-mobile-role-status">'
-                . '<div>' . Security::escape($roleLabels[$user['role']] ?? $user['role']) . '</div>'
-                . '<div>' . Security::escape($statusLabels[$user['status']] ?? $user['status']) . '</div></td>'
+                . '<div data-label="Rolle">' . Security::escape($roleLabels[$user['role']] ?? $user['role']) . '</div>'
+                . '<div data-label="Status">' . Security::escape($statusLabels[$user['status']] ?? $user['status']) . '</div></td>'
                 . '<td class="user-actions-cell"><div class="user-row-actions d-flex flex-wrap gap-2 align-items-start">'
                 . '<button class="btn btn-sm btn-outline-secondary text-nowrap" type="button" data-edit-user'
                 . ' data-user-id="' . $id . '" data-user-first-name="' . Security::escape((string) $user['first_name'])
@@ -924,11 +924,11 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 $active = (bool) $resource['is_active'];
                 $resourceRows .= '<tr data-resource-row data-resource-id="' . (int) $resource['id']
                     . '" data-resource-category="' . Security::escape($code) . '">'
-                    . '<td><button type="button" class="resource-drag-handle" data-resource-drag-handle draggable="true" '
+                    . '<td class="resource-name-cell" data-label="Name"><span><button type="button" class="resource-drag-handle" data-resource-drag-handle draggable="true" '
                     . 'aria-label="Ressource verschieben: ' . Security::escape($resource['name']) . '" '
                     . 'title="Ziehen oder mit den Pfeiltasten verschieben">↕</button> '
-                    . Security::escape($resource['name']) . '</td><td>'
-                    . ($active ? 'Aktiv' : 'Deaktiviert') . '</td><td><div class="d-flex flex-wrap gap-2">'
+                    . Security::escape($resource['name']) . '</span></td><td data-label="Status">'
+                    . ($active ? 'Aktiv' : 'Deaktiviert') . '</td><td class="resource-actions-cell" data-label="Aktionen"><div class="d-flex flex-wrap gap-2">'
                     . '<form method="post" action="/?action=resource-active"><input type="hidden" name="_csrf" value="'
                     . Security::escape($csrf) . '">' . $categoryField . '<input type="hidden" name="id" value="' . (int) $resource['id']
                     . '"><input type="hidden" name="active" value="' . ($active ? '0' : '1')
@@ -945,9 +945,9 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
                 $resourceRows = '<tr><td colspan="3" class="text-center text-secondary py-4">'
                     . 'In dieser Kategorie sind noch keine Ressourcen angelegt.</td></tr>';
             }
-            $resourceSections .= '<section class="panel-card p-3 mb-3"><h2 class="h5">'
+            $resourceSections .= '<section class="panel-card p-3 mb-3" data-resource-order-area><h2 class="h5">'
                 . Security::escape($label) . '</h2><div class="table-responsive">'
-                . '<table class="table align-middle mb-0"><thead><tr><th scope="col">Name</th>'
+                . '<table class="table align-middle mb-0 resource-management-table"><thead><tr><th scope="col">Name</th>'
                 . '<th scope="col">Status</th><th scope="col">Aktionen</th></tr></thead>'
                 . '<tbody data-resource-order-group="' . Security::escape($code)
                 . '" data-csrf-token="' . Security::escape($csrf) . '">' . $resourceRows
@@ -1148,14 +1148,14 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             $trainerRequestable = (bool) ($type['trainer_requestable'] ?? false);
             $colorHex = Security::escape($palette[$color]['hex']);
             $colorLabel = Security::escape($palette[$color]['label']);
-            $rows .= '<tr><td>' . Security::escape($name) . '</td><td><span class="booking-type-color-preview"'
+            $rows .= '<tr><td data-label="Name">' . Security::escape($name) . '</td><td data-label="Kalenderfarbe"><span class="booking-type-color-preview"'
                 . ' role="img" aria-label="Kalenderfarbe: ' . $colorLabel . '" title="' . $colorLabel
-                . '" style="--booking-type-color:' . $colorHex . '"></span></td><td><span class="booking-type-status'
+                . '" style="--booking-type-color:' . $colorHex . '"></span></td><td data-label="Status"><span class="booking-type-status'
                 . ($active ? ' is-active' : ' is-archived') . '">' . ($active ? 'Aktiv' : 'Archiviert')
-                . '</span></td><td data-trainer-requestable="' . ($trainerRequestable ? '1' : '0') . '"><span class="booking-type-status'
+                . '</span></td><td data-label="Traineranfragen" data-trainer-requestable="' . ($trainerRequestable ? '1' : '0') . '"><span class="booking-type-status'
                 . ($trainerRequestable ? ' is-active' : ' is-archived') . '">'
                 . ($trainerRequestable ? 'Erlaubt' : 'Nicht erlaubt')
-                . '</span></td><td class="booking-type-actions-cell"><div class="booking-type-actions">'
+                . '</span></td><td class="booking-type-actions-cell" data-label="Aktionen"><div class="booking-type-actions">'
                 . '<button type="button" class="btn btn-sm btn-outline-secondary" data-booking-type-edit'
                 . ' data-booking-type-code="' . $escapedCode . '" data-booking-type-name="'
                 . Security::escape($name) . '" data-booking-type-color="' . Security::escape($color)

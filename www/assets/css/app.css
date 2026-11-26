@@ -1353,8 +1353,25 @@ dialog::backdrop {
   display: none;
 }
 
+.registration-role-select {
+  width: auto;
+}
+
+.registration-actions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
 .user-password-form {
   min-width: 240px;
+}
+
+.user-row-actions > details > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .user-actions-menu {
@@ -1788,6 +1805,180 @@ dialog::backdrop {
     padding: .7rem;
   }
 
+  .page-shell > .panel-card.p-4 {
+    padding: 1rem !important;
+  }
+
+  .registration-table,
+  .resource-management-table,
+  .booking-type-table {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .registration-table thead,
+  .resource-management-table thead,
+  .booking-type-table thead,
+  .user-management-table thead {
+    display: none;
+  }
+
+  .registration-table tbody,
+  .resource-management-table tbody,
+  .booking-type-table tbody,
+  .user-management-table tbody {
+    display: grid;
+    gap: .65rem;
+  }
+
+  .registration-table tbody tr,
+  .resource-management-table tbody tr,
+  .booking-type-table tbody tr,
+  .user-management-table tbody tr {
+    display: grid;
+    min-width: 0;
+    padding: .55rem .7rem;
+    border: 1px solid var(--club-line);
+    border-radius: .7rem;
+    background: #fff;
+  }
+
+  .registration-table tbody td,
+  .resource-management-table tbody td,
+  .booking-type-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 34%) minmax(0, 1fr);
+    align-items: center;
+    gap: .5rem;
+    min-width: 0;
+    padding: .45rem .15rem;
+    border: 0;
+    border-bottom: 1px solid #eef0ec;
+    overflow-wrap: anywhere;
+  }
+
+  .registration-table tbody td::before,
+  .resource-management-table tbody td::before,
+  .booking-type-table tbody td::before {
+    color: var(--bs-secondary-color);
+    content: attr(data-label);
+    font-size: .78rem;
+    font-weight: 700;
+  }
+
+  .registration-table tbody td:last-child,
+  .resource-management-table tbody td:last-child,
+  .booking-type-table tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .registration-table tbody td[colspan],
+  .resource-management-table tbody td[colspan],
+  .booking-type-table tbody td[colspan] {
+    display: block;
+    text-align: center;
+  }
+
+  .registration-table tbody .registration-actions-cell,
+  .resource-management-table tbody .resource-actions-cell,
+  .booking-type-table tbody .booking-type-actions-cell {
+    grid-template-columns: minmax(0, 1fr);
+    text-align: left;
+    white-space: normal;
+  }
+
+  .registration-table tbody .registration-actions-cell::before,
+  .resource-management-table tbody .resource-actions-cell::before,
+  .booking-type-table tbody .booking-type-actions-cell::before {
+    display: none;
+  }
+
+  .registration-actions,
+  .resource-management-table .resource-actions-cell > div,
+  .booking-type-actions {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .35rem !important;
+  }
+
+  .registration-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registration-actions > *,
+  .registration-actions .btn,
+  .registration-role-select,
+  .resource-management-table .resource-actions-cell > div > *,
+  .resource-management-table .resource-actions-cell .btn,
+  .booking-type-actions > *,
+  .booking-type-actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .registration-actions .btn,
+  .resource-management-table .resource-actions-cell .btn,
+  .booking-type-actions .btn {
+    min-height: 2.5rem;
+    padding-right: .2rem;
+    padding-left: .2rem;
+  }
+
+  .user-management-table {
+    display: block;
+  }
+
+  .user-management-table tbody .user-mobile-cell,
+  .user-management-table tbody .user-actions-cell {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow-wrap: anywhere;
+  }
+
+  .user-management-table tbody .user-mobile-cell > div {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 34%) minmax(0, 1fr);
+    gap: .5rem;
+    padding: .45rem .15rem;
+    border-bottom: 1px solid #eef0ec;
+    color: var(--club-navy);
+    font-size: 1rem;
+    font-weight: 400;
+  }
+
+  .user-management-table tbody .user-mobile-cell > div::before {
+    color: var(--bs-secondary-color);
+    content: attr(data-label);
+    font-size: .78rem;
+    font-weight: 700;
+  }
+
+  .user-management-table tbody .user-actions-cell {
+    padding: .45rem .15rem;
+  }
+
+  .user-row-actions {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .35rem !important;
+  }
+
+  .user-row-actions > button,
+  .user-row-actions > details > summary {
+    min-height: 2.5rem;
+    padding-right: .2rem;
+    padding-left: .2rem;
+  }
+
+  .user-row-actions > details[open] {
+    grid-column: 1 / -1;
+    order: 1;
+  }
+
   .resource-day-scroll,
   .resource-week-scroll {
     height: var(--calendar-scroll-height, max(8rem, calc(100vh - 13rem)));
@@ -1821,4 +2012,5 @@ dialog::backdrop {
     min-width: 0;
     white-space: normal;
   }
+
 }
