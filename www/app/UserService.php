@@ -32,13 +32,15 @@ final class UserService
         $firstName = AuthService::validateFirstName($firstName);
         $lastName = AuthService::validateLastName($lastName);
         $token = Security::randomToken();
-        $expiresAt = (new \DateTimeImmutable('+48 hours'))->format('Y-m-d H:i:s');
 
-        $this->pdo->beginTransaction();
+        $ownsTransaction = !$this->pdo->inTransaction();
+        if ($ownsTransaction) {
+            $this->pdo->beginTransaction();
+        }
         try {
             $statement = $this->pdo->prepare(
                 "INSERT INTO users (email, username, first_name, last_name, role, status, invite_token_hash, invite_expires_at)
-                 VALUES (:email, :username, :first_name, :last_name, :role, 'invited', :token_hash, :expires_at)"
+                 VALUES (:email, :username, :first_name, :last_name, :role, 'invited', :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 DAY))"
             );
             $statement->execute([
                 'email' => $email,
@@ -47,29 +49,255 @@ final class UserService
                 'last_name' => $lastName,
                 'role' => $role,
                 'token_hash' => Security::tokenHash($token),
-                'expires_at' => $expiresAt,
             ]);
 
-            $url = $this->config->get('APP_URL') . '/?page=invite&token=' . rawurlencode($token);
-            $this->mailer->send(
-                $email,
-                'Einladung zum Vereins-Buchungssystem',
-                '<p>Hallo ' . Security::escape($firstName) . ',</p><p>Dein Benutzername lautet <strong>'
-                    . Security::escape($username) . '</strong>. Richte dein Konto über den folgenden Link ein. '
-                    . 'Der Link ist 48 Stunden gültig.</p><p><a href="' . Security::escape($url)
-                    . '">Konto einrichten</a></p>',
-                "Hallo {$firstName},\n\nDein Benutzername lautet: {$username}\n\n"
-                    . "Richte dein Konto über diesen Link ein (48 Stunden gültig):\n{$url}"
-            );
-            $this->pdo->commit();
+            $this->sendInvitation($email, $username, $firstName, $token, false);
+            if ($ownsTransaction) {
+                $this->pdo->commit();
+            }
         } catch (\PDOException $exception) {
-            if ($this->pdo->inTransaction()) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }
             if ($exception->getCode() === '23000') {
                 throw new RuntimeException('Diese E-Mail-Adresse oder dieser Benutzername ist bereits vergeben.', 0, $exception);
             }
             throw $exception;
+        } catch (\Throwable $exception) {
+            if ($ownsTransaction && $this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    private function sendInvitation(string $email, string $username, string $firstName, string $token, bool $updated): void
+    {
+        $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=invite&token=' . rawurlencode($token);
+        $heading = $updated ? 'Aktualisierte Einladung' : 'Einladung zum Vereins-Buchungssystem';
+        $subject = $updated ? 'Aktualisierte Einladung zum Vereins-Buchungssystem' : $heading;
+        $this->mailer->send(
+            $email,
+            $subject,
+            '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+            . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+            . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
+            . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
+            . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
+            . Mailer::icon('invitation') . Security::escape($heading) . '</h1></td></tr>'
+            . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
+            . Security::escape($firstName) . ',</p><p style="color:#536158;margin:0 0 24px">'
+            . 'Richte dein Konto über den folgenden Link ein.</p>'
+            . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px;line-height:1.6">'
+            . 'Dein Benutzername: <strong>' . Security::escape($username) . '</strong><br>'
+            . 'Der Einladungslink ist 5 Tage gültig und kann nur einmal verwendet werden.</div>'
+            . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
+            . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
+            . 'text-decoration:none;font-weight:bold;border-radius:8px">Konto einrichten</a></div></td></tr>'
+            . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
+            . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
+            "Hallo {$firstName},\n\nDein Benutzername lautet: {$username}\n\n"
+            . "Richte dein Konto über diesen Link ein (5 Tage gültig, einmal verwendbar):\n{$url}"
+        );
+    }
+
+    public function register(string $email, string $username, string $firstName, string $lastName): array
+    {
+        $email = AuthService::normalizeEmail($email);
+        $username = AuthService::normalizeUsername($username);
+        $firstName = AuthService::validateFirstName($firstName);
+        $lastName = AuthService::validateLastName($lastName);
+        $existing = $this->pdo->prepare('SELECT 1 FROM users WHERE email = :email OR username = :username LIMIT 1');
+        $existing->execute(['email' => $email, 'username' => $username]);
+        if ($existing->fetchColumn() !== false) {
+            throw new RuntimeException('Diese E-Mail-Adresse oder dieser Benutzername ist bereits vergeben.');
+        }
+        try {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO registration_requests (email, username, first_name, last_name, requested_role)
+                 VALUES (:email, :username, :first_name, :last_name, \'trainer\')'
+            );
+            $statement->execute([
+                'email' => $email, 'username' => $username, 'first_name' => $firstName,
+                'last_name' => $lastName,
+            ]);
+        } catch (\PDOException $exception) {
+            if ($exception->getCode() === '23000') {
+                throw new RuntimeException('Für diese E-Mail-Adresse oder diesen Benutzernamen liegt bereits eine Registrierung vor.', 0, $exception);
+            }
+            throw $exception;
+        }
+
+        try {
+            $admins = $this->pdo->query(
+                "SELECT id, email, first_name, last_name FROM users WHERE role = 'admin' AND status = 'active'"
+            )->fetchAll();
+        } catch (\PDOException $exception) {
+            error_log('Registration notification lookup failed: ' . $exception->getMessage());
+            return ['Die Administratoren konnten nicht ermittelt werden.'];
+        }
+        $errors = [];
+        if ($admins === []) {
+            error_log('Registration notification failed: no active administrator found.');
+            $errors[] = 'Es ist kein aktiver Administrator vorhanden.';
+        }
+        $name = AuthService::fullName($firstName, $lastName);
+        foreach ($admins as $admin) {
+            if ($admin['email'] === null || trim((string) $admin['email']) === '') {
+                error_log('Registration notification failed: an active administrator has no email address.');
+                $errors[] = 'Für ein Administratorkonto ist keine E-Mail-Adresse hinterlegt.';
+                continue;
+            }
+            try {
+                $token = Security::randomToken();
+                $this->pdo->exec('DELETE FROM registration_access_tokens WHERE expires_at <= UTC_TIMESTAMP()');
+                $this->pdo->prepare(
+                    'INSERT INTO registration_access_tokens (user_id, token_hash, expires_at)
+                     VALUES (:user_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 DAY))'
+                )->execute(['user_id' => $admin['id'], 'token_hash' => Security::tokenHash($token)]);
+                $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=registration-access&token=' . rawurlencode($token);
+                $adminName = AuthService::fullName((string) $admin['first_name'], (string) $admin['last_name']);
+                $this->mailer->send(
+                    (string) $admin['email'],
+                    'Neue Registrierungsanfrage',
+                    '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+                    . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
+                    . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+                    . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+                    . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+                    . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
+                    . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
+                    . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">' . Mailer::icon('registration') . 'Neue Registrierungsanfrage</h1></td></tr>'
+                    . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
+                    . Security::escape($adminName) . ',</p><p style="color:#536158;margin:0 0 24px">'
+                    . 'Eine neue Registrierungsanfrage wartet auf Bearbeitung.</p>'
+                    . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px">'
+                    . '<table role="presentation" cellspacing="0" cellpadding="0" style="font-size:14px;line-height:1.7;color:#36443a">'
+                    . '<tr><td style="padding-right:14px;color:#647268">Name</td><td>' . Security::escape($name) . '</td></tr>'
+                    . '<tr><td style="padding-right:14px;color:#647268">E-Mail</td><td>' . Security::escape($email) . '</td></tr>'
+                    . '<tr><td style="padding-right:14px;color:#647268">Benutzername</td><td>' . Security::escape($username) . '</td></tr>'
+                    . '</table></div><p>Der Link ist 5 Tage gültig. Die Anmeldung erfolgt wie gewohnt.</p>'
+                    . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
+                    . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
+                    . 'text-decoration:none;font-weight:bold;border-radius:8px">Registrierungen bearbeiten</a></div></td></tr>'
+                    . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
+                    . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
+                    "Hallo {$adminName},\n\nEine neue Registrierungsanfrage wartet auf Bearbeitung.\n\nName: {$name}\nE-Mail: {$email}"
+                    . "\nBenutzername: {$username}\n\nDer Link ist 5 Tage gültig. Die Anmeldung erfolgt wie gewohnt."
+                    . "\nRegistrierungen bearbeiten: {$url}"
+                );
+            } catch (RuntimeException $exception) {
+                error_log('Registration notification failed: ' . $exception->getMessage());
+                $errors[] = 'Eine Benachrichtigung konnte nicht versendet werden.';
+            }
+        }
+        return $errors;
+    }
+
+    public function registrations(): array
+    {
+        return $this->pdo->query(
+            'SELECT id, email, username, first_name, last_name, requested_role, created_at
+             FROM registration_requests ORDER BY created_at, id'
+        )->fetchAll();
+    }
+
+    public function registrationUsernameSuggestions(string $username): array
+    {
+        $username = mb_strtolower(trim($username));
+        if (!preg_match('/\A[a-z0-9][a-z0-9._-]{2,79}\z/', $username)) {
+            return [];
+        }
+        $query = $this->pdo->prepare(
+            'SELECT 1 FROM users WHERE username = :user_name
+             UNION ALL SELECT 1 FROM registration_requests WHERE username = :request_name LIMIT 1'
+        );
+        $isTaken = static function (string $name) use ($query): bool {
+            $query->execute(['user_name' => $name, 'request_name' => $name]);
+            return $query->fetchColumn() !== false;
+        };
+        if (!$isTaken($username)) {
+            return [];
+        }
+        $suggestions = [];
+        for ($number = 1; $number <= 1000 && count($suggestions) < 3; $number++) {
+            $suffix = (string) $number;
+            $candidate = substr($username, 0, 80 - strlen($suffix)) . $suffix;
+            if (!$isTaken($candidate)) {
+                $suggestions[] = $candidate;
+            }
+        }
+        if (count($suggestions) < 3) {
+            throw new RuntimeException('Es konnten keine Benutzernamen-Vorschläge erstellt werden. Bitte wähle einen anderen Benutzernamen.');
+        }
+        return $suggestions;
+    }
+
+    public function approveRegistration(int $id, string $role, array $actor): void
+    {
+        $allowed = match ($actor['role'] ?? '') {
+            'admin' => ['trainer', 'manager', 'admin'],
+            'manager' => ['trainer', 'manager'],
+            default => [],
+        };
+        if (!in_array($role, $allowed, true)) {
+            throw new RuntimeException('Diese Rolle darfst du nicht freigeben.');
+        }
+        $this->pdo->beginTransaction();
+        try {
+            $statement = $this->pdo->prepare('SELECT * FROM registration_requests WHERE id = :id FOR UPDATE');
+            $statement->execute(['id' => $id]);
+            $request = $statement->fetch();
+            if ($request === false) {
+                throw new RuntimeException('Die Registrierung wurde bereits bearbeitet oder nicht gefunden.');
+            }
+            $this->invite($request['email'], $request['username'], $request['first_name'], $request['last_name'], $role);
+            $this->pdo->prepare('DELETE FROM registration_requests WHERE id = :id')->execute(['id' => $id]);
+            $this->pdo->commit();
+        } catch (\Throwable $exception) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $exception;
+        }
+    }
+
+    public function rejectRegistration(int $id): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $statement = $this->pdo->prepare('SELECT * FROM registration_requests WHERE id = :id FOR UPDATE');
+            $statement->execute(['id' => $id]);
+            $request = $statement->fetch();
+            if ($request === false) {
+                throw new RuntimeException('Die Registrierung wurde bereits bearbeitet oder nicht gefunden.');
+            }
+
+            $firstName = $request['first_name'];
+            $this->mailer->send(
+                $request['email'],
+                'Deine Registrierungsanfrage',
+                '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+                . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
+                . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+                . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+                . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+                . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
+                . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
+                . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">' . Mailer::icon('registration') . 'Registrierungsanfrage abgelehnt</h1></td></tr>'
+                . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
+                . Security::escape($firstName) . ',</p><p style="color:#536158;margin:0">'
+                . 'deine Registrierungsanfrage wurde leider abgelehnt. Bei Fragen wende dich bitte an einen Verwalter oder Admin.</p></td></tr>'
+                . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
+                . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
+                "Hallo {$firstName},\n\ndeine Registrierungsanfrage wurde leider abgelehnt. "
+                . 'Bei Fragen wende dich bitte an einen Verwalter oder Admin.'
+            );
+            $this->pdo->prepare('DELETE FROM registration_requests WHERE id = :id')->execute(['id' => $id]);
+            $this->pdo->commit();
         } catch (\Throwable $exception) {
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
@@ -173,20 +401,38 @@ final class UserService
             ->execute(['user_id' => $user['id']]);
         $this->pdo->prepare(
             'INSERT INTO password_resets (user_id, token_hash, expires_at)
-             VALUES (:user_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 HOUR))'
+             VALUES (:user_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 DAY))'
         )->execute([
             'user_id' => $user['id'],
             'token_hash' => Security::tokenHash($token),
         ]);
 
-        $url = $this->config->get('APP_URL') . '/?page=reset&token=' . rawurlencode($token);
+        $url = rtrim($this->config->get('APP_URL'), '/') . '/?page=reset&token=' . rawurlencode($token);
         $fullName = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
         $name = Security::escape($fullName);
         $this->mailer->send(
             $email,
             'Passwort zurücksetzen',
-            '<p>Hallo ' . $name . ',</p><p>Über den folgenden Link kannst du dein Passwort zurücksetzen. Er ist eine Stunde gültig.</p><p><a href="' . Security::escape($url) . '">Passwort zurücksetzen</a></p>',
-            "Hallo {$fullName},\n\nSetze dein Passwort über diesen Link zurück (1 Stunde gültig):\n{$url}"
+            '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
+            . 'font-family:Arial,Helvetica,sans-serif;color:#24312a">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
+            . '<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;'
+            . 'width:100%;background:#fff;border-radius:16px;overflow:hidden">'
+            . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
+            . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div>'
+            . '<h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">' . Mailer::icon('password') . 'Passwort zurücksetzen</h1></td></tr>'
+            . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo ' . $name . ',</p>'
+            . '<p style="color:#536158;margin:0 0 24px">Über den folgenden Link kannst du ein neues Passwort festlegen.</p>'
+            . '<div style="padding:20px;background:#f4f7f5;border:1px solid #e1e9e3;border-radius:12px;line-height:1.6">'
+            . 'Der Link ist 5 Tage gültig und kann nur einmal verwendet werden. '
+            . 'Wenn du das Zurücksetzen nicht angefordert hast, kannst du diese E-Mail ignorieren.</div>'
+            . '<div style="text-align:center;padding:26px 0 8px"><a href="' . Security::escape($url)
+            . '" style="display:inline-block;padding:13px 24px;background:#198754;color:#fff;'
+            . 'text-decoration:none;font-weight:bold;border-radius:8px">Passwort zurücksetzen</a></div></td></tr>'
+            . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
+            . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>',
+            "Hallo {$fullName},\n\nSetze dein Passwort über diesen Link zurück (5 Tage gültig, einmal verwendbar):\n{$url}"
+            . "\n\nWenn du das Zurücksetzen nicht angefordert hast, kannst du diese E-Mail ignorieren."
         );
     }
 
@@ -303,23 +549,13 @@ final class UserService
                     'UPDATE users
                      SET email = :email, first_name = :first_name, last_name = :last_name,
                          role = :role, status = :status, invite_token_hash = :token_hash,
-                         invite_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
+                         invite_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 DAY)
                      WHERE id = :id'
                 );
                 $parameters['token_hash'] = Security::tokenHash($token);
                 $statement->execute($parameters);
 
-                $url = $this->config->get('APP_URL') . '/?page=invite&token=' . rawurlencode($token);
-                $this->mailer->send(
-                    $email,
-                    'Aktualisierte Einladung zum Vereins-Buchungssystem',
-                    '<p>Hallo ' . Security::escape($firstName) . ',</p><p>Dein Benutzername lautet <strong>'
-                        . Security::escape((string) $user['username'])
-                        . '</strong>. Richte dein Konto über den folgenden Link ein. Der Link ist 48 Stunden gültig.</p>'
-                        . '<p><a href="' . Security::escape($url) . '">Konto einrichten</a></p>',
-                    "Hallo {$firstName},\n\nDein Benutzername lautet: {$user['username']}\n\n"
-                        . "Richte dein Konto über diesen Link ein (48 Stunden gültig):\n{$url}"
-                );
+                $this->sendInvitation($email, (string) $user['username'], $firstName, $token, true);
             } else {
                 $statement = $this->pdo->prepare(
                     "UPDATE users

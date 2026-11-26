@@ -37,6 +37,14 @@ Die öffentliche Ansicht zeigt keine internen Notizen. Angemeldete Benutzer eins
 
 ### Öffentliche Ansicht (ohne Anmeldung)
 
+Über **Anmelden → Registrieren** kannst du ein Konto beantragen. Aktive Admins mit E-Mail-Adresse werden über deine Anfrage benachrichtigt. Der Link in der Benachrichtigung führt gegebenenfalls nach der Anmeldung zur Registrierungsübersicht, die nur für Verwalter und Admins zugänglich ist. Die Rolle wird erst bei der Freigabe vergeben. Nach Freigabe durch einen Verwalter oder Admin erhältst du einen Einladungslink per E-Mail, über den du dein Passwort festlegst. Erst danach ist die Anmeldung möglich. Verwalter finden offene Registrierungen im Benutzermenü, Admins unter **Einstellungen → Registrierungen**. Bei der Freigabe kann die Rolle bis zur eigenen Rolle gewählt werden; Admins dürfen auch Admin vergeben. Bei Ablehnung erhältst du eine E-Mail und die Anfrage wird entfernt. Schlägt der Versand fehl, bleibt die Anfrage zur erneuten Bearbeitung offen.
+
+Ist eine E-Mail-Adresse oder ein Benutzername bereits vergeben, bleiben die Angaben im Formular erhalten. Für einen bereits verwendeten Benutzernamen werden auswählbare freie Vorschläge angezeigt; ihre Verfügbarkeit wird beim erneuten Absenden geprüft.
+
+In der Registrierungsübersicht stehen alle offenen Anfragen in einer gemeinsamen Tabelle. Die Auswahl der Benutzerrolle und die Aktionen zur Freigabe oder Ablehnung stehen in eigenen Spalten derselben Zeile. Auf schmalen Bildschirmen lässt sich die Tabelle seitlich scrollen.
+
+Beim Einrichten des Kontos über den Einladungslink gibst du das neue Passwort zweimal ein. Beide Eingaben müssen übereinstimmen.
+
 Der Belegungsplan kann ohne Benutzerkonto geöffnet werden. Öffentliche Besucher können zwischen **Platzbelegung** und **Fahrzeugkalender** wechseln, den Zeitraum und die Tages- oder Wochenansicht auswählen und Kalendereinträge anklicken, um deren Details anzusehen.
 
 Im Kalender erscheinen bestätigte Buchungen und offene Anfragen. Offene Anfragen sind als **Anfrage** gekennzeichnet und heller dargestellt, erhalten aber keinen Legendeneintrag. Die Legende erklärt die Buchungskategorien bzw. Fahrzeuge sowie das Symbol **↻ Regeltermin**. Der Kalender nutzt die verbleibende Fensterhöhe bis zum unteren Seitenabstand; eine kleinere oder umgebrochene Legende wird dabei automatisch berücksichtigt. In den Details werden öffentliche Angaben wie **Gebuchte Plätze**, Kategorie und Zeitraum angezeigt. Ein separates Feld „Ressource“ entfällt. Interne Notizen bleiben verborgen.
@@ -126,7 +134,7 @@ Bei einer Platzbelegung kannst du eine Wiederholung festlegen: täglich, wöchen
 
 Bei Anfragen mit mehreren Plätzen betrifft die Freigabe alle noch offenen Platzzuordnungen. Serien erscheinen als ein Eintrag mit Anzahl und Zeitraum. Änderungen, Freigabe, Ablehnung und Löschen betreffen alle noch offenen Termine der Serie, auch ältere; bereits entschiedene Termine bleiben unverändert.
 
-Du kannst eine offene Platzanfrage auch im Kalender öffnen und dort **Freigeben** wählen. Im folgenden Dialog lassen sich optional Kabinen für diesen Termin ergänzen; freigegeben wird dabei die ausgewählte Platzzuordnung.
+Du kannst eine offene Anfrage auch im Kalender öffnen und dort **Freigeben** wählen. Es erscheint derselbe Buchungsdialog wie in der Anfrageübersicht. Änderungen und Freigabe betreffen hier nur den ausgewählten Termin mit allen noch offenen Ressourcenzuordnungen; bei Platzanfragen lassen sich optional Kabinen ergänzen.
 
 Nach der Freigabe verschwindet der Eintrag aus der Liste der offenen Anfragen. Über **Alle Anfragen anzeigen** lässt sich der neue Status **Bestätigt** aufrufen.
 
@@ -167,7 +175,11 @@ Admins öffnen über das **Zahnrad neben ihrem Namen** die Einstellungen und wä
 
 Der letzte aktive Admin kann nicht gelöscht werden.
 
-Links in Buchungsbenachrichtigungen melden dich mit dem Konto an, an das die E-Mail geschickt wurde – auch wenn im Browser gerade ein anderes Konto aktiv ist. Diese Links sind 48 Stunden gültig und dürfen nicht weitergeleitet werden. Bei einem gültigen Einladungs- oder Passwort-Reset-Link wird das bisherige Konto zuerst abgemeldet. Sobald du das neue Passwort erfolgreich gespeichert hast, bist du automatisch im zugehörigen Empfängerkonto angemeldet. Ungültige oder abgelaufene Links wechseln das Konto nicht.
+Links in E-Mails sind fünf Tage gültig. Links in Buchungsbenachrichtigungen melden dich mit dem Konto an, an das die E-Mail geschickt wurde – auch wenn im Browser gerade ein anderes Konto aktiv ist. Diese persönlichen Links dürfen nicht weitergeleitet werden. Links in Registrierungsbenachrichtigungen melden nicht automatisch an; die Anmeldung erfolgt wie gewohnt. Bei einem gültigen Einladungs- oder Passwort-Reset-Link wird das bisherige Konto zuerst abgemeldet. Sobald du das neue Passwort erfolgreich gespeichert hast, bist du automatisch im zugehörigen Empfängerkonto angemeldet. Ungültige oder abgelaufene Links wechseln das Konto nicht. Bereits ausgestellte Links behalten ihre bisherige Ablaufzeit.
+
+Beim Zurücksetzen gibst du das neue Passwort zweimal ein. Nur wenn beide Eingaben übereinstimmen, wird es gespeichert. Der Reset-Link ist einmal verwendbar.
+
+E-Mails zeigen ein Symbol für ihren Anlass. Buchungsbenachrichtigungen enthalten verfügbare Angaben zum Termin, zu Ressourcen, Kabinen und Wiederholungen sowie interne Notizen für berechtigte angemeldete Empfänger. Bei Änderungen einzelner Ressourcen oder Kabinen nennen sie die betroffene Zuordnung. Bei Regelterminen kann der angezeigte Termin für mehrere betroffene Termine stehen.
 
 Jeder angemeldete Benutzer kann über **Mein Profil** den eigenen Vor- und Nachnamen sowie die E-Mail-Adresse bearbeiten. Der Nachname ist optional. Der Benutzername wird dort angezeigt, kann aber nicht selbst geändert werden. **Abbrechen** führt ohne Speichern zurück zum Belegungsplan.
 

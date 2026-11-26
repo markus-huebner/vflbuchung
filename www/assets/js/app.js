@@ -1322,6 +1322,14 @@ function initBookingTypeEditor() {
 }
 
 function initControls() {
+  document.querySelectorAll('[data-username-suggestion]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const username = document.querySelector('#register-username');
+      if (!username) return;
+      username.value = button.dataset.usernameSuggestion;
+      username.focus();
+    });
+  });
   initUserMenu();
   initBookingTypeColorPickers();
   initBookingTypeEditor();
@@ -1505,9 +1513,8 @@ function initControls() {
       dialog.showModal();
     });
   });
-  async function openPendingRequestEditor(button, canApprove) {
+  async function openPendingRequestEditor(button, canApprove, occurrenceId = button.dataset.occurrenceId, fromDetails = false) {
     if (!bookingForm || !dialog || !bookingDates) return;
-    const occurrenceId = button.dataset.occurrenceId;
     button.disabled = true;
     try {
       const requestScope = button.dataset.requestSeries === 'true' ? 'all' : 'one';
@@ -1539,9 +1546,16 @@ function initControls() {
       bookingDates.setRange(berlinDateTimeInput(data.start), berlinDateTimeInput(data.end));
       updateBookingFields();
       renderResourceChoices();
+      if (fromDetails) detailsDialog.close();
       dialog.showModal();
     } catch (error) {
-      announce(error.message, 'danger');
+      if (fromDetails) {
+        const message = detailsDialog.querySelector('[data-event-error]');
+        message.textContent = error.message || 'Die Anfrage konnte nicht geladen werden.';
+        message.hidden = false;
+      } else {
+        announce(error.message, 'danger');
+      }
     } finally {
       button.disabled = false;
     }
@@ -1563,42 +1577,9 @@ function initControls() {
     bookingForm.requestSubmit();
   });
   detailsDialog?.querySelector('[data-event-approve]')?.addEventListener('submit', async (event) => {
-    if (selectedEvent?.event_type === 'bus') return;
     event.preventDefault();
-    const approvalDialog = document.querySelector('#event-approval-dialog');
-    const cabinGroup = approvalDialog?.querySelector('[data-approval-cabins]');
-    if (!approvalDialog || !cabinGroup) {
-      announce('Der Freigabedialog ist nicht verfügbar.', 'danger');
-      return;
-    }
     const button = event.currentTarget.querySelector('button[type="submit"]');
-    button.disabled = true;
-    try {
-      const resources = await fetchResources();
-      const cabins = resources.filter((resource) => resource.type === 'cabin');
-      cabinGroup.replaceChildren();
-      const legend = document.createElement('legend');
-      legend.className = 'form-label';
-      legend.textContent = 'Kabinen (optional)';
-      cabinGroup.append(legend);
-      if (cabins.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'small text-secondary mb-0';
-        empty.textContent = 'Es sind keine aktiven Kabinen vorhanden.';
-        cabinGroup.append(empty);
-      } else {
-        cabins.forEach((cabin) => cabinGroup.append(createResourceChip(cabin, 'cabin_ids[]')));
-      }
-      approvalDialog.querySelector('[name="assignment_id"]').value = selectedEvent.assignment_id;
-      detailsDialog.close();
-      approvalDialog.showModal();
-    } catch (error) {
-      const message = detailsDialog.querySelector('[data-event-error]');
-      message.textContent = error.message || 'Die Kabinen konnten nicht geladen werden.';
-      message.hidden = false;
-    } finally {
-      button.disabled = false;
-    }
+    await openPendingRequestEditor(button, true, selectedEvent.occurrence_id, true);
   });
   bookingForm?.querySelector('#event-type-select')?.addEventListener('change', updateBookingFields);
   document.addEventListener('click', (event) => {

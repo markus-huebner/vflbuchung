@@ -13,6 +13,8 @@ final class DatabaseSetup
 
     private const TABLES = [
         'users',
+        'registration_requests',
+        'registration_access_tokens',
         'password_resets',
         'booking_access_tokens',
         'login_attempts',
@@ -36,6 +38,8 @@ final class DatabaseSetup
         'booking_groups',
         'booking_access_tokens',
         'password_resets',
+        'registration_access_tokens',
+        'registration_requests',
         'resources',
         'resource_categories',
         'login_attempts',
@@ -90,6 +94,35 @@ final class DatabaseSetup
         if (!$this->hasTable('booking_types') || !$this->hasTable('users')) {
             return;
         }
+
+        $this->pdo->exec(
+            "CREATE TABLE IF NOT EXISTS registration_requests (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                email VARCHAR(254) NOT NULL,
+                username VARCHAR(80) NOT NULL,
+                first_name VARCHAR(120) NOT NULL,
+                last_name VARCHAR(120) NOT NULL DEFAULT '',
+                requested_role ENUM('manager', 'trainer') NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_registration_email (email),
+                UNIQUE KEY uq_registration_username (username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+        );
+
+        $this->pdo->exec(
+            "CREATE TABLE IF NOT EXISTS registration_access_tokens (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                user_id BIGINT UNSIGNED NOT NULL,
+                token_hash CHAR(64) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_registration_access_tokens_hash (token_hash),
+                KEY idx_registration_access_tokens_expiry (expires_at),
+                CONSTRAINT fk_registration_access_tokens_user FOREIGN KEY (user_id)
+                    REFERENCES users (id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+        );
 
         $this->pdo->exec(
             "CREATE TABLE IF NOT EXISTS booking_access_tokens (

@@ -9,6 +9,22 @@ use RuntimeException;
 
 final class Mailer
 {
+    public static function icon(string $type): string
+    {
+        [$symbol, $label] = match ($type) {
+            'pitch' => ['&#9917;', 'Platzbelegung'],
+            'vehicle' => ['&#128656;', 'Fahrzeugbuchung'],
+            'cabin' => ['&#128682;', 'Kabinenbelegung'],
+            'registration' => ['&#128203;', 'Registrierung'],
+            'invitation' => ['&#128232;', 'Einladung'],
+            'password' => ['&#128272;', 'Passwort'],
+            'setup' => ['&#9881;', 'Einrichtung'],
+            default => throw new RuntimeException('Das E-Mail-Symbol ist ungültig.'),
+        };
+        return '<span role="img" aria-label="' . $label . '" style="font-size:28px;line-height:1">'
+            . $symbol . '</span> ';
+    }
+
     public function __construct(private readonly Config $config)
     {
     }

@@ -59,6 +59,12 @@ final class Application
                 }
             }
 
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+                && (string) ($_GET['page'] ?? '') === 'registration-access') {
+                $this->auth->validateRegistrationAccessToken((string) ($_GET['token'] ?? ''));
+                $this->redirect('/?page=registrations');
+            }
+
             if ((string) ($_GET['page'] ?? '') === 'booking-access') {
                 $occurrenceId = $this->auth->authenticateBookingAccessToken(
                     (string) ($_GET['token'] ?? '')
@@ -89,19 +95,6 @@ final class Application
                             $target .= '&requests_page=' . $requestPage;
                         }
                         $target .= '&request_id=' . $occurrenceId;
-                        if ($request['status'] !== 'pending') {
-                            $statusLabel = match ($request['status']) {
-                                'confirmed' => 'genehmigt',
-                                'rejected' => 'abgelehnt',
-                                'withdrawn' => 'zurückgezogen',
-                                'skipped' => 'ausgelassen',
-                                default => 'geändert',
-                            };
-                            $flash = [
-                                'type' => 'warning',
-                                'message' => 'Diese Buchungsanfrage wurde inzwischen ' . $statusLabel . '.',
-                            ];
-                        }
                     }
                 }
                 $_SESSION['_flash'] = $flash;
@@ -135,7 +128,7 @@ final class Application
             }
 
             if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-                if (in_array((string) ($_GET['page'] ?? ''), ['booking-access', 'invite', 'reset'], true)) {
+                if (in_array((string) ($_GET['page'] ?? ''), ['booking-access', 'registration-access', 'invite', 'reset'], true)) {
                     if (!$exception instanceof RuntimeException) {
                         error_log('Booking access link failed: ' . $exception->getMessage());
                     }
@@ -153,6 +146,9 @@ final class Application
                 }
                 $currentUser = $this->auth->currentUser();
                 if ($currentUser === null) {
+                    if ((string) ($_GET['page'] ?? '') === 'registrations') {
+                        $_SESSION['_login_destination'] = 'registrations';
+                    }
                     $this->redirect('/?page=login');
                 }
                 http_response_code(403);
@@ -175,6 +171,8 @@ final class Application
 
             $target = match ((string) ($_GET['action'] ?? '')) {
                 'login' => '/?page=login',
+                'register' => '/?page=register',
+                'registration-approve', 'registration-reject' => '/?page=registrations',
                 'setup' => '/?page=setup',
                 'invite-accept' => '/?page=invite&token=' . rawurlencode((string) ($_POST['token'] ?? '')),
                 'password-request' => '/?page=forgot',
@@ -351,11 +349,47 @@ final class Application
         Security::verifyCsrf($_POST['_csrf'] ?? null);
 
         switch ($action) {
+            case 'register':
+                if ($this->auth->currentUser() !== null) {
+                    throw new RuntimeException('Bitte melde dich vor der Registrierung ab.');
+                }
+                $input = [];
+                foreach (['email', 'username', 'first_name', 'last_name'] as $field) {
+                    $input[$field] = is_string($_POST[$field] ?? null) ? $_POST[$field] : '';
+                }
+                try {
+                    $mailErrors = $this->users->register($input['email'], $input['username'], $input['first_name'], $input['last_name']);
+                } catch (Throwable $exception) {
+                    $_SESSION['_registration_input'] = $input;
+                    throw $exception;
+                }
+                unset($_SESSION['_registration_input']);
+                $_SESSION['_flash'] = [
+                    'type' => $mailErrors === [] ? 'info' : 'warning',
+                    'message' => 'Deine Registrierung wurde eingereicht. Nach der Freigabe erhältst du eine E-Mail zur Einrichtung deines Kontos.'
+                        . ($mailErrors === [] ? '' : ' Nicht alle Administratoren konnten per E-Mail benachrichtigt werden. Bitte kontaktiere einen Verwalter oder Admin.'),
+                ];
+                $this->redirect('/?page=login');
+
+            case 'registration-approve':
+                $actor = $this->requireRole(['admin', 'manager']);
+                $this->users->approveRegistration($this->positiveId($_POST['id'] ?? null), (string) ($_POST['role'] ?? ''), $actor);
+                $_SESSION['_flash'] = ['type' => 'info', 'message' => 'Die Registrierung wurde freigegeben und die Einladung versendet.'];
+                $this->redirect('/?page=registrations');
+
+            case 'registration-reject':
+                $this->requireRole(['admin', 'manager']);
+                $this->users->rejectRegistration($this->positiveId($_POST['id'] ?? null));
+                $_SESSION['_flash'] = ['type' => 'info', 'message' => 'Die Registrierung wurde abgelehnt und die Benachrichtigung versendet.'];
+                $this->redirect('/?page=registrations');
+
             case 'login':
                 if (!$this->auth->authenticate((string) ($_POST['identifier'] ?? ''), (string) ($_POST['password'] ?? ''))) {
                     throw new RuntimeException('Benutzername, E-Mail-Adresse oder Passwort ist nicht korrekt.');
                 }
-                $this->redirect('/');
+                $destination = $_SESSION['_login_destination'] ?? null;
+                unset($_SESSION['_login_destination']);
+                $this->redirect($destination === 'registrations' ? '/?page=registrations' : '/');
 
             case 'logout':
                 $this->auth->logout();
@@ -416,6 +450,9 @@ final class Application
                 $this->redirect('/');
 
             case 'invite-accept':
+                if ((string) ($_POST['password'] ?? '') !== (string) ($_POST['password_confirmation'] ?? '')) {
+                    throw new RuntimeException('Die beiden Passwörter stimmen nicht überein.');
+                }
                 $recipientId = $this->users->acceptInvitation((string) ($_POST['token'] ?? ''), (string) ($_POST['password'] ?? ''));
                 $this->auth->loginAfterEmailVerification($recipientId);
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Dein Konto ist eingerichtet. Du bist jetzt angemeldet.'];
@@ -427,6 +464,9 @@ final class Application
                 $this->redirect('/?page=forgot');
 
             case 'password-reset':
+                if ((string) ($_POST['password'] ?? '') !== (string) ($_POST['password_confirmation'] ?? '')) {
+                    throw new RuntimeException('Die beiden Passwörter stimmen nicht überein.');
+                }
                 $recipientId = $this->users->resetPassword((string) ($_POST['token'] ?? ''), (string) ($_POST['password'] ?? ''));
                 $this->auth->loginAfterEmailVerification($recipientId);
                 $_SESSION['_flash'] = ['type' => 'success', 'message' => 'Das Passwort wurde geändert. Du bist jetzt angemeldet.'];
@@ -771,6 +811,21 @@ final class Application
                 $content = Views::login($this->csrf);
                 break;
 
+            case 'register':
+                if ($user !== null) {
+                    throw new RuntimeException('Bitte melde dich vor der Registrierung ab.');
+                }
+                $input = $_SESSION['_registration_input'] ?? [];
+                unset($_SESSION['_registration_input']);
+                $suggestions = $this->users->registrationUsernameSuggestions((string) ($input['username'] ?? ''));
+                $content = Views::register($this->csrf, $input, $suggestions);
+                break;
+
+            case 'registrations':
+                $user = $this->requireRole(['admin', 'manager']);
+                $content = Views::registrations($this->users->registrations(), $this->csrf, $user['role']);
+                break;
+
             case 'setup':
                 $adminExists = $this->initialAdminExists();
                 if ($databaseStatus['schema_complete'] && $adminExists) {
@@ -971,6 +1026,8 @@ final class Application
     {
         return match ($page) {
             'login' => 'Anmelden',
+            'register' => 'Registrieren',
+            'registrations' => 'Registrierungen',
             'setup' => 'Ersteinrichtung',
             'invite' => 'Konto einrichten',
             'forgot', 'reset' => 'Passwort',

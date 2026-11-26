@@ -29,6 +29,12 @@ expect(preg_match('/\Avflbuchung_email_links_[a-f0-9]{32}\z/', $config->get('DB_
 $mode = $argv[1] ?? '';
 $directory = (string) getenv('VFL_MAIL_TEST_DIRECTORY');
 
+if (PHP_SAPI === 'cli-server') {
+    Security::startSession();
+    (new Application($config, Database::connect($config)))->run();
+    return;
+}
+
 function runChild(string $mode, array $environment = []): string
 {
     global $directory;
@@ -52,6 +58,42 @@ function runChild(string $mode, array $environment = []): string
     return (string) $output;
 }
 
+if ($mode === '--registration-route') {
+    $input = json_decode((string) getenv('REGISTRATION_ROUTE'), true, 512, JSON_THROW_ON_ERROR);
+    if ($input['disable_mail'] ?? false) {
+        $config = $config->withOverrides(['MAIL_FROM' => '']);
+    }
+    if (!empty($input['session_id'])) {
+        $_COOKIE['verein_session'] = $input['session_id'];
+    }
+    Security::startSession();
+    if ($input['user_id'] !== null) {
+        $_SESSION['user_id'] = $input['user_id'];
+    }
+    $_GET = $input['method'] === 'POST' ? ['action' => $input['target']] : ['page' => $input['target']];
+    $_SERVER['REQUEST_METHOD'] = $input['method'];
+    $_POST = array_merge($input['data'], ['_csrf' => Security::csrfToken()]);
+    ob_start();
+    register_shutdown_function(static function () use ($input): void {
+        $html = (string) ob_get_clean();
+        echo json_encode([
+            'status' => http_response_code(),
+            'html' => $html,
+            'flash' => $_SESSION['_flash'] ?? null,
+            'session_id' => session_id(),
+        ], JSON_THROW_ON_ERROR);
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            if ($input['keep_session'] ?? false) {
+                session_write_close();
+            } else {
+                session_destroy();
+            }
+        }
+    });
+    (new Application($config, Database::connect($config)))->run();
+    exit;
+}
+
 if ($mode === '--route') {
     $input = json_decode((string) getenv('EMAIL_LINK_ROUTE'), true, 512, JSON_THROW_ON_ERROR);
     Security::startSession();
@@ -66,6 +108,9 @@ if ($mode === '--route') {
     if ($input['action'] !== null) {
         $_GET = ['action' => $input['action']];
         $_POST = ['_csrf' => $oldCsrf, 'token' => $input['token'], 'password' => $input['password']];
+        if ($input['confirmation'] !== null) {
+            $_POST['password_confirmation'] = $input['confirmation'];
+        }
     }
     $auth = new AuthService(Database::connect($config));
     ob_start();
@@ -80,6 +125,7 @@ if ($mode === '--route') {
             'session_changed' => session_id() !== $oldSession,
             'csrf_changed' => ($_SESSION['csrf_token'] ?? '') !== $oldCsrf,
             'valid_form_csrf' => $hasForm && hash_equals(Security::csrfToken(), $csrf[1]),
+            'confirmation_field' => str_contains($html, 'name="password_confirmation"'),
             'error' => ($_SESSION['_flash']['type'] ?? '') === 'danger',
         ], JSON_THROW_ON_ERROR);
         session_destroy();
@@ -105,6 +151,13 @@ if ($mode !== '--exercise') {
 
 $pdo = Database::connect($config);
 (new DatabaseSetup($pdo))->initialize(false);
+$pdo->exec('DROP TABLE registration_requests');
+$pdo->exec('DROP TABLE registration_access_tokens');
+$setup = new DatabaseSetup($pdo);
+$setup->migrate();
+expect($setup->status()['schema_complete'], 'Migration must create the registration table for existing installations.');
+$setup->migrate();
+expect($setup->status()['schema_complete'], 'Registration migration must be repeatable.');
 $auth = new AuthService($pdo);
 $mailer = new Mailer($config);
 $users = new UserService($pdo, $mailer, $config);
@@ -124,10 +177,88 @@ foreach (['admin', 'manager', 'trainer'] as $role) {
     $actors[$role] = ['id' => (int) $pdo->lastInsertId(), 'role' => $role];
 }
 
-$route = static function (string $page, string $token, ?int $currentUser, ?string $action = null, string $password = 'UpdatedPassword123!'): array {
+$socket = stream_socket_server('tcp://127.0.0.1:0', $socketError, $socketMessage);
+expect(is_resource($socket), 'Could not reserve a port for registration HTTP tests.');
+$address = stream_socket_get_name($socket, false);
+fclose($socket);
+$server = proc_open(
+    [PHP_BINARY, '-d', 'session.save_path=' . $directory, '-S', $address, __FILE__],
+    [0 => ['pipe', 'r'], 1 => ['file', $directory . '/http-server.log', 'a'], 2 => ['file', $directory . '/http-server.log', 'a']],
+    $pipes
+);
+expect(is_resource($server), 'Could not start the registration HTTP test server.');
+fclose($pipes[0]);
+try {
+    $ready = false;
+    for ($i = 0; $i < 50; $i++) {
+        $connection = @stream_socket_client('tcp://' . $address, $errorCode, $errorMessage, 0.1);
+        if ($connection !== false) {
+            fclose($connection);
+            $ready = true;
+            break;
+        }
+        usleep(100000);
+    }
+    expect($ready, 'The registration HTTP test server did not start.');
+    $request = static function (string $path, string &$cookie, ?array $post = null) use ($address): array {
+        $headers = ['Cookie: ' . $cookie];
+        $options = ['method' => $post === null ? 'GET' : 'POST', 'ignore_errors' => true, 'follow_location' => 0];
+        if ($post !== null) {
+            $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+            $options['content'] = http_build_query($post);
+        }
+        $options['header'] = implode("\r\n", $headers);
+        $body = file_get_contents('http://' . $address . $path, false, stream_context_create(['http' => $options]));
+        expect($body !== false, 'The registration HTTP request failed.');
+        $status = 0;
+        $location = null;
+        foreach ($http_response_header as $header) {
+            if (preg_match('/^HTTP\/\S+ (\d+)/', $header, $match)) {
+                $status = (int) $match[1];
+            } elseif (preg_match('/^Location:\s*(.*)$/i', $header, $match)) {
+                $location = trim($match[1]);
+            } elseif (preg_match('/^Set-Cookie:\s*(verein_session=[^;]+)/i', $header, $match)) {
+                $cookie = $match[1];
+            }
+        }
+        return ['status' => $status, 'location' => $location, 'body' => $body];
+    };
+    $login = static function (string &$cookie, string $role, string $password) use ($request): array {
+        $page = $request('/?page=login', $cookie);
+        expect(preg_match('/name="_csrf" value="([^"]+)"/', $page['body'], $token) === 1, 'Login must provide a CSRF token.');
+        return $request('/?action=login', $cookie, [
+            '_csrf' => $token[1], 'identifier' => 'email-link-' . $role, 'password' => $password,
+        ]);
+    };
+    $cookie = '';
+    $response = $request('/?page=registrations&return=https://example.com', $cookie);
+    expect($response['location'] === '/?page=login', 'Guests must be redirected to login.');
+    $response = $login($cookie, 'manager', 'wrong-password');
+    expect($response['location'] === '/?page=login', 'Failed login must return to login.');
+    $response = $login($cookie, 'manager', 'OriginalPassword123!');
+    expect($response['location'] === '/?page=registrations', 'Successful login must return to registrations, not an external URL.');
+    $response = $request('/?page=registrations', $cookie);
+    expect($response['status'] === 200, 'A manager must be able to access registrations after login.');
+    $response = $login($cookie, 'manager', 'OriginalPassword123!');
+    expect($response['location'] === '/', 'The registration destination must be consumed after login.');
+    $cookie = '';
+    $response = $login($cookie, 'admin', 'OriginalPassword123!');
+    expect($response['location'] === '/', 'Normal login must return to the home page.');
+    $cookie = '';
+    $request('/?page=registrations', $cookie);
+    $response = $login($cookie, 'trainer', 'OriginalPassword123!');
+    expect($response['location'] === '/?page=registrations', 'The registration destination must survive login for any role.');
+    $response = $request('/?page=registrations', $cookie);
+    expect($response['status'] === 403, 'The registration destination must not bypass role checks.');
+} finally {
+    proc_terminate($server);
+    proc_close($server);
+}
+
+$route = static function (string $page, string $token, ?int $currentUser, ?string $action = null, string $password = 'UpdatedPassword123!', ?string $confirmation = 'UpdatedPassword123!'): array {
     return json_decode(runChild('--route', ['EMAIL_LINK_ROUTE' => json_encode([
         'page' => $page, 'token' => $token, 'current_user' => $currentUser,
-        'action' => $action, 'password' => $password,
+        'action' => $action, 'password' => $password, 'confirmation' => $confirmation,
     ], JSON_THROW_ON_ERROR)]), true, 512, JSON_THROW_ON_ERROR);
 };
 $assertLogin = static function (array $result, int $userId, string $role): void {
@@ -171,6 +302,14 @@ $link = static function (string $message, string $page): string {
     }
     return $token;
 };
+$assertExpiry = static function (string $table, string $column, string $token) use ($pdo): void {
+    $statement = $pdo->prepare("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), $column) FROM $table WHERE "
+        . ($table === 'users' ? 'invite_token_hash' : 'token_hash') . ' = :hash');
+    $statement->execute(['hash' => Security::tokenHash($token)]);
+    $seconds = $statement->fetchColumn();
+    expect($seconds !== false && (int) $seconds >= 5 * 86400 - 30 && (int) $seconds <= 5 * 86400,
+        "$table link must expire five days after creation.");
+};
 $assertBookingMail = static function (string $message, int $userId, string $role, int $otherUser) use ($pdo, $link, $route, $assertLogin): string {
     $token = $link($message, 'booking-access');
     $statement = $pdo->prepare('SELECT user_id FROM booking_access_tokens WHERE token_hash = :hash');
@@ -187,6 +326,7 @@ $messages = $capture(static function () use ($bookings, $actors, $pitch, &$creat
         'event_type' => 'training', 'resource_mode' => 'pitch', 'resource_ids' => [$pitch],
         'title' => 'Recipient switching test', 'starts_at' => '2038-01-10T10:00',
         'ends_at' => '2038-01-10T11:30', 'frequency' => 'none',
+        'private_notes' => "Interne <Notiz>\nzweite Zeile",
     ], $actors['trainer']);
 });
 expect(count($messages) === 2, 'A trainer request must notify both the admin and manager.');
@@ -194,6 +334,13 @@ $approverTokens = [];
 foreach ($messages as $message) {
     $role = str_contains($message, 'To: admin@example.test') ? 'admin' : 'manager';
     $approverTokens[$role] = $assertBookingMail($message, $actors[$role]['id'], $role, $actors['trainer']['id']);
+    $decoded = quoted_printable_decode($message);
+    $assertExpiry('booking_access_tokens', 'expires_at', $approverTokens[$role]);
+    expect(str_contains($decoded, '5 Tage gültig'), 'Booking links must state their five-day lifetime.');
+    expect(str_contains($decoded, 'aria-label="Platzbelegung"') && str_contains($decoded, 'Interne &lt;Notiz&gt;')
+        && str_contains($decoded, 'Interne <Notiz>') && str_contains($decoded, '10.01.2038 11:30')
+        && str_contains($decoded, 'Termin: 10.01.2038'),
+        'Approver emails must include the pitch icon, escaped multiline notes and the actual end date.');
 }
 $assertLogin($route('booking-access', $approverTokens['manager'], $actors['manager']['id']), $actors['manager']['id'], 'manager');
 $assertLogin($route('booking-access', $approverTokens['manager'], null), $actors['manager']['id'], 'manager');
@@ -203,8 +350,12 @@ $assignmentId = (int) $assignment->fetchColumn();
 $messages = $capture(static fn(): array => $bookings->approve([$assignmentId], $actors['manager']));
 expect(count($messages) === 1, 'Approval must notify the requester.');
 $trainerToken = $assertBookingMail($messages[0], $actors['trainer']['id'], 'trainer', $actors['admin']['id']);
+expect(str_contains(quoted_printable_decode($messages[0]), 'Interne &lt;Notiz&gt;'), 'Authenticated requesters must receive internal notes.');
 $messages = $capture(static fn(): array => $bookings->cancel($assignmentId, $actors['manager']));
 $assertBookingMail($messages[0], $actors['trainer']['id'], 'trainer', $actors['admin']['id']);
+expect(str_contains(quoted_printable_decode($messages[0]), 'Interne &lt;Notiz&gt;')
+    && str_contains(quoted_printable_decode($messages[0]), 'Ressource wurde aus deiner Buchung entfernt'),
+    'Cancellation emails must include the saved details and describe the removed resource.');
 $assertLogin($route('booking-access', $approverTokens['admin'], $actors['manager']['id']), $actors['admin']['id'], 'admin');
 
 $pending = null;
@@ -219,23 +370,102 @@ $assignment->execute(['id' => $pending['occurrence_id']]);
 $messages = $capture(static fn(): array => $bookings->reject([(int) $assignment->fetchColumn()], $actors['manager'], 'Test rejection'));
 $assertBookingMail($messages[0], $actors['trainer']['id'], 'trainer', $actors['admin']['id']);
 
-$messages = $capture(static fn() => $users->invite('invitee@example.test', 'email-link-invitee', 'Invitee', '', 'trainer'));
+$cabin = (int) $pdo->query("SELECT r.id FROM resources r JOIN resource_categories c ON c.id = r.category_id WHERE c.code = 'cabin' LIMIT 1")->fetchColumn();
+$bus = (int) $pdo->query("SELECT r.id FROM resources r JOIN resource_categories c ON c.id = r.category_id WHERE c.code = 'bus' LIMIT 1")->fetchColumn();
+expect($cabin > 0 && $bus > 0, 'Cabin and vehicle fixtures must be available.');
+$cabinRequest = null;
+$capture(static function () use ($bookings, $actors, $pitch, &$cabinRequest): array {
+    return $cabinRequest = $bookings->create([
+        'event_type' => 'training', 'resource_mode' => 'pitch', 'resource_ids' => [$pitch],
+        'title' => 'Cabin notification', 'starts_at' => '2038-02-01T10:00',
+        'ends_at' => '2038-02-01T11:00', 'frequency' => 'weekly', 'interval' => 1,
+        'limit_type' => 'count', 'count' => 2, 'private_notes' => 'Kabinenhinweis',
+    ], $actors['trainer']);
+});
+$assignment->execute(['id' => $cabinRequest['occurrence_id']]);
+$cabinAssignment = (int) $assignment->fetchColumn();
+$messages = $capture(static fn(): array => $bookings->approve([$cabinAssignment], $actors['manager'], [$cabin]));
+$decoded = quoted_printable_decode($messages[0]);
+expect(str_contains($decoded, 'Kabinen') && str_contains($decoded, 'Kabinenhinweis')
+    && str_contains($decoded, 'Wiederholung') && str_contains($decoded, '2 Termine')
+    && str_contains($decoded, 'Erster betroffener Termin'),
+    'Approval emails must include cabins, internal notes and recurrence details.');
+$messages = $capture(static fn(): array => $bookings->cancelCabin((int) $cabinRequest['occurrence_id'], $cabin, $actors['manager']));
+$decoded = quoted_printable_decode($messages[0]);
+expect(str_contains($decoded, 'aria-label="Kabinenbelegung"') && str_contains($decoded, 'Kabinenhinweis')
+    && str_contains($decoded, 'Kabine wurde aus deiner Buchung entfernt'), 'Cabin cancellation must identify the cabin and its booking.');
+
+$busRequest = null;
+$messages = $capture(static function () use ($bookings, $actors, $bus, &$busRequest): array {
+    return $busRequest = $bookings->create([
+        'event_type' => 'bus', 'resource_ids' => [$bus], 'title' => 'Bus notification',
+        'starts_at' => '2038-02-02T10:00', 'ends_at' => '2038-02-02T11:00',
+        'frequency' => 'none', 'private_notes' => 'Fahrzeughinweis',
+    ], $actors['trainer']);
+});
+expect(str_contains(quoted_printable_decode($messages[0]), 'aria-label="Fahrzeugbuchung"')
+    && str_contains(quoted_printable_decode($messages[0]), 'Fahrzeughinweis'),
+    'Vehicle notifications must include a vehicle icon and internal notes.');
+$assignment->execute(['id' => $busRequest['occurrence_id']]);
+$busAssignment = (int) $assignment->fetchColumn();
+$messages = $capture(static fn(): array => $bookings->approve([$busAssignment], $actors['manager']));
+expect(str_contains(quoted_printable_decode($messages[0]), 'aria-label="Fahrzeugbuchung"'), 'Vehicle approval must identify the booking type.');
+$messages = $capture(static fn(): array => $bookings->cancel($busAssignment, $actors['manager']));
+expect(str_contains(quoted_printable_decode($messages[0]), 'aria-label="Fahrzeugbuchung"')
+    && str_contains(quoted_printable_decode($messages[0]), 'Fahrzeughinweis'), 'Vehicle cancellation must preserve type and details.');
+
+$assertInvitationLayout = static function (string $message, string $heading): void {
+    $decoded = quoted_printable_decode($message);
+    expect(str_contains($decoded, 'Content-Type: text/html') && str_contains($decoded, 'Content-Type: text/plain')
+        && str_contains($decoded, 'aria-label="Einladung"') && str_contains($decoded, 'background:#14532d')
+        && str_contains($decoded, 'background:#198754') && str_contains($decoded, $heading)
+        && str_contains($decoded, '&lt;Invitee&gt;') && str_contains($decoded, '<Invitee>')
+        && str_contains($decoded, 'email-link-invitee') && str_contains($decoded, '5 Tage'),
+        'Invitations must include the styled layout, escaped recipient, username and link expiry in both formats.');
+};
+$messages = $capture(static fn() => $users->invite('invitee@example.test', 'email-link-invitee', '<Invitee>', '', 'trainer'));
+$assertInvitationLayout($messages[0], 'Einladung zum Vereins-Buchungssystem');
 $inviteToken = $link($messages[0], 'invite');
+$assertExpiry('users', 'invite_expires_at', $inviteToken);
 $invitee = (int) $pdo->query("SELECT id FROM users WHERE username = 'email-link-invitee'")->fetchColumn();
-$messages = $capture(static fn() => $users->updateDetails($invitee, 'updated-invitee@example.test', 'Invitee', '', 'trainer', 'invited'));
+$messages = $capture(static fn() => $users->updateDetails($invitee, 'updated-invitee@example.test', '<Invitee>', '', 'trainer', 'invited'));
+$assertInvitationLayout($messages[0], 'Aktualisierte Einladung');
 $oldInvitation = $route('invite', $inviteToken, $actors['admin']['id']);
 expect($oldInvitation['user_id'] === $actors['admin']['id'] && $oldInvitation['error'], 'An invitation replaced by an email change must not switch accounts.');
 $inviteToken = $link($messages[0], 'invite');
+$assertExpiry('users', 'invite_expires_at', $inviteToken);
 $prepared = $route('invite', $inviteToken, $actors['admin']['id']);
-expect($prepared['user_id'] === null && !$prepared['old_state'] && $prepared['valid_form_csrf'], 'A valid invitation must sign out the old account and render a usable password form.');
+expect($prepared['user_id'] === null && !$prepared['old_state'] && $prepared['valid_form_csrf']
+    && $prepared['confirmation_field'], 'A valid invitation must sign out the old account and render a password form with confirmation.');
+foreach (['DifferentPassword123!', null] as $confirmation) {
+    $mismatch = $route('invite', $inviteToken, null, 'invite-accept', 'UpdatedPassword123!', $confirmation);
+    expect($mismatch['error'] && $mismatch['user_id'] === null, 'Mismatched or missing confirmation must reject activation without logging in.');
+    $inviteeState = $pdo->query("SELECT status, password_hash FROM users WHERE username = 'email-link-invitee'")->fetch();
+    expect($inviteeState['status'] === 'invited' && $inviteeState['password_hash'] === null,
+        'A failed confirmation must not activate the account or set its password.');
+}
 $assertLogin($route('invite', $inviteToken, $actors['admin']['id'], 'invite-accept'), $invitee, 'trainer');
 $replayed = $route('invite', $inviteToken, $actors['admin']['id']);
 expect($replayed['user_id'] === $actors['admin']['id'] && $replayed['error'] && !$replayed['session_changed'], 'A used invitation must not switch the current account.');
 
 $messages = $capture(static fn() => $users->requestPasswordReset('trainer@example.test'));
+expect(str_contains(quoted_printable_decode($messages[0]), 'aria-label="Passwort"'), 'Password reset emails must show a password icon.');
+$resetMail = quoted_printable_decode($messages[0]);
+expect(str_contains($resetMail, 'background:#14532d') && str_contains($resetMail, 'background:#198754')
+    && str_contains($resetMail, '5 Tage gültig') && str_contains($resetMail, 'einmal verwendbar'),
+    'Password reset emails must use the booking layout and describe the link lifetime in both alternatives.');
 $resetToken = $link($messages[0], 'reset');
+$assertExpiry('password_resets', 'expires_at', $resetToken);
 $prepared = $route('reset', $resetToken, $actors['manager']['id']);
-expect($prepared['user_id'] === null && !$prepared['old_state'] && $prepared['valid_form_csrf'], 'A valid reset link must sign out the old account and render a usable password form.');
+expect($prepared['user_id'] === null && !$prepared['old_state'] && $prepared['valid_form_csrf']
+    && $prepared['confirmation_field'], 'A valid reset link must render a usable password form with confirmation.');
+$originalHash = $pdo->query("SELECT password_hash FROM users WHERE username = 'email-link-trainer'")->fetchColumn();
+foreach (['DifferentPassword123!', null] as $confirmation) {
+    $mismatch = $route('reset', $resetToken, null, 'password-reset', 'UpdatedPassword123!', $confirmation);
+    expect($mismatch['error'] && $mismatch['user_id'] === null, 'Mismatched or missing confirmation must reject reset without logging in.');
+    expect($pdo->query("SELECT password_hash FROM users WHERE username = 'email-link-trainer'")->fetchColumn() === $originalHash,
+        'A failed confirmation must not change the password.');
+}
 $assertLogin($route('reset', $resetToken, $actors['admin']['id'], 'password-reset'), $actors['trainer']['id'], 'trainer');
 $hash = $pdo->query("SELECT password_hash FROM users WHERE username = 'email-link-trainer'")->fetchColumn();
 expect(password_verify('UpdatedPassword123!', $hash), 'Reset must change the recipient password.');
@@ -260,4 +490,200 @@ $inactive = $route('booking-access', $inactiveToken, $actors['admin']['id']);
 expect($inactive['user_id'] === $actors['admin']['id'] && $inactive['error'], 'A link for a deactivated account must not authenticate it.');
 $unknown = $route('booking-access', Security::randomToken(), $actors['admin']['id']);
 expect($unknown['user_id'] === $actors['admin']['id'] && $unknown['error'], 'An unknown email token must not switch accounts.');
+
+$pdo->prepare("UPDATE users SET status = 'active' WHERE id = :id")->execute(['id' => $actors['trainer']['id']]);
+$pdo->exec("INSERT INTO users (username, email, first_name, role, status)
+    VALUES ('notify-second-admin', 'notify-second@example.test', 'Second', 'admin', 'active'),
+           ('notify-inactive-admin', 'notify-inactive@example.test', 'Inactive', 'admin', 'inactive')");
+$messages = $capture(static fn() => $users->register('new-manager@example.test', 'new-manager', '<New>', 'Manager & Team'));
+expect(count($messages) === 2, 'Each active admin with email must receive a registration notification.');
+expect(count(array_filter($messages, static fn(string $message): bool => str_contains($message, 'To: admin@example.test'))) === 1, 'The first administrator must be notified.');
+expect(count(array_filter($messages, static fn(string $message): bool => str_contains($message, 'To: notify-second@example.test'))) === 1, 'The second administrator must be notified.');
+foreach ($messages as $message) {
+    $decoded = quoted_printable_decode($message);
+    expect(str_contains($decoded, '&lt;New&gt; Manager &amp; Team') && str_contains($decoded, 'new-manager@example.test')
+        && str_contains($decoded, 'new-manager') && str_contains($decoded, '?page=registration-access')
+        && str_contains($decoded, '5 Tage gültig'),
+        'Each notification must contain escaped registration details and the review link.');
+    $registrationToken = $link($message, 'registration-access');
+    $assertExpiry('registration_access_tokens', 'expires_at', $registrationToken);
+    $guestRegistrationLink = $route('registration-access', $registrationToken, null);
+    expect(!$guestRegistrationLink['error'] && $guestRegistrationLink['user_id'] === null,
+        'A valid registration link must not automatically log in its recipient.');
+    $existingRegistrationLink = $route('registration-access', $registrationToken, $actors['manager']['id']);
+    expect(!$existingRegistrationLink['error'] && $existingRegistrationLink['user_id'] === $actors['manager']['id']
+        && !$existingRegistrationLink['session_changed'], 'A registration link must preserve an existing login.');
+    $pdo->prepare('UPDATE registration_access_tokens SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE token_hash = :hash')
+        ->execute(['hash' => Security::tokenHash($registrationToken)]);
+    $expiredRegistrationLink = $route('registration-access', $registrationToken, null);
+    expect($expiredRegistrationLink['error'] && $expiredRegistrationLink['user_id'] === null,
+        'Expired registration links must be rejected without logging in.');
+    expect(str_contains($decoded, 'Content-Type: text/plain') && str_contains($decoded, 'Content-Type: text/html')
+        && str_contains($decoded, 'background:#14532d') && str_contains($decoded, 'background:#198754')
+        && str_contains($decoded, 'Registrierungen bearbeiten') && str_contains($decoded, 'aria-label="Registrierung"'),
+        'Each notification must contain both MIME parts and the booking email styling.');
+    expect(!str_contains($decoded, 'notify-inactive@example.test'), 'Inactive administrators must not be notified.');
+}
+$pdo->exec("DELETE FROM users WHERE username IN ('notify-second-admin', 'notify-inactive-admin')");
+$requests = $users->registrations();
+expect(count($requests) === 1 && $requests[0]['requested_role'] === 'trainer', 'Registrations must default to trainer.');
+$registrationId = (int) $requests[0]['id'];
+$registrationRoute = static function (string $method, string $target, ?int $userId, array $data = [], ?string $sessionId = null, bool $keepSession = false, bool $disableMail = false): array {
+    return json_decode(runChild('--registration-route', ['REGISTRATION_ROUTE' => json_encode([
+        'method' => $method, 'target' => $target, 'user_id' => $userId, 'data' => $data,
+        'session_id' => $sessionId, 'keep_session' => $keepSession, 'disable_mail' => $disableMail,
+    ], JSON_THROW_ON_ERROR)]), true, 512, JSON_THROW_ON_ERROR);
+};
+$users->register('taken-suffix@example.test', 'new-manager1', 'Taken', '');
+$collision = $registrationRoute('POST', 'register', null, [
+    'email' => 'retry@example.test', 'username' => 'New-Manager', 'first_name' => '<Neuer>',
+    'last_name' => 'Name & Co', 'role' => 'manager',
+], null, true);
+expect(($collision['flash']['type'] ?? '') === 'danger', 'A duplicate username must report an error.');
+$retry = $registrationRoute('GET', 'register', null, [], $collision['session_id'], true);
+$document = new DOMDocument();
+@$document->loadHTML($retry['html']);
+$xpath = new DOMXPath($document);
+expect($xpath->evaluate('string(//*[@id="register-first-name"]/@value)') === '<Neuer>', 'The first name must survive and be escaped.');
+expect($xpath->evaluate('string(//*[@id="register-last-name"]/@value)') === 'Name & Co', 'The last name must survive.');
+expect($xpath->evaluate('string(//*[@id="register-email"]/@value)') === 'retry@example.test', 'The email must survive.');
+expect($xpath->evaluate('string(//*[@id="register-username"]/@value)') === 'New-Manager', 'The username must survive.');
+expect($xpath->query('//*[@name="role"]')->length === 0, 'Registration must not offer a role selection.');
+$suggested = [];
+foreach ($xpath->query('//*[@data-username-suggestion]') as $button) {
+    $suggested[] = $button->getAttribute('data-username-suggestion');
+}
+expect($suggested === ['new-manager2', 'new-manager3', 'new-manager4'], 'Suggestions must skip pending usernames and match normalized names.');
+$resubmit = $registrationRoute('POST', 'register', null, [
+    'email' => 'retry@example.test', 'username' => $suggested[0], 'first_name' => '<Neuer>',
+    'last_name' => 'Name & Co', 'role' => 'manager',
+], $collision['session_id']);
+expect(($resubmit['flash']['type'] ?? '') === 'info', 'A suggested username must allow registration.');
+foreach ($users->registrations() as $request) {
+    if (in_array($request['username'], ['new-manager1', 'new-manager2'], true)) {
+        $users->rejectRegistration((int) $request['id']);
+    }
+}
+$emailCollision = $registrationRoute('POST', 'register', null, [
+    'email' => 'admin@example.test', 'username' => 'unique-retry', 'first_name' => 'Email',
+    'last_name' => 'Taken', 'role' => 'trainer',
+], null, true);
+$emailRetry = $registrationRoute('GET', 'register', null, [], $emailCollision['session_id']);
+expect(str_contains($emailRetry['html'], 'value="admin@example.test"') && str_contains($emailRetry['html'], 'value="unique-retry"'), 'Email collisions must retain the entered fields.');
+expect(!str_contains($emailRetry['html'], 'data-username-suggestion'), 'Available usernames must not produce unnecessary suggestions.');
+expect($users->registrationUsernameSuggestions('email-link-admin') === ['email-link-admin1', 'email-link-admin2', 'email-link-admin3'], 'Suggestions must account for existing user accounts.');
+$longName = str_repeat('a', 80);
+$users->register('long-name@example.test', $longName, 'Long', '');
+foreach ($users->registrationUsernameSuggestions($longName) as $suggestion) {
+    expect(strlen($suggestion) === 80 && AuthService::normalizeUsername($suggestion) === $suggestion, 'Suggestions must obey the username length limit.');
+}
+foreach ($users->registrations() as $request) {
+    if ($request['username'] === $longName) {
+        $users->rejectRegistration((int) $request['id']);
+    }
+}
+$managerPage = $registrationRoute('GET', 'registrations', $actors['manager']['id']);
+expect(str_contains($managerPage['html'], 'new-manager@example.test'), 'Managers must be able to review registrations.');
+expect(!str_contains($managerPage['html'], '<option value="admin"'), 'Managers must not be offered the admin role.');
+$adminPage = $registrationRoute('GET', 'registrations', $actors['admin']['id']);
+expect(str_contains($adminPage['html'], '<option value="admin"'), 'Admins must be offered the admin role.');
+$trainerPage = $registrationRoute('GET', 'registrations', $actors['trainer']['id']);
+expect($trainerPage['status'] === 403 && !str_contains($trainerPage['html'], 'new-manager@example.test'), 'Trainers must not see registration data.');
+$unauthorizedPost = $registrationRoute('POST', 'registration-approve', $actors['trainer']['id'], ['id' => $registrationId, 'role' => 'trainer']);
+expect(($unauthorizedPost['flash']['type'] ?? '') === 'danger', 'Trainer approval requests must be rejected.');
+$escalationPost = $registrationRoute('POST', 'registration-approve', $actors['manager']['id'], ['id' => $registrationId, 'role' => 'admin']);
+expect(($escalationPost['flash']['type'] ?? '') === 'danger', 'Managers must not approve admin through a crafted request.');
+expect(count($users->registrations()) === 1, 'Unauthorized HTTP requests must leave the registration pending.');
+expect(!$auth->authenticate('new-manager', 'SomePassword123!'), 'A registration must not authenticate before approval.');
+foreach ([['trainer', 'trainer'], ['manager', 'admin']] as [$actorRole, $requestedRole]) {
+    try {
+        $users->approveRegistration($registrationId, $requestedRole, $actors[$actorRole]);
+        throw new LogicException('Unauthorized approval was accepted.');
+    } catch (RuntimeException $exception) {
+        expect(str_contains($exception->getMessage(), 'nicht freigeben'), 'The wrong approval error was returned.');
+    }
+}
+try {
+    $users->register('another@example.test', 'new-manager', 'Duplicate', '');
+    throw new LogicException('A duplicate registration was accepted.');
+} catch (RuntimeException $exception) {
+    expect(str_contains($exception->getMessage(), 'bereits'), 'The duplicate registration error was missing.');
+}
+$noMailConfig = $config->withOverrides(['MAIL_FROM' => '']);
+$noMailUsers = new UserService($pdo, new Mailer($noMailConfig), $noMailConfig);
+try {
+    $noMailUsers->approveRegistration($registrationId, 'manager', $actors['manager']);
+    throw new LogicException('An approval without mail should fail.');
+} catch (RuntimeException $exception) {
+    expect(str_contains($exception->getMessage(), 'E-Mail-Versand'), 'The mail failure was not surfaced.');
+}
+expect(count($users->registrations()) === 1, 'Failed email delivery must leave the registration pending.');
+expect((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'new-manager'")->fetchColumn() === 0, 'Failed approval must not create an account.');
+$messages = $capture(static fn() => $users->approveRegistration($registrationId, 'manager', $actors['manager']));
+expect(count($users->registrations()) === 0, 'Approved registration must be removed from the queue.');
+$registeredId = (int) $pdo->query("SELECT id FROM users WHERE username = 'new-manager' AND status = 'invited'")->fetchColumn();
+expect($registeredId > 0 && !$auth->authenticate('new-manager', 'SomePassword123!'), 'The invited account must not authenticate before accepting its invitation.');
+$token = $link($messages[0], 'invite');
+$assertLogin($route('invite', $token, null, 'invite-accept'), $registeredId, 'manager');
+try {
+    $users->approveRegistration($registrationId, 'trainer', $actors['admin']);
+    throw new LogicException('A registration was approved twice.');
+} catch (RuntimeException $exception) {
+    expect(str_contains($exception->getMessage(), 'bereits bearbeitet'), 'Repeated approvals must fail.');
+}
+$users->register('new-trainer@example.test', 'new-trainer', 'New', 'Trainer');
+$trainerRegistration = (int) $users->registrations()[0]['id'];
+$messages = $capture(static fn() => $users->approveRegistration($trainerRegistration, 'trainer', $actors['manager']));
+$newTrainer = (int) $pdo->query("SELECT id FROM users WHERE username = 'new-trainer' AND role = 'trainer' AND status = 'invited'")->fetchColumn();
+expect($newTrainer > 0, 'Approvers must be able to select the trainer role.');
+$assertLogin($route('invite', $link($messages[0], 'invite'), null, 'invite-accept'), $newTrainer, 'trainer');
+$users->register('new-admin@example.test', 'new-admin', 'New', 'Admin');
+$adminRegistration = (int) $users->registrations()[0]['id'];
+$messages = $capture(static fn() => $users->approveRegistration($adminRegistration, 'admin', $actors['admin']));
+$newAdmin = (int) $pdo->query("SELECT id FROM users WHERE username = 'new-admin' AND role = 'admin' AND status = 'invited'")->fetchColumn();
+expect($newAdmin > 0, 'Admins must be able to approve an administrator.');
+$assertLogin($route('invite', $link($messages[0], 'invite'), null, 'invite-accept'), $newAdmin, 'admin');
+$users->register('rejected@example.test', 'rejected-user', '<Rejected>', '');
+$rejectedId = (int) $users->registrations()[0]['id'];
+$unauthorizedRejection = $registrationRoute('POST', 'registration-reject', $actors['trainer']['id'], ['id' => $rejectedId]);
+expect(($unauthorizedRejection['flash']['type'] ?? '') === 'danger' && count($users->registrations()) === 1,
+    'Trainers must not be able to reject a registration.');
+$failedRejection = $registrationRoute('POST', 'registration-reject', $actors['manager']['id'], ['id' => $rejectedId], null, false, true);
+expect(($failedRejection['flash']['type'] ?? '') === 'danger'
+    && str_contains($failedRejection['flash']['message'], 'E-Mail-Versand')
+    && count($users->registrations()) === 1, 'A failed rejection email must leave the request pending and report the error.');
+$messages = $capture(static function () use ($registrationRoute, $actors, $rejectedId): void {
+    $result = $registrationRoute('POST', 'registration-reject', $actors['manager']['id'], ['id' => $rejectedId]);
+    expect(($result['flash']['type'] ?? '') === 'info' && str_contains($result['flash']['message'], 'Benachrichtigung versendet'),
+        'Successful rejection must confirm the notification.');
+});
+expect(count($messages) === 1 && str_contains($messages[0], 'To: rejected@example.test'), 'The applicant must receive exactly one rejection notification.');
+$message = quoted_printable_decode($messages[0]);
+expect(str_contains($message, 'Content-Type: text/plain') && str_contains($message, 'Content-Type: text/html')
+    && str_contains($message, '&lt;Rejected&gt;') && str_contains($message, '<Rejected>')
+    && substr_count($message, 'deine Registrierungsanfrage wurde leider abgelehnt') === 2
+    && str_contains($message, 'background:#14532d') && str_contains($message, 'aria-label="Registrierung"'), 'The rejection notification must contain escaped HTML and matching plain text.');
+expect(count($users->registrations()) === 0, 'Rejected registrations must be removed.');
+expect((int) $pdo->query("SELECT COUNT(*) FROM users WHERE username = 'rejected-user'")->fetchColumn() === 0, 'Rejected registrations must not create accounts.');
+$duplicateRejection = $registrationRoute('POST', 'registration-reject', $actors['admin']['id'], ['id' => $rejectedId]);
+expect(($duplicateRejection['flash']['type'] ?? '') === 'danger', 'An already rejected registration must not be processed again.');
+$guestPage = $registrationRoute('GET', 'register', null);
+expect(!str_contains($guestPage['html'], 'name="role"') && str_contains($guestPage['html'], '>Registrieren</button>'), 'Guests must be able to register without selecting a role.');
+$guestPost = $registrationRoute('POST', 'register', null, [
+    'email' => 'route@example.test', 'username' => 'route-register', 'first_name' => 'Route', 'role' => 'admin',
+]);
+expect(($guestPost['flash']['type'] ?? '') === 'info' && count($users->registrations()) === 1, 'Guest registration must create a pending request and give feedback.');
+expect($users->registrations()[0]['requested_role'] === 'trainer', 'A submitted role must not change the default registration role.');
+$users->rejectRegistration((int) $users->registrations()[0]['id']);
+$failedMail = $registrationRoute('POST', 'register', null, [
+    'email' => 'mail-failure@example.test', 'username' => 'mail-failure', 'first_name' => 'Mail',
+], null, false, true);
+expect(($failedMail['flash']['type'] ?? '') === 'warning'
+    && str_contains($failedMail['flash']['message'], 'Nicht alle Administratoren'), 'Mail delivery failures must be reported to the applicant.');
+expect(count($users->registrations()) === 1 && $users->registrations()[0]['username'] === 'mail-failure', 'Mail failure must not discard the registration.');
+$users->rejectRegistration((int) $users->registrations()[0]['id']);
+$signedInPost = $registrationRoute('POST', 'register', $actors['manager']['id'], [
+    'email' => 'signed@example.test', 'username' => 'signed-register', 'first_name' => 'Signed', 'role' => 'trainer',
+]);
+expect(($signedInPost['flash']['type'] ?? '') === 'danger' && count($users->registrations()) === 0, 'Signed-in users must not submit public registrations.');
 echo "Recipient-bound email link tests passed.\n";

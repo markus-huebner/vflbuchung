@@ -282,7 +282,7 @@ final class SetupWizard
             . '<tr><td style="padding:28px 32px;background:#14532d;color:#fff">'
             . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">'
             . 'Vereins-Buchungssystem</div><h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
-            . 'Deine Test-E-Mail ist da!</h1></td></tr>'
+            . Mailer::icon('setup') . 'Deine Test-E-Mail ist da!</h1></td></tr>'
             . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo,</p>'
             . '<p style="color:#536158;margin:0 0 24px">Diese Nachricht gehört zur Einrichtung der Platz- und Busbelegung. '
             . 'Wenn du sie lesen kannst, ist die Test-E-Mail bei dir angekommen.</p>'
@@ -337,7 +337,7 @@ final class SetupWizard
   <div class="mb-3"><label class="form-label" for="setup-mail-reply-to">Reply-To-E-Mail-Adresse (optional)</label><input class="form-control" id="setup-mail-reply-to" type="email" name="MAIL_REPLY_TO" value="' . Security::escape($value('MAIL_REPLY_TO')) . '" maxlength="254"><div class="form-text">Antworten gehen an diese Adresse. Leer lassen, um die Absenderadresse zu verwenden.</div></div>
   <div class="mb-3"><label class="form-label" for="setup-mail-test-recipient">Empfänger der Test-E-Mail</label><input class="form-control" id="setup-mail-test-recipient" type="email" name="MAIL_TEST_RECIPIENT" value="' . Security::escape((string) ($_SESSION[self::TEST_RECIPIENT_KEY] ?? '')) . '" maxlength="254" required><div class="form-text">Nur für diesen Test; die Adresse wird nicht als Anwendungseinstellung gespeichert.</div></div>
   <p>Beim Fortfahren wird eine Test-E-Mail über PHP mail() verschickt. Der Webserver muss den Mailversand unterstützen. Eine erfolgreiche Übergabe bestätigt noch keine Zustellung; prüfe auch den Spam-Ordner. Bei Fehlern bleiben die Eingaben erhalten und gespeicherte Einstellungen unverändert.</p>
-  <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="/?page=database-connection">Zurück</a><button class="btn btn-primary" type="submit">Testen</button></div>
+  <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="/?page=database-connection">Zurück</a><button class="btn btn-success" type="submit">Testen</button></div>
 </form></section>';
         }
 
@@ -357,7 +357,7 @@ final class SetupWizard
   <div class="mb-3"><label class="form-label" for="setup-db-name">Datenbankname</label><input class="form-control" id="setup-db-name" name="DB_NAME" value="' . Security::escape($value('DB_NAME')) . '" maxlength="64" required></div>
   <div class="mb-3"><label class="form-label" for="setup-db-user">Datenbankbenutzer</label><input class="form-control" id="setup-db-user" name="DB_USER" value="' . Security::escape($value('DB_USER')) . '" maxlength="32" required></div>
   <div class="mb-3"><label class="form-label" for="setup-db-password">Passwort des Datenbankbenutzers</label><input class="form-control" id="setup-db-password" type="password" name="DB_PASSWORD" autocomplete="new-password" maxlength="1024" ' . ($hasPassword ? '' : 'required') . '>' . $passwordHelp . '</div>
-  <button class="btn btn-primary" type="submit">Prüfen</button>
+  <button class="btn btn-success" type="submit">Prüfen</button>
 </form></section>';
     }
 
@@ -396,7 +396,7 @@ final class SetupWizard
 <div class="d-flex flex-wrap gap-2">
   <a class="btn btn-outline-secondary" href="/?page=database-connection&amp;step=mail">Mail-Konfiguration ändern</a>
   <a class="btn btn-outline-secondary" href="/?page=database-connection">Datenbankangaben ändern</a>
-  <form method="post" action="/?action=database-connection-save" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '"><button class="btn btn-primary" type="submit">Speichern</button></form>
+  <form method="post" action="/?action=database-connection-save" class="m-0"><input type="hidden" name="_csrf" value="' . Security::escape($this->csrf) . '"><button class="btn btn-success" type="submit">Speichern</button></form>
 </div></section>';
     }
 

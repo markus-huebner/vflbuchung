@@ -195,7 +195,9 @@ try {
     $document = new DOMDocument();
     expect($document->loadHTML('<?xml encoding="UTF-8">' . $htmlPart[0]), 'The test email layout must be valid HTML.');
     $xpath = new DOMXPath($document);
-    expect($xpath->evaluate('string(//h1)') === 'Deine Test-E-Mail ist da!', 'The test email must have a clear heading.');
+    expect(str_contains($xpath->evaluate('string(//h1)'), 'Deine Test-E-Mail ist da!')
+        && $xpath->query('//h1//*[@aria-label="Einrichtung"]')->length === 1,
+        'The test email must have a clear heading and setup icon.');
     expect($xpath->query('//table[@role="presentation" and @width="600"]')->length === 1, 'The test email must use the booking email card layout.');
     expect($xpath->query('//td[contains(@style, "background:#14532d")]')->length === 1, 'The test email must use the green booking notification header.');
     expect($xpath->evaluate('string(//a[@href="https://setup.example.test/"])') === 'Zur Anwendung', 'The test email must link back to the configured application.');

@@ -17,6 +17,19 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uq_users_invite_token (invite_token_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS registration_requests (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    email VARCHAR(254) NOT NULL,
+    username VARCHAR(80) NOT NULL,
+    first_name VARCHAR(120) NOT NULL,
+    last_name VARCHAR(120) NOT NULL DEFAULT '',
+    requested_role ENUM('manager', 'trainer') NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_registration_email (email),
+    UNIQUE KEY uq_registration_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS password_resets (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -27,6 +40,18 @@ CREATE TABLE IF NOT EXISTS password_resets (
     UNIQUE KEY uq_password_resets_token (token_hash),
     KEY idx_password_resets_user (user_id),
     CONSTRAINT fk_password_resets_user FOREIGN KEY (user_id)
+        REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS registration_access_tokens (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_registration_access_tokens_hash (token_hash),
+    KEY idx_registration_access_tokens_expiry (expires_at),
+    CONSTRAINT fk_registration_access_tokens_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

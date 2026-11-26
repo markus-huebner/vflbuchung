@@ -786,6 +786,12 @@ final class BookingService
             if ($details === null || $details['status'] !== 'confirmed') {
                 throw new RuntimeException('Die bestätigte Buchung wurde inzwischen geändert.');
             }
+            $mailDetails = $this->requestNotificationDetails((int) $details['occurrence_id']);
+            if ($mailDetails !== null) {
+                $resource = $this->pdo->prepare('SELECT name FROM resources WHERE id = :id');
+                $resource->execute(['id' => $details['resource_id']]);
+                $mailDetails['resource_names'] = (string) $resource->fetchColumn();
+            }
             $assignments = [$details];
             if ($scope === 'future') {
                 $statement = $this->pdo->prepare(
@@ -841,11 +847,9 @@ final class BookingService
 
         return [
             'cancelled' => count($assignments),
-            'mail_errors' => $this->notifyRequester(
-                isset($details['requested_by']) ? (int) $details['requested_by'] : null,
-                $details['requester_email'] ?? null,
-                $details['requester_name'] ?? null,
-                'gelöscht'
+            'mail_errors' => $mailDetails === null ? [] : $this->notifyRequesterOfRequest(
+                array_merge($mailDetails, ['affected_count' => count($assignments)]),
+                'Ressource entfernt'
             ),
         ];
     }
@@ -864,6 +868,12 @@ final class BookingService
             $details = $this->occurrenceDetails($occurrenceId, true);
             if ($details === null || $details['status'] !== 'confirmed' || $details['event_type'] === 'bus') {
                 throw new RuntimeException('Die bestätigte Kabinenbelegung wurde nicht gefunden.');
+            }
+            $mailDetails = $this->requestNotificationDetails($occurrenceId);
+            if ($mailDetails !== null) {
+                $cabin = $this->pdo->prepare('SELECT name FROM resources WHERE id = :id');
+                $cabin->execute(['id' => $cabinId]);
+                $mailDetails['cabin_names'] = (string) $cabin->fetchColumn();
             }
             $this->pdo->prepare('SELECT id FROM booking_groups WHERE id = :id FOR UPDATE')
                 ->execute(['id' => $details['group_id']]);
@@ -890,11 +900,8 @@ final class BookingService
             throw $exception;
         }
 
-        return ['cancelled' => $deleted, 'mail_errors' => $this->notifyRequester(
-            isset($details['requested_by']) ? (int) $details['requested_by'] : null,
-            $details['requester_email'] ?? null,
-            $details['requester_name'] ?? null,
-            'Kabinenbelegung gelöscht'
+        return ['cancelled' => $deleted, 'mail_errors' => $mailDetails === null ? [] : $this->notifyRequesterOfRequest(
+            array_merge($mailDetails, ['affected_count' => $deleted]), 'Kabine entfernt'
         )];
     }
 
@@ -1768,12 +1775,17 @@ final class BookingService
     private function requestNotificationDetails(int $occurrenceId): ?array
     {
         $statement = $this->pdo->prepare(
-            "SELECT o.id, o.event_type, o.title, o.team_name, o.starts_at, o.ends_at,
-                    COALESCE(bt.name, 'Buchung') AS type_name,
+            "SELECT o.id, o.event_type, o.title, o.team_name, o.private_notes, o.starts_at, o.ends_at,
+                    COALESCE(bt.name, CASE WHEN o.event_type = 'bus' THEN 'Fahrzeugbuchung' ELSE 'Buchung' END) AS type_name,
+                    g.recurrence_rule,
                     TRIM(CONCAT(requester.first_name, ' ', requester.last_name)) AS requester_name,
                     requester.id AS requester_id,
                     requester.email AS requester_email,
-                    GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names
+                    requester.status AS requester_status,
+                    GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS resource_names,
+                    (SELECT GROUP_CONCAT(DISTINCT cabin.name ORDER BY cabin.name SEPARATOR ', ')
+                     FROM booking_cabin_assignments bca JOIN resources cabin ON cabin.id = bca.cabin_id
+                     WHERE bca.occurrence_id = o.id) AS cabin_names
              FROM booking_occurrences o
              JOIN booking_groups g ON g.id = o.group_id
              LEFT JOIN booking_types bt ON bt.code = o.event_type
@@ -1781,9 +1793,9 @@ final class BookingService
              LEFT JOIN booking_resource_assignments a ON a.occurrence_id = o.id
              LEFT JOIN resources r ON r.id = a.resource_id
              WHERE o.id = :id
-             GROUP BY o.id, o.event_type, o.title, o.team_name,
-                      o.starts_at, o.ends_at, bt.name, requester.id, requester.first_name,
-                      requester.last_name, requester.email"
+             GROUP BY o.id, o.event_type, o.title, o.team_name, o.private_notes,
+                      o.starts_at, o.ends_at, bt.name, g.recurrence_rule, requester.id, requester.first_name,
+                      requester.last_name, requester.email, requester.status"
         );
         $statement->execute(['id' => $occurrenceId]);
 
@@ -1791,19 +1803,43 @@ final class BookingService
         return $details === false ? null : $details;
     }
 
-    private function requestEmailDetails(array $details): array
+    private function requestEmailDetails(array $details, bool $includeNotes): array
     {
         $start = Recurrence::fromDatabase($details['starts_at'])
             ->setTimezone(new DateTimeZone('Europe/Berlin'));
         $end = Recurrence::fromDatabase($details['ends_at'])
             ->setTimezone(new DateTimeZone('Europe/Berlin'));
-        $dateLabel = $start->format('d.m.Y') . ' · ' . $start->format('H:i')
-            . '–' . $end->format('H:i') . ' Uhr';
+        $dateLabel = $start->format('d.m.Y H:i') . ' – ' . $end->format('d.m.Y H:i') . ' Uhr';
         $fields = [
-            ['Termin', $dateLabel],
+            [!empty($details['recurrence_rule']) || (int) ($details['affected_count'] ?? 1) > 1 ? 'Erster betroffener Termin' : 'Termin', $dateLabel],
+            ['Kategorie', (string) $details['type_name']],
             ['Ressource', trim((string) ($details['resource_names'] ?? '')) ?: 'Keine Ressource angegeben'],
+            ['Kabinen', trim((string) ($details['cabin_names'] ?? ''))],
             ['Mannschaft', trim((string) ($details['team_name'] ?? ''))],
+            ['Interne Notiz', $includeNotes ? trim((string) ($details['private_notes'] ?? '')) : ''],
+            ['Betroffene Termine', (int) ($details['affected_count'] ?? 1) > 1 ? (string) $details['affected_count'] : ''],
         ];
+        if (!empty($details['recurrence_rule'])) {
+            $rule = json_decode($details['recurrence_rule'], true, 512, JSON_THROW_ON_ERROR);
+            $frequency = match ($rule['frequency'] ?? '') {
+                'daily' => 'täglich', 'weekly' => 'wöchentlich', 'monthly' => 'monatlich', 'yearly' => 'jährlich',
+                default => 'Regeltermin',
+            };
+            $repeat = $frequency . ', Intervall: ' . (int) ($rule['interval'] ?? 1);
+            if (!empty($rule['weekdays'])) {
+                $days = ['MO' => 'Mo', 'TU' => 'Di', 'WE' => 'Mi', 'TH' => 'Do', 'FR' => 'Fr', 'SA' => 'Sa', 'SU' => 'So'];
+                $repeat .= ', ' . implode(', ', array_map(
+                    static fn(string $day): string => $days[$day] ?? $day,
+                    $rule['weekdays']
+                ));
+            }
+            if (($rule['limit_type'] ?? '') === 'until' && !empty($rule['until'])) {
+                $repeat .= ', bis ' . $rule['until'];
+            } elseif (($rule['limit_type'] ?? '') === 'count') {
+                $repeat .= ', ' . (int) $rule['count'] . ' Termine';
+            }
+            $fields[] = ['Wiederholung', $repeat];
+        }
         $htmlRows = '';
         $textLines = [];
         foreach ($fields as [$label, $value]) {
@@ -1811,7 +1847,7 @@ final class BookingService
                 continue;
             }
             $htmlRows .= '<tr><td style="padding-right:14px;color:#647268">'
-                . Security::escape($label) . '</td><td>' . Security::escape($value) . '</td></tr>';
+                . Security::escape($label) . '</td><td>' . nl2br(Security::escape($value), false) . '</td></tr>';
             $textLines[] = $label . ': ' . $value;
         }
 
@@ -1851,7 +1887,8 @@ final class BookingService
                AND role IN ('admin', 'manager')"
         )->fetchAll();
         $errors = [];
-        $emailDetails = $this->requestEmailDetails($details);
+        $emailDetails = $this->requestEmailDetails($details, true);
+        $icon = Mailer::icon(($details['event_type'] ?? '') === 'bus' ? 'vehicle' : 'pitch');
         $title = $emailDetails['title'];
         $actionLabels = [
             'created' => ['subject' => 'Neue Buchungsanfrage', 'heading' => 'Neue Buchungsanfrage'],
@@ -1880,7 +1917,7 @@ final class BookingService
                     . '<tr><td style="padding:28px 32px;background:' . $accentColor . ';color:#fff">'
                     . '<div style="font-size:13px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8">'
                     . 'Vereins-Buchungssystem</div><h1 style="font-size:24px;line-height:1.3;margin:10px 0 0">'
-                    . Security::escape($label['heading']) . '</h1></td></tr>'
+                    . $icon . Security::escape($label['heading']) . '</h1></td></tr>'
                     . '<tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">Hallo '
                     . Security::escape((string) $recipient['display_name']) . ',</p><p style="color:#536158;margin:0 0 24px">'
                     . ($action === 'deleted'
@@ -1902,13 +1939,13 @@ final class BookingService
                     . 'text-decoration:none;font-weight:bold;border-radius:8px">'
                     . Security::escape($ctaLabel) . '</a></div>'
                     . '<p style="font-size:12px;line-height:1.6;color:#738078;text-align:center;margin:14px 0 0">'
-                    . 'Der Anmeldelink ist 48 Stunden gültig und kann innerhalb dieses Zeitraums mehrfach verwendet werden.</p></td></tr>'
+                    . 'Der Anmeldelink ist 5 Tage gültig und kann innerhalb dieses Zeitraums mehrfach verwendet werden.</p></td></tr>'
                     . '<tr><td style="padding:18px 32px;background:#f8faf8;color:#738078;font-size:12px">'
                     . 'Automatische Benachrichtigung des Vereins-Buchungssystems</td></tr></table></td></tr></table></body></html>';
                 $text = "Hallo {$recipient['display_name']},\n\n"
                     . $label['heading'] . "\n{$title}\n{$emailDetails['text']}\n"
                     . 'Angefragt von: ' . ($plainRequester !== '' ? $plainRequester : '—') . "\n\n"
-                    . "{$ctaLabel} und melde dich dabei automatisch an (48 Stunden gültig und mehrfach verwendbar):\n{$url}";
+                    . "{$ctaLabel} und melde dich dabei automatisch an (5 Tage gültig und mehrfach verwendbar):\n{$url}";
                 $this->mailer->send(
                     $recipient['email'],
                     $label['subject'],
@@ -1947,18 +1984,33 @@ final class BookingService
                 'color' => '#b42318',
                 'button_color' => '#b42318',
             ],
+            'Ressource entfernt' => [
+                'message' => 'Die angegebene Ressource wurde aus deiner Buchung entfernt.',
+                'color' => '#b42318',
+                'button_color' => '#b42318',
+            ],
+            'Kabine entfernt' => [
+                'message' => 'Die angegebene Kabine wurde aus deiner Buchung entfernt.',
+                'color' => '#b42318',
+                'button_color' => '#b42318',
+            ],
         ];
         if (!isset($stateLabels[$state])) {
             throw new RuntimeException('Der Status der Anfragebenachrichtigung ist ungültig.');
         }
 
-        $emailDetails = $this->requestEmailDetails($details);
+        $emailDetails = $this->requestEmailDetails($details, ($details['requester_status'] ?? '') === 'active');
+        $icon = Mailer::icon($state === 'Kabine entfernt' ? 'cabin' : (($details['event_type'] ?? '') === 'bus' ? 'vehicle' : 'pitch'));
         $name = trim((string) ($details['requester_name'] ?? ''));
         $greeting = $name === '' ? 'Hallo,' : 'Hallo ' . Security::escape($name) . ',';
         $plainGreeting = $name === '' ? 'Hallo,' : "Hallo {$name},";
         $safeType = Security::escape($emailDetails['type_name']);
         $safeTitle = Security::escape($emailDetails['title']);
-        $safeState = Security::escape($state);
+        $heading = match ($state) {
+            'Ressource entfernt' => 'Buchung geändert: Ressource entfernt',
+            'Kabine entfernt' => 'Kabinenbelegung geändert',
+            default => 'Buchungsanfrage ' . $state,
+        };
         $reason = trim($reason);
         $reasonHtml = $reason === ''
             ? ''
@@ -1970,7 +2022,7 @@ final class BookingService
             $url = $this->bookingAccessUrl((int) $details['requester_id']);
             $this->mailer->send(
                 $email,
-                'Buchungsanfrage ' . $state,
+                $heading,
                 '<!doctype html><html lang="de"><body style="margin:0;padding:32px 12px;background:#f2f5f3;'
                     . 'font-family:Arial,Helvetica,sans-serif;color:#24312a"><table role="presentation" width="100%"'
                     . ' cellspacing="0" cellpadding="0"><tr><td align="center"><table role="presentation" width="600"'
@@ -1978,7 +2030,7 @@ final class BookingService
                     . 'border-radius:16px;overflow:hidden"><tr><td style="padding:28px 32px;background:'
                     . $label['color'] . ';color:#fff"><div style="font-size:13px;letter-spacing:1.5px;'
                     . 'text-transform:uppercase;opacity:.8">Vereins-Buchungssystem</div><h1 style="font-size:24px;'
-                    . 'line-height:1.3;margin:10px 0 0">Buchungsanfrage ' . $safeState
+                    . 'line-height:1.3;margin:10px 0 0">' . $icon . Security::escape($heading)
                     . '</h1></td></tr><tr><td style="padding:28px 32px"><p style="font-size:16px;margin:0 0 8px">'
                     . $greeting . '</p><p style="color:#536158;margin:0 0 24px">'
                     . Security::escape($label['message']) . '</p><div style="padding:20px;background:#f4f7f5;'
@@ -1992,35 +2044,13 @@ final class BookingService
                     . Security::escape($url) . '" style="display:inline-block;padding:13px 24px;background:'
                     . $label['button_color'] . ';color:#fff;text-decoration:none;font-weight:bold;border-radius:8px">'
                     . 'Zum Dashboard</a></div><p style="font-size:12px;line-height:1.6;color:#738078;text-align:center">'
-                    . 'Der Anmeldelink ist 48 Stunden gültig und meldet dich mit deinem Empfängerkonto an.'
+                    . 'Der Anmeldelink ist 5 Tage gültig und meldet dich mit deinem Empfängerkonto an.'
                     . '</p></td></tr><tr><td style="padding:18px 32px;background:#f8faf8;'
                     . 'color:#738078;font-size:12px">Automatische Benachrichtigung des Vereins-Buchungssystems'
                     . '</td></tr></table></td></tr></table></body></html>',
                 "{$plainGreeting}\n\n{$label['message']}\n{$emailDetails['title']}\n"
                     . "{$emailDetails['text']}{$reasonText}\n\n"
-                    . "Mit deinem Empfängerkonto anmelden (48 Stunden gültig):\n{$url}"
-            );
-        } catch (RuntimeException $exception) {
-            return [$email . ': ' . $exception->getMessage()];
-        }
-
-        return [];
-    }
-
-    private function notifyRequester(?int $userId, ?string $email, ?string $name, string $state): array
-    {
-        if ($email === null || $name === null || $userId === null) {
-            return [];
-        }
-
-        try {
-            $url = $this->bookingAccessUrl($userId);
-            $this->mailer->send(
-                $email,
-                'Buchungsanfrage ' . $state,
-                '<p>Hallo ' . Security::escape($name) . ',</p><p>Deine Anfrage wurde ' . Security::escape($state) . '.</p><p><a href="' . Security::escape($url) . '">Zum Dashboard</a></p>'
-                    . '<p>Der Anmeldelink ist 48 Stunden gültig und meldet dich mit deinem Empfängerkonto an.</p>',
-                "Hallo {$name},\n\nDeine Anfrage wurde {$state}.\n\nMit deinem Empfängerkonto anmelden (48 Stunden gültig):\n{$url}"
+                    . "Mit deinem Empfängerkonto anmelden (5 Tage gültig):\n{$url}"
             );
         } catch (RuntimeException $exception) {
             return [$email . ': ' . $exception->getMessage()];

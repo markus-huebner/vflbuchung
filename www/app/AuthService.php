@@ -74,7 +74,7 @@ final class AuthService
         $this->pdo->exec('DELETE FROM booking_access_tokens WHERE expires_at <= UTC_TIMESTAMP()');
         $statement = $this->pdo->prepare(
             "INSERT INTO booking_access_tokens (user_id, target_occurrence_id, token_hash, expires_at)
-             SELECT id, :target_occurrence_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
+             SELECT id, :target_occurrence_id, :token_hash, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 DAY)
              FROM users WHERE id = :user_id AND status = 'active'"
         );
         $statement->execute([
@@ -87,6 +87,22 @@ final class AuthService
         }
 
         return $token;
+    }
+
+    public function validateRegistrationAccessToken(string $token): void
+    {
+        if (!preg_match('/\A[a-f0-9]{64}\z/', $token)) {
+            throw new RuntimeException('Der Link ist ungültig oder abgelaufen.');
+        }
+        $statement = $this->pdo->prepare(
+            "SELECT 1 FROM registration_access_tokens t JOIN users u ON u.id = t.user_id
+             WHERE t.token_hash = :token_hash AND t.expires_at > UTC_TIMESTAMP()
+               AND u.status = 'active' AND u.role = 'admin'"
+        );
+        $statement->execute(['token_hash' => Security::tokenHash($token)]);
+        if ($statement->fetchColumn() === false) {
+            throw new RuntimeException('Der Link ist ungültig oder abgelaufen.');
+        }
     }
 
     public function authenticateBookingAccessToken(string $token): ?int

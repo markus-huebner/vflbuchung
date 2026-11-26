@@ -175,7 +175,7 @@ try {
     await evaluate(`document.querySelector('#user-menu > summary').click()`);
     await waitFor(`document.querySelector('#user-menu').open`);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('#user-menu > summary'), '::after').display`), 'none');
-    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('#user-menu a')).map(link => link.getAttribute('href'))`), ['/?page=profile']);
+    assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('#user-menu a')).map(link => link.getAttribute('href'))`), role === 'manager' ? ['/?page=profile', '/?page=registrations'] : ['/?page=profile']);
     assert.equal(await evaluate(`document.querySelector('#settings-menu') !== null`), role === 'admin');
     assert.equal(await evaluate(`document.querySelector('#user-menu form').getAttribute('method')`), 'post');
     assert.equal(await evaluate(`document.querySelector('#user-menu form input[name="_csrf"]').value`), 'test-csrf');
@@ -196,7 +196,7 @@ try {
       assert.equal(await evaluate(`getComputedStyle(document.querySelector('#settings-menu > summary'), '::after').display`), 'none');
       assert.deepEqual(
         await evaluate(`Array.from(document.querySelectorAll('#settings-menu a')).map(link => link.getAttribute('href'))`),
-        ['/?page=resources&category=pitch', '/?page=resources&category=bus', '/?page=resources&category=cabin', '/?page=users', '/?page=booking-types'],
+        ['/?page=resources&category=pitch', '/?page=resources&category=bus', '/?page=resources&category=cabin', '/?page=users', '/?page=registrations', '/?page=booking-types'],
       );
       assert.equal(await evaluate(`document.querySelector('#settings-menu [data-delete-period-open]') !== null`), true);
       assert.equal(await evaluate(`(() => { const r=document.querySelector('#settings-menu .user-actions-menu-items').getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth; })()`), true);

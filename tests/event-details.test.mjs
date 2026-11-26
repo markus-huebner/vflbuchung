@@ -757,6 +757,37 @@ test('pending requests open the shared booking dialog for editing', () => {
   assert.match(application, /if \(\$api === 'request-edit'/);
 });
 
+test('calendar request approval opens the same request editor for pitches and vehicles', async () => {
+  const start = source.indexOf("detailsDialog?.querySelector('[data-event-approve]')?.addEventListener('submit'");
+  const end = source.indexOf("bookingForm?.querySelector('#event-type-select')", start);
+  assert.ok(start >= 0 && end > start);
+  let handler;
+  const calls = [];
+  const context = vm.createContext({
+    selectedEvent: null,
+    detailsDialog: {
+      querySelector: () => ({ addEventListener: (_type, callback) => { handler = callback; } }),
+    },
+    document: { querySelector: () => null },
+    announce: () => {},
+    openPendingRequestEditor: async (...args) => { calls.push(args); },
+  });
+  vm.runInContext(source.slice(start, end), context);
+  for (const eventType of ['training', 'bus']) {
+    context.selectedEvent = { event_type: eventType, occurrence_id: 42 };
+    let prevented = false;
+    const button = {};
+    await handler({ preventDefault: () => { prevented = true; }, currentTarget: { querySelector: () => button } });
+    assert.equal(prevented, true);
+    assert.equal(calls.at(-1)[0], button);
+    assert.equal(calls.at(-1)[1], true);
+    assert.equal(calls.at(-1)[2], 42);
+    assert.equal(calls.at(-1)[3], true);
+  }
+  assert.doesNotMatch(views, /id="event-approval-dialog"/);
+  assert.match(pendingRequestEditorSource, /if \(fromDetails\) detailsDialog\.close\(\);\s*dialog\.showModal\(\)/);
+});
+
 test('the selected request remains highlighted when the list refreshes in place', () => {
   assert.match(requestEditorBindingsSource, /selectRequestRow\(button\)/);
   assert.match(source, /currentDashboard\.querySelector\([\s\S]*?\.request-row-selected \[data-occurrence-id\]/);
@@ -824,14 +855,13 @@ test('booking requests are grouped and review opens the editable dialog', () => 
 });
 
 test('booking-access links select the latest request state and preserve deleted targets', () => {
-  assert.match(authService, /INTERVAL 48 HOUR/);
-  assert.match(bookingService, /Der Anmeldelink ist 48 Stunden gültig/);
-  assert.match(bookingService, /48 Stunden gültig und mehrfach verwendbar/);
+  assert.match(authService, /INTERVAL 5 DAY/);
+  assert.match(bookingService, /Der Anmeldelink ist 5 Tage gültig/);
+  assert.match(bookingService, /5 Tage gültig und mehrfach verwendbar/);
   assert.match(bookingService, /public function requestLinkDetails\(int \$occurrenceId\): \?array/);
   assert.match(bookingService, /GROUP_CONCAT\(DISTINCT o\.id ORDER BY o\.id SEPARATOR ','\) AS occurrence_ids/);
   assert.match(bookingService, /notifyApprovers\('deleted', \$firstOccurrenceId, \$details\)/);
   assert.match(views, /data-occurrence-ids=/);
-  assert.match(application, /if \(\$request\['status'\] !== 'pending'\)/);
   assert.match(application, /Diese Buchungsanfrage wurde inzwischen gelöscht/);
   assert.match(application, /if \(\$api === 'booking-link-details'/);
   const bookingAccessRouteStart = application.indexOf(
@@ -844,15 +874,40 @@ test('booking-access links select the latest request state and preserve deleted 
   assert.match(bookingAccessRoute, /\$target = '\/\?page=dashboard';/);
   assert.doesNotMatch(bookingAccessRoute, /requests=all/);
   assert.match(bookingAccessRoute, /\$user,\s*false\s*\)/);
+  assert.doesNotMatch(bookingAccessRoute, /Diese Buchungsanfrage wurde inzwischen ' \. \$statusLabel/);
   assert.match(source, /async function showLinkedRequest\(occurrenceId\)/);
   assert.match(source, /dataset\.occurrenceIds\?\.split\(','\)/);
   assert.match(source, /if \(!result\.request\)/);
   assert.match(source, /await showLinkedRequest\(requestId\)/);
 });
 
+test('linked request status is announced once using the latest state', async () => {
+  const snippet = source.slice(source.indexOf('async function showLinkedRequest('), source.indexOf('async function refreshRequestDashboard('));
+  for (const [status, message] of [
+    ['confirmed', 'genehmigt'], ['rejected', 'abgelehnt'],
+    ['withdrawn', 'zurückgezogen'], ['skipped', 'ausgelassen'],
+    ['pending', null],
+  ]) {
+    const messages = [];
+    let displayed = false;
+    const context = vm.createContext({
+      URLSearchParams,
+      fetch: async () => ({ ok: true, json: async () => ({
+        request: { status, occurrence_id: 7, resource_type: 'pitch', start: '2038-01-10T10:00:00Z' },
+      }) }),
+      document: { querySelectorAll: () => [] },
+      announce: (text) => messages.push(text),
+      showRequestInCalendar: async () => { displayed = true; },
+    });
+    vm.runInContext(snippet, context);
+    await context.showLinkedRequest('7');
+    assert.deepEqual(messages, message === null ? [] : [`Diese Buchungsanfrage wurde inzwischen ${message}.`]);
+    assert.equal(displayed, true);
+  }
+});
+
 test('booking request emails include request details and state-specific colors', () => {
   assert.match(bookingService, /requester\.email AS requester_email/);
-  assert.match(bookingService, /\['Termin', \$dateLabel\]/);
   assert.match(bookingService, /\['Ressource', trim\(\(string\) \(\$details\['resource_names'\]/);
   assert.match(bookingService, /\['Mannschaft', trim\(\(string\) \(\$details\['team_name'\]/);
   assert.doesNotMatch(bookingService, /destination|purpose|driver_name/);
