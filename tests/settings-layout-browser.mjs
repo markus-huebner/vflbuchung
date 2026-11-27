@@ -12,13 +12,17 @@ $resource = ['id' => 1, 'type' => 'pitch', 'name' => 'Platz A', 'is_active' => 1
 $user = ['id' => 2, 'first_name' => 'Anna', 'last_name' => 'Beispiel',
     'email' => 'sehrlangeemailadresse@example.test', 'username' => 'anna',
     'role' => 'trainer', 'status' => 'active', 'has_password' => 1];
+$user2 = ['id' => 4, 'first_name' => 'Jörg', 'last_name' => 'Müller',
+    'email' => null, 'username' => 'joerg', 'role' => 'manager',
+    'status' => 'inactive', 'has_password' => 1];
 $registration = ['id' => 3, 'first_name' => 'Ben', 'last_name' => 'Test',
     'email' => 'ben@example.test', 'username' => 'ben', 'requested_role' => 'trainer'];
 $type = ['code' => 'training', 'name' => 'Training', 'color' => 'green-medium',
     'is_active' => 1, 'trainer_requestable' => 1];
 echo json_encode([
     'resource' => App\\Views::resources([$resource], [['code' => 'pitch', 'name' => 'Platz']], 'csrf', '', '', 'pitch'),
-    'user' => App\\Views::users([$user], 'csrf', 1),
+    'user' => App\\Views::users([$user, $user2], 'csrf', 1),
+    'emptyUsers' => App\\Views::users([], 'csrf', 1),
     'registration' => App\\Views::registrations([$registration], 'csrf', 'admin'),
     'booking' => App\\Views::bookingTypes([$type], 'csrf'),
 ], JSON_THROW_ON_ERROR);
@@ -69,7 +73,7 @@ try {
   await command('Page.enable');
   const { frameTree } = await command('Page.getFrameTree');
   const evaluate = async expression => {
-    const response = await command('Runtime.evaluate', { expression, returnByValue: true });
+    const response = await command('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
     return response.result.value;
   };
@@ -98,11 +102,12 @@ try {
   };
   for (const width of [320, 375, 700]) {
     await command('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: true });
-    for (const [name, content] of Object.entries(fixtures)) {
+    for (const [name, selector] of Object.entries(selectors)) {
+      const content = fixtures[name];
       const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><main class="page-shell">${content}</main>`;
       await command('Page.setDocumentContent', { frameId: frameTree.frame.id, html });
       const metrics = await evaluate(`(() => {
-        const cell = document.querySelector('${selectors[name]}');
+        const cell = document.querySelector('${selector}');
         const actions = cell.firstElementChild;
         const buttons = Array.from(actions.children).map(child => child.matches('button') ? child : child.querySelector('button, summary'));
         const rects = buttons.map(button => {
@@ -138,7 +143,8 @@ try {
     }
   }
   await command('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
-  for (const [name, content] of Object.entries(fixtures)) {
+  for (const name of Object.keys(selectors)) {
+    const content = fixtures[name];
     const html = `<!doctype html><style>${css}</style><main class="page-shell">${content}</main>`;
     await command('Page.setDocumentContent', { frameId: frameTree.frame.id, html });
     assert.equal(await evaluate("getComputedStyle(document.querySelector('table thead')).display"), 'table-header-group',
@@ -160,6 +166,49 @@ try {
     await evaluate("document.querySelector('.user-row-actions details').open = true");
     await checkPasswordButtonAlignment(`${width}px, open`);
   }
+  const searchModule = readFileSync('www/assets/js/user-search.mjs', 'utf8');
+  for (const width of [320, 1200]) {
+    await command('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });
+    await command('Page.setDocumentContent', {
+      frameId: frameTree.frame.id,
+      html: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><main class="page-shell">${fixtures.user}</main>`,
+    });
+    assert.equal(await evaluate("document.querySelector('[data-user-search]').hidden"), true);
+    await evaluate(`import('data:text/javascript;base64,${Buffer.from(searchModule).toString('base64')}').then(module => module.initUserSearch())`);
+    const search = async text => evaluate(`(() => {
+      const input = document.querySelector('#user-search');
+      input.value = ${JSON.stringify(text)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return {
+        visible: Array.from(document.querySelectorAll('[data-user-search-row]'))
+          .filter(row => getComputedStyle(row).display !== 'none')
+          .map(row => row.querySelector('[data-edit-user]').dataset.userId),
+        status: document.querySelector('[data-user-search-status]').textContent,
+      };
+    })()`);
+    assert.equal(await evaluate("document.querySelector('[data-user-search]').hidden"), false);
+    for (const query of [' ANn ', 'BEISPIEL', 'anna', 'EMAILADRESSE@']) {
+      assert.deepEqual((await search(query)).visible, ['2'], `${query}: first user's fields should match`);
+    }
+    for (const query of ['JÖRG', 'mu\u0308ller', 'OERG']) {
+      assert.deepEqual((await search(query)).visible, ['4'], `${query}: second user's fields should match`);
+    }
+    for (const query of ['manager', 'deaktiviert', 'unbekannt']) {
+      const result = await search(query);
+      assert.deepEqual(result.visible, []);
+      assert.equal(result.status, 'Keine passenden Benutzer gefunden.');
+    }
+    const cleared = await search('');
+    assert.deepEqual(cleared.visible, ['2', '4']);
+    assert.equal(cleared.status, '');
+    assert.equal(await evaluate("document.querySelectorAll('[data-user-search-row] [data-edit-user]').length"), 2);
+  }
+  await command('Page.setDocumentContent', {
+    frameId: frameTree.frame.id,
+    html: `<!doctype html><main>${fixtures.emptyUsers}</main>`,
+  });
+  assert.equal(await evaluate("document.querySelector('[data-user-search]') === null"), true);
+  assert.equal(await evaluate("document.body.textContent.includes('Es sind noch keine Benutzer angelegt.')"), true);
   console.log('Settings layouts fit mobile widths and retain usable actions.');
 } finally {
   if (ws) ws.close();

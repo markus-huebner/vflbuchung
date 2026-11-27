@@ -14,6 +14,7 @@ import {
   layoutDayEvents,
 } from './calendar-layout.mjs';
 import { initTimePicker } from './time-picker.mjs';
+import { initUserSearch } from './user-search.mjs';
 
 const state = {
   date: new Date(),
@@ -1362,6 +1363,7 @@ function initControls() {
   });
   initHeaderName();
   initUserMenu();
+  initUserSearch();
   initBookingTypeColorPickers();
   initBookingTypeEditor();
   initCalendarActionsMenu();

@@ -674,7 +674,7 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             $roleLabels = ['admin' => 'Admin', 'manager' => 'Verwalter', 'trainer' => 'Trainer'];
             $statusLabels = ['active' => 'Aktiv', 'invited' => 'Eingeladen', 'inactive' => 'Deaktiviert'];
             $fullName = AuthService::fullName((string) $user['first_name'], (string) $user['last_name']);
-            $rows .= '<tr><td class="user-desktop-cell fw-semibold">' . Security::escape($user['first_name'])
+            $rows .= '<tr data-user-search-row><td class="user-desktop-cell fw-semibold">' . Security::escape($user['first_name'])
                 . '</td><td class="user-desktop-cell">' . Security::escape($user['last_name'])
                 . '</td><td class="user-desktop-cell">' . Security::escape((string) ($user['email'] ?? '—'))
                 . '</td><td class="user-desktop-cell">' . Security::escape((string) ($user['username'] ?? '—'))
@@ -735,8 +735,14 @@ return '<details id="booking-create-menu" class="booking-create-menu">'
             return $header . self::createUserForm($csrf);
         }
 
-        return $header . '<section class="panel-card p-3"><div class="table-responsive">'
-            . '<table class="table align-middle mb-0 user-management-table">'
+        return $header . '<section class="panel-card p-3">'
+            . ($rows === '' ? '' : '<div class="user-search mb-3" data-user-search hidden>'
+                . '<label class="form-label" for="user-search">Benutzer suchen</label>'
+                . '<input class="form-control" id="user-search" type="search" autocomplete="off"'
+                . ' placeholder="Name oder E-Mail" aria-controls="user-management-table">'
+                . '<p class="form-text mb-0" role="status" data-user-search-status></p></div>')
+            . '<div class="table-responsive">'
+            . '<table id="user-management-table" class="table align-middle mb-0 user-management-table">'
             . '<thead><tr><th class="user-desktop-cell">Vorname</th><th class="user-desktop-cell">Nachname</th>'
             . '<th class="user-desktop-cell">E-Mail</th><th class="user-desktop-cell">Benutzername</th>'
             . '<th class="user-desktop-cell">Rolle</th><th class="user-desktop-cell">Status</th>'

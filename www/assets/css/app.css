@@ -1353,6 +1353,10 @@ dialog::backdrop {
   display: none;
 }
 
+.user-search {
+  max-width: 32rem;
+}
+
 .registration-role-select {
   width: auto;
 }

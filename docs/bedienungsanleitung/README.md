@@ -168,6 +168,7 @@ Admins öffnen über das **Zahnrad neben ihrem Namen** die Einstellungen und wä
 
 ### Benutzerverwaltung
 
+- Über **Benutzer suchen** filterst du die Liste nach Vorname, Nachname, Benutzername oder E-Mail-Adresse. Die Suche berücksichtigt auch Teile eines Feldes und unterscheidet nicht zwischen Groß- und Kleinschreibung.
 - Benutzer per E-Mail einladen oder ohne E-Mail-Adresse anlegen.
 - Beim Einladen und Anlegen werden Vor- und Nachname getrennt erfasst.
 - Rollen und Kontostatus verwalten und Passwörter ändern.
